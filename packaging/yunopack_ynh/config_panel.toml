@@ -18,6 +18,14 @@ name.en = "Forge access"
     optional = true
     bind = "GITHUB_TOKEN:/etc/yunopack/env"
 
+    [main.forges.github_token_ecriture]
+    ask.fr = "Jeton GitHub autorise a ecrire"
+    ask.en = "GitHub token allowed to write"
+    help.fr = "Necessaire uniquement pour proposer des correctifs aux paquets existants : fourcher un depot et ouvrir une demande d'integration. Analyser n'en a pas besoin."
+    type = "password"
+    optional = true
+    bind = "GITHUB_TOKEN_ECRITURE:/etc/yunopack/env"
+
     [main.forges.gitlab_token]
     ask.fr = "Jeton GitLab"
     help.fr = "Facultatif. Utile seulement pour les depots prives."

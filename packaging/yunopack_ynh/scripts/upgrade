@@ -48,6 +48,7 @@ ajouter_reglage() {
     grep -q "^$1=" /etc/yunopack/env || echo "$1=$2" >> /etc/yunopack/env
 }
 ajouter_reglage GITHUB_TOKEN ""
+ajouter_reglage GITHUB_TOKEN_ECRITURE ""
 ajouter_reglage GITLAB_TOKEN ""
 ajouter_reglage YUNOPACK_CACHE_PARTAGE "https://raw.githubusercontent.com/EpicTGuy/yunopack/main/assets/evaluations.json"
 ajouter_reglage YUNOPACK_HOTE_TEST ""
