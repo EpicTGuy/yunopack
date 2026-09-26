@@ -105,7 +105,11 @@ async fn tenter(registre: &Registre, id: &str, url: &str, racine: &Path) -> anyh
     let spec = ynp_spec::build(&faits)?;
     std::fs::write(chemin_appspec(&travail), toml::to_string_pretty(&spec)?)?;
 
-    let arbitrages = spec.arbitrages();
+    let mut arbitrages = spec.arbitrages();
+    // Chaque question pointe vers les fichiers du depot ou la reponse a des
+    // chances de se trouver. Sans cela, « chercher dans la documentation »
+    // oblige a aller fouiller soi-meme.
+    ynp_spec::ajouter_les_pistes(&mut arbitrages, &faits, &recupere.tree);
     if !arbitrages.is_empty() {
         // Ce n'est pas un echec : l'outil a etabli tout ce que le depot permet
         // d'etablir. Le reste demande une decision, qu'on va chercher.

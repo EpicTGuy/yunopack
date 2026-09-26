@@ -67,6 +67,16 @@ enum Command {
         reponses: Vec<String>,
     },
 
+    /// Examine un paquet deja au catalogue et ecrit ce qui se corrige seul.
+    Ameliorer {
+        /// Identifiant de l'application au catalogue, ou URL de son paquet.
+        app: String,
+
+        /// Ne rien ecrire : dire seulement ce qui serait change.
+        #[arg(long)]
+        simuler: bool,
+    },
+
     /// Rend le paquet a partir de l'appspec.toml.
     Generate {
         /// Genere malgre des champs non completes, qui apparaitront en FIXME.
@@ -202,6 +212,7 @@ async fn run() -> anyhow::Result<()> {
         Command::Assess { url, seuil } => assess(url.as_deref(), *seuil, &cli).await.map(|_| ()),
         Command::Plan { url, force } => plan(url.as_deref(), *force, &cli).await.map(|_| ()),
         Command::Repondre { reponses } => repondre(reponses, &cli),
+        Command::Ameliorer { app, simuler } => ameliorer(app, *simuler, &cli).await,
         Command::Generate { force } => generate(*force, &cli),
         Command::Verify { chemin } => verify(chemin.as_deref(), &cli),
         Command::Test {
@@ -349,6 +360,81 @@ async fn plan(url: Option<&str>, force: bool, cli: &Cli) -> anyhow::Result<ynp_c
         std::process::exit(20);
     }
     Ok(spec)
+}
+
+/// Examine un paquet publie et ecrit ce qui se corrige mecaniquement.
+///
+/// Sept cents applications sont deja au catalogue et une bonne part n'atteint
+/// pas le niveau maximal. Les refaire de zero serait du gachis : elles
+/// marchent, quelqu'un s'en occupe. Reste a savoir ce qui leur manque.
+async fn ameliorer(app: &str, simuler: bool, cli: &Cli) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("yunopack/", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let catalogue = ynp_forge::catalogue::Catalogue::charger(&client).await?;
+
+    let (depot, niveau, id) = match catalogue.trouver(app) {
+        Some(p) => (p.depot_paquet.clone(), p.niveau, p.id.clone()),
+        // Une URL directe permet d'examiner un paquet qui n'est pas encore au
+        // catalogue — c'est le cas de tous ceux qu'on vient de produire.
+        None if app.starts_with("http") => (app.to_string(), None, String::new()),
+        None => anyhow::bail!("« {app} » n'est ni au catalogue ni une URL de depot"),
+    };
+
+    println!("\n  Recuperation de {depot} …");
+    let recupere = ynp_forge::fetch(&depot).await?;
+
+    let dossier = cli.out.join("ameliorations").join(if id.is_empty() {
+        recupere.forge.source.repo.clone()
+    } else {
+        id.clone()
+    });
+    let _ = std::fs::remove_dir_all(&dossier);
+    for chemin in recupere.tree.paths() {
+        if chemin.contains("..") || chemin.starts_with('/') {
+            continue;
+        }
+        let cible = dossier.join(&chemin);
+        if let Some(d) = cible.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        std::fs::write(cible, recupere.tree.text(&chemin).unwrap_or_default())?;
+    }
+
+    let examen = ynp_verify::audit::examiner(&dossier, niveau);
+    print!("{}", report::examen(&examen));
+
+    if examen.rien_a_signaler() {
+        return Ok(());
+    }
+    if simuler {
+        println!("  Simulation : rien n'a ete ecrit.\n");
+        return Ok(());
+    }
+
+    let correctif = ynp_verify::correctif::appliquer(&dossier, &examen)?;
+    if correctif.rien() {
+        // Un constat marque corrigeable ne l'est pas toujours dans ce
+        // paquet-ci : une source inhabituelle, une section absente. Le dire
+        // vaut mieux qu'un « rien a faire » qui contredit l'examen.
+        if examen.constats.iter().any(|c| c.reparable) {
+            println!(
+                "  Les points corrigeables ne l'etaient pas dans ce paquet :\n  \
+                 sa forme sort de ce que l'outil sait reecrire sans risque.\n"
+            );
+        } else {
+            println!("  Rien ne se corrige mecaniquement ici.\n");
+        }
+        return Ok(());
+    }
+    println!("  Corrige dans {} :", dossier.display());
+    for f in &correctif.fichiers {
+        println!("    {f}");
+    }
+    println!(
+        "\n  Relire, puis proposer le correctif au mainteneur.\n           L'interface web ouvre la demande d'integration.\n"
+    );
+    Ok(())
 }
 
 /// Repond aux champs ouverts sans passer par l'editeur.

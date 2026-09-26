@@ -75,6 +75,19 @@ pub struct Gouvernance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Motif {
     pub id: String,
+    /// Texte francais, tel que la regle le rend.
+    pub titre: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub remede: String,
+    /// Les autres langues, par code. Retenues avec le constat plutot que
+    /// traduites a l'affichage : une fiche est mise en cache et partagee entre
+    /// instances, qui n'ont pas toutes la meme langue.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub textes: std::collections::BTreeMap<String, Texte>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Texte {
     pub titre: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remede: String,

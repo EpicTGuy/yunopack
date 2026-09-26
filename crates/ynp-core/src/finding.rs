@@ -88,6 +88,13 @@ pub struct Finding {
     pub remediation: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<Evidence>,
+    /// Valeurs que le titre insere, nommees.
+    ///
+    /// Le titre est rendu en francais par la regle elle-meme ; une traduction
+    /// a besoin des memes valeurs pour construire sa propre phrase, et ne peut
+    /// pas les retrouver dans le texte deja forme.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub args: std::collections::BTreeMap<String, String>,
 }
 
 impl Finding {
@@ -99,7 +106,15 @@ impl Finding {
             detail: String::new(),
             remediation: None,
             evidence: Vec::new(),
+            args: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Nomme une valeur que le titre insere, pour qu'une traduction puisse la
+    /// replacer dans sa propre phrase.
+    pub fn arg(mut self, nom: &str, valeur: impl Into<String>) -> Self {
+        self.args.insert(nom.to_string(), valeur.into());
+        self
     }
 
     pub fn detail(mut self, d: impl Into<String>) -> Self {

@@ -97,6 +97,7 @@ impl Rule for BaseNonSupportee {
                     Severity::Major,
                     format!("Service sans equivalent YunoHost, en environnement de dev : {liste}"),
                 )
+                .arg("services", &liste)
                 .detail(
                     "Ce service apparait dans un compose qui ne lance aucun service applicatif : \
                      c'est un environnement de developpement, pas un deploiement. Rien ne dit \
@@ -118,6 +119,7 @@ impl Rule for BaseNonSupportee {
                     facts.services.unsupported.join(", ")
                 ),
             )
+            .arg("services", facts.services.unsupported.join(", "))
             .detail(
                 "`[resources.database]` ne provisionne que MySQL et PostgreSQL ; MongoDB et \
                  Redis passent par des helpers. Les autres services demanderaient d'empaqueter \
@@ -159,6 +161,8 @@ impl Rule for PythonHorsBookworm {
                 Severity::Major,
                 format!("Python {exigee} exige, bookworm fournit {fournie}"),
             )
+            .arg("exigee", exigee)
+            .arg("fournie", fournie)
             .detail(
                 "Contrairement a nodejs, ruby, go et composer, Python n'a pas de `[resources]` \
                  cote YunoHost. Une version differente de celle de Debian impose un venv ou un \
@@ -337,6 +341,7 @@ impl Rule for PortPrivilegie {
                 Severity::Major,
                 format!("Port privilegie expose : {privilegies:?}"),
             )
+            .arg("ports", format!("{privilegies:?}"))
             .detail(
                 "Les ports 80 et 443 sont occupes par le nginx de YunoHost, qui assure le \
                  reverse-proxy vers les applications.",
@@ -395,6 +400,7 @@ impl Rule for BaseDetectee {
                 Severity::Info,
                 format!("Base {manifest} provisionnable"),
             )
+            .arg("base", manifest)
             .detail(format!(
                 "Sera declaree en `[resources.database] type = \"{manifest}\"` ; le coeur \
                      de YunoHost fournira $db_name, $db_user et $db_pwd."
@@ -444,6 +450,7 @@ impl Rule for PaquetsAlpineATraduire {
                 Severity::Minor,
                 format!("{} paquet(s) Alpine sans equivalent connu", inconnus.len()),
             )
+            .arg("nombre", inconnus.len().to_string())
             .detail(format!(
                 "Non traduits : {}. Les laisser tels quels ferait echouer l'installation apt.",
                 inconnus

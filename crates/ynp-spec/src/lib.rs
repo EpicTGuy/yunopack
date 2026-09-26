@@ -624,3 +624,178 @@ mod propositions {
         assert!(!est_une_adresse("host:"));
     }
 }
+
+/// Complete les arbitrages avec les fichiers du depot ou chercher la reponse.
+///
+/// « Chercher dans la documentation » sans dire ou oblige a aller fouiller
+/// soi-meme. Ces fichiers-la existent vraiment dans ce depot-ci, et leur
+/// adresse mene directement a la page.
+pub fn ajouter_les_pistes(
+    arbitrages: &mut [ynp_core::spec::Arbitrage],
+    faits: &RepoFacts,
+    arbre: &ynp_core::tree::RepoTree,
+) {
+    use ynp_core::spec::Piste;
+
+    let base = adresse_de_consultation(faits);
+    let existe = |chemin: &str| arbre.paths().iter().any(|p| p == chemin);
+    let piste = |chemin: &str| Piste {
+        chemin: chemin.to_string(),
+        url: base
+            .as_ref()
+            .map(|b| format!("{b}/{chemin}"))
+            .unwrap_or_default(),
+    };
+
+    // Les fichiers qui repondent le plus souvent, par champ. Seuls ceux qui
+    // existent reellement sont proposes : un lien mort vaut moins que rien.
+    for a in arbitrages.iter_mut() {
+        let candidats: &[&str] = match a.champ.as_str() {
+            "runtime.port_binding" | "runtime.database_binding" => &[
+                ".env.example",
+                ".env.sample",
+                "docker-compose.yml",
+                "compose.yml",
+                "docs/configuration.md",
+                "README.md",
+            ],
+            "runtime.execstart" => &[
+                "Dockerfile",
+                "Procfile",
+                "docs/installation.md",
+                "docs/deployment.md",
+                "README.md",
+            ],
+            "runtime.technology" => &[
+                "package.json",
+                "go.mod",
+                "Cargo.toml",
+                "pyproject.toml",
+                "composer.json",
+                "README.md",
+            ],
+            "upstream.license" => &["LICENSE", "LICENSE.md", "COPYING"],
+            _ => &["README.md"],
+        };
+        a.pistes = candidats
+            .iter()
+            .filter(|c| existe(c))
+            .map(|c| piste(c))
+            .collect();
+
+        // Le fichier d'exemple trouve par l'analyse passe devant : c'est celui
+        // ou la reponse est le plus probable.
+        if let Some(exemple) = &faits.config.example_file {
+            if existe(exemple) && !a.pistes.iter().any(|p| &p.chemin == exemple) {
+                a.pistes.insert(0, piste(exemple));
+            }
+        }
+        // Le Dockerfile retenu, de meme, quand il n'est pas a la racine.
+        if let Some(b) = &faits.build {
+            if existe(&b.dockerfile_path) && !a.pistes.iter().any(|p| p.chemin == b.dockerfile_path)
+            {
+                a.pistes.push(piste(&b.dockerfile_path));
+            }
+        }
+        a.pistes.truncate(5);
+    }
+}
+
+/// Adresse ou lire un fichier du depot, a la reference retenue.
+fn adresse_de_consultation(faits: &RepoFacts) -> Option<String> {
+    let s = &faits.source;
+    if s.url.is_empty() {
+        return None;
+    }
+    let reference = s.commit.clone().or_else(|| s.default_branch.clone())?;
+    let base = s.url.trim_end_matches('/');
+    Some(match s.forge {
+        ynp_core::facts::Forge::GitLab => format!("{base}/-/blob/{reference}"),
+        _ => format!("{base}/blob/{reference}"),
+    })
+}
+
+#[cfg(test)]
+mod pistes {
+    use super::*;
+    use ynp_core::facts::Forge;
+    use ynp_core::spec::Arbitrage;
+    use ynp_core::tree::RepoTree;
+
+    fn arbitrage(champ: &str) -> Arbitrage {
+        Arbitrage {
+            champ: champ.into(),
+            raison: String::new(),
+            ou_chercher: Vec::new(),
+            candidats: Vec::new(),
+            choix: Vec::new(),
+            pistes: Vec::new(),
+        }
+    }
+
+    fn faits(forge: Forge) -> RepoFacts {
+        let mut f = RepoFacts::default();
+        f.source.forge = forge;
+        f.source.url = "https://github.com/a/b".into();
+        f.source.commit = Some("v1.2".into());
+        f
+    }
+
+    #[test]
+    fn seuls_les_fichiers_presents_sont_proposes() {
+        // Un lien mort vaut moins que rien.
+        let arbre = RepoTree::from_pairs([("README.md", "x"), ("Dockerfile", "y")]);
+        let mut a = vec![arbitrage("runtime.execstart")];
+        ajouter_les_pistes(&mut a, &faits(Forge::GitHub), &arbre);
+
+        let chemins: Vec<&str> = a[0].pistes.iter().map(|p| p.chemin.as_str()).collect();
+        assert!(chemins.contains(&"Dockerfile"));
+        assert!(chemins.contains(&"README.md"));
+        assert!(!chemins.iter().any(|c| c.starts_with("docs/")));
+    }
+
+    #[test]
+    fn l_adresse_mene_a_la_reference_retenue() {
+        let arbre = RepoTree::from_pairs([("README.md", "x")]);
+        let mut a = vec![arbitrage("upstream.license")];
+        ajouter_les_pistes(&mut a, &faits(Forge::GitHub), &arbre);
+        // Pas de LICENSE dans l'arbre, donc seul le repli reste.
+        let mut b = vec![arbitrage("runtime.technology")];
+        ajouter_les_pistes(&mut b, &faits(Forge::GitHub), &arbre);
+        assert_eq!(
+            b[0].pistes[0].url,
+            "https://github.com/a/b/blob/v1.2/README.md"
+        );
+        assert!(a[0].pistes.is_empty() || a[0].pistes[0].chemin == "README.md");
+    }
+
+    #[test]
+    fn gitlab_a_sa_propre_forme_d_adresse() {
+        let arbre = RepoTree::from_pairs([("README.md", "x")]);
+        let mut a = vec![arbitrage("runtime.technology")];
+        ajouter_les_pistes(&mut a, &faits(Forge::GitLab), &arbre);
+        assert!(a[0].pistes[0].url.contains("/-/blob/v1.2/"));
+    }
+
+    #[test]
+    fn le_fichier_d_exemple_trouve_passe_devant() {
+        let arbre = RepoTree::from_pairs([("README.md", "x"), ("app.env.example", "PORT=1")]);
+        let mut f = faits(Forge::GitHub);
+        f.config.example_file = Some("app.env.example".into());
+        let mut a = vec![arbitrage("runtime.port_binding")];
+        ajouter_les_pistes(&mut a, &f, &arbre);
+        assert_eq!(a[0].pistes[0].chemin, "app.env.example");
+    }
+
+    #[test]
+    fn sans_depot_connu_les_pistes_restent_des_chemins() {
+        // Mieux vaut un nom de fichier sans lien qu'aucune indication.
+        let arbre = RepoTree::from_pairs([("README.md", "x")]);
+        let mut f = RepoFacts::default();
+        f.source.url = String::new();
+        let mut a = vec![arbitrage("runtime.technology")];
+        ajouter_les_pistes(&mut a, &f, &arbre);
+        assert_eq!(a[0].pistes[0].chemin, "README.md");
+        assert!(a[0].pistes[0].url.is_empty());
+    }
+}

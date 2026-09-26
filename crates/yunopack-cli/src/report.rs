@@ -514,6 +514,44 @@ pub fn campagne(r: &ynp_runner::Rapport) -> String {
     out
 }
 
+/// Resultat de l'examen d'un paquet deja publie.
+pub fn examen(a: &ynp_verify::audit::Audit) -> String {
+    let mut out = format!("\n  {}\n", if a.app.is_empty() { "paquet" } else { &a.app });
+    match a.niveau_actuel {
+        Some(n) => line(&mut out, "niveau actuel", format!("{n}/8")),
+        None => line(&mut out, "niveau actuel", "inconnu".to_string()),
+    }
+    line(
+        &mut out,
+        "atteignable",
+        format!("{}/8", a.niveau_atteignable()),
+    );
+
+    if a.rien_a_signaler() {
+        out.push_str(
+            "\n  Rien a signaler : ce paquet respecte tout ce que nous savons verifier.\n",
+        );
+        return out;
+    }
+
+    out.push_str(&format!("\n  ── {} point(s) ──\n", a.constats.len()));
+    for c in &a.constats {
+        let bloque = match c.bloque_le_niveau {
+            Some(n) => format!(" — bloque le niveau {n}"),
+            None => String::new(),
+        };
+        let repare = if c.reparable { " — corrigeable" } else { "" };
+        out.push_str(&format!("\n  {}{bloque}{repare}\n", c.id));
+        for l in enrouler(&c.quoi, 72) {
+            out.push_str(&format!("      {l}\n"));
+        }
+        for l in enrouler(&c.remede, 72) {
+            out.push_str(&format!("      {l}\n"));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

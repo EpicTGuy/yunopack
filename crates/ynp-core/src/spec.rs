@@ -158,6 +158,7 @@ impl AppSpec {
                     ou_chercher,
                     candidats,
                     choix,
+                    pistes: Vec::new(),
                 }
             })
             .collect()
@@ -237,6 +238,21 @@ pub struct Arbitrage {
     /// la reponse est alors du texte libre.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choix: Vec<String>,
+    /// Fichiers du depot ou la reponse a des chances de se trouver, avec leur
+    /// adresse. Dire « chercher dans la documentation » sans dire ou oblige a
+    /// aller fouiller soi-meme.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pistes: Vec<Piste>,
+}
+
+/// Un fichier du depot a consulter pour repondre.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Piste {
+    /// Chemin dans le depot, ex. `docs/configuration.md`.
+    pub chemin: String,
+    /// Adresse ou le lire, quand on connait le depot et la reference.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

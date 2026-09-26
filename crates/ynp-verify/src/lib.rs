@@ -12,6 +12,7 @@
 //! reglage arrete l'installation, et rien dans le paquet ne le laissait voir.
 
 pub mod audit;
+pub mod correctif;
 pub mod placeholders;
 pub mod scripts;
 

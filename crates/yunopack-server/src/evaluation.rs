@@ -231,15 +231,32 @@ pub async fn evaluer(url: &str) -> Fiche {
     let (faisabilite, _) =
         ynp_rules::gates::evaluate(&faits, ynp_core::DEFAULT_FEASIBILITY_THRESHOLD);
 
+    // Le constat est retenu dans les trois langues : il est mis en cache et
+    // partage entre instances, qui n'ont pas toutes la meme. Le traduire a
+    // l'affichage demanderait de le reevaluer pour chaque langue.
     let motifs = |s: ynp_core::Severity| -> Vec<Motif> {
         faisabilite
             .findings
             .iter()
             .filter(|f| f.severity == s)
-            .map(|f| Motif {
-                id: f.id.clone(),
-                titre: f.title.clone(),
-                remede: f.remediation.clone().unwrap_or_default(),
+            .map(|f| {
+                let mut textes = std::collections::BTreeMap::new();
+                for langue in ["en", "es"] {
+                    let (titre, remede) = ynp_core::traduction::traduire(f, langue);
+                    textes.insert(
+                        langue.to_string(),
+                        crate::cache::Texte {
+                            titre,
+                            remede: remede.unwrap_or_default(),
+                        },
+                    );
+                }
+                Motif {
+                    id: f.id.clone(),
+                    titre: f.title.clone(),
+                    remede: f.remediation.clone().unwrap_or_default(),
+                    textes,
+                }
             })
             .collect()
     };

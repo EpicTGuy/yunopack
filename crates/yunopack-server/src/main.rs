@@ -149,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
         .route(&format!("{base}/suggestions"), get(suggestions))
         .route(&format!("{base}/recherche"), get(recherche))
         .route(&format!("{base}/audit"), get(audit))
+        .route(&format!("{base}/contribuer"), post(contribuer))
         .route(
             &format!("{base}/evaluations"),
             get(evaluations).post(evaluer),
@@ -485,6 +486,119 @@ async fn audit(
             "constats": a.constats,
         })),
     )
+}
+
+#[derive(Deserialize)]
+struct DemandeContribution {
+    /// Identifiant de l'application au catalogue.
+    app: String,
+}
+
+/// Examine un paquet, ecrit ce qui se corrige mecaniquement, et ouvre la
+/// demande d'integration.
+///
+/// Rien n'est fusionne : le mainteneur decide. Un outil qui modifierait
+/// directement le paquet de quelqu'un d'autre serait indefendable, meme quand
+/// il a raison.
+async fn contribuer(
+    State(etat): State<Etat>,
+    Json(d): Json<DemandeContribution>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let Some(officiel) = catalogue_officiel(&etat).await else {
+        return refus(StatusCode::BAD_GATEWAY, "catalogue officiel indisponible");
+    };
+    let Some(paquet) = officiel.trouver(d.app.trim()) else {
+        return refus(StatusCode::NOT_FOUND, "application inconnue du catalogue");
+    };
+    let depot = paquet.depot_paquet.clone();
+    if depot.is_empty() {
+        return refus(StatusCode::NOT_FOUND, "le catalogue ne donne pas de depot");
+    }
+
+    // Le jeton d'ecriture d'abord : inutile de tout preparer pour echouer au
+    // dernier moment.
+    let contributeur = match ynp_publish::contribution::Contributeur::depuis_environnement().await {
+        Ok(c) => c,
+        Err(e) => return refus(StatusCode::PRECONDITION_FAILED, &e.to_string()),
+    };
+
+    let recupere = match ynp_forge::fetch(&depot).await {
+        Ok(r) => r,
+        Err(e) => return refus(StatusCode::BAD_GATEWAY, &e.to_string()),
+    };
+    let base = recupere
+        .forge
+        .source
+        .default_branch
+        .clone()
+        .unwrap_or_else(|| "main".into());
+
+    let dossier = etat.racine.join("contributions").join(&paquet.id);
+    let _ = std::fs::remove_dir_all(&dossier);
+    if let Err(e) = ecrire_arbre(&recupere.tree, &dossier) {
+        return refus(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+    }
+
+    let examen = ynp_verify::audit::examiner(&dossier, paquet.niveau);
+    let correctif = match ynp_verify::correctif::appliquer(&dossier, &examen) {
+        Ok(c) => c,
+        Err(e) => return refus(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    };
+    if correctif.rien() {
+        let _ = std::fs::remove_dir_all(&dossier);
+        return refus(
+            StatusCode::CONFLICT,
+            "rien a corriger mecaniquement sur ce paquet",
+        );
+    }
+
+    let fourche = match contributeur.fourcher(&depot).await {
+        Ok(f) => f,
+        Err(e) => return refus(StatusCode::BAD_GATEWAY, &e.to_string()),
+    };
+
+    let branche = format!("yunopack-{}", ynp_verify::correctif::empreinte(&correctif));
+    let distant = contributeur.url_push(&fourche);
+    let message = correctif.message(&examen.app);
+    let dossier_push = dossier.clone();
+    let branche_push = branche.clone();
+    let pousse = tokio::task::spawn_blocking(move || {
+        ynp_publish::forge::pousser(&dossier_push, &distant, &branche_push, &message)
+    })
+    .await;
+    let _ = std::fs::remove_dir_all(&dossier);
+    if let Err(e) = pousse {
+        return refus(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+    }
+    if let Ok(Err(e)) = pousse {
+        return refus(StatusCode::BAD_GATEWAY, &e.to_string());
+    }
+
+    let corps = ynp_publish::contribution::corps_de_la_demande(
+        &examen.app,
+        paquet.niveau,
+        examen.niveau_atteignable(),
+        &correctif.corriges,
+        &correctif.laisses,
+    );
+    let titre = format!("Ameliorations proposees par yunopack pour {}", examen.app);
+
+    match contributeur
+        .ouvrir_la_demande(&depot, &branche, &base, &titre, &corps)
+        .await
+    {
+        Ok(url) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "demande": url,
+                "fourche": fourche,
+                "branche": branche,
+                "corriges": correctif.corriges,
+                "fichiers": correctif.fichiers,
+            })),
+        ),
+        Err(e) => refus(StatusCode::BAD_GATEWAY, &e.to_string()),
+    }
 }
 
 /// Ecrit l'arborescence lue dans un repertoire, pour l'examiner sur disque.

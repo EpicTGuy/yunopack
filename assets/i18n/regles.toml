@@ -1,0 +1,118 @@
+# Traduction des constats du moteur d'analyse.
+#
+# Les regles rendent leur texte en francais ; ce fichier le redit en anglais et
+# en espagnol. La cle est l'identifiant de la regle, suivi de sa severite quand
+# une meme regle a plusieurs formes : c'est la severite qui les distingue, sans
+# qu'il faille inventer un discriminant.
+#
+# `{nom}` reprend une valeur que la regle a nommee. Une valeur absente laisse le
+# marqueur tel quel plutot que d'effacer l'information.
+#
+# Le francais n'y figure pas : il vient de la regle elle-meme, et le dupliquer
+# ferait deux textes a tenir a jour.
+
+[LIC001-major]
+en.titre = "Licence « {licence} » to be checked"
+en.remede = "Open the project's LICENSE file and check the terms against the catalogue's policy."
+es.titre = "Licencia «{licence}» por verificar"
+es.remede = "Abre el archivo LICENSE del proyecto y compara sus términos con la política del catálogo."
+
+[LIC001-blocker]
+en.titre = "Licence cannot be identified"
+en.remede = "Open the project's LICENSE file. If it does carry a free licence the forge failed to recognise, fill in `upstream.license` by hand."
+es.titre = "Licencia no identificable"
+es.remede = "Abre el archivo LICENSE del proyecto. Si lleva una licencia libre que la forja no supo reconocer, rellena `upstream.license` a mano."
+
+[SRC001-blocker]
+en.titre = "No downloadable archive"
+en.remede = "The package needs a stable archive with a checksum. Check whether the project publishes releases elsewhere."
+es.titre = "Ningún archivo descargable"
+es.remede = "El paquete necesita un archivo estable con su suma de verificación. Comprueba si el proyecto publica versiones en otro sitio."
+
+[SRC002-major]
+en.titre = "Neither release nor version tag"
+en.remede = "Check whether the project publishes its versions elsewhere. Failing that, accept `autoupdate.strategy = \"latest_github_commit\"` knowingly."
+es.titre = "Ni versión publicada ni etiqueta"
+es.remede = "Comprueba si el proyecto publica sus versiones en otro sitio. En su defecto, acepta `autoupdate.strategy = \"latest_github_commit\"` con conocimiento de causa."
+
+[RUN001-blocker]
+en.titre = "Distributed only as a container image"
+en.remede = "Look for whether the project documents an installation without a container. A YunoHost application does not run in Docker."
+es.titre = "Distribuida únicamente como imagen de contenedor"
+es.remede = "Busca si el proyecto documenta una instalación sin contenedor. Una aplicación YunoHost no se ejecuta en Docker."
+
+[DB001-info]
+en.titre = "{base} database available"
+es.titre = "Base de datos {base} disponible"
+
+[DB002-blocker]
+en.titre = "Service with no YunoHost equivalent: {services}"
+en.remede = "Check whether the application can work without this service — some can, at the cost of one feature. Otherwise it is out of scope."
+es.titre = "Servicio sin equivalente en YunoHost: {services}"
+es.remede = "Comprueba si la aplicación puede funcionar sin este servicio; algunas pueden, a costa de una función. Si no, queda fuera del alcance."
+
+[DB002-major]
+en.titre = "Service with no YunoHost equivalent, in a development setup: {services}"
+en.remede = "Read the project's installation documentation to find out whether this service is really required in production."
+es.titre = "Servicio sin equivalente en YunoHost, en entorno de desarrollo: {services}"
+es.remede = "Lee la documentación de instalación del proyecto para saber si ese servicio hace falta de verdad en producción."
+
+[K8S001-blocker]
+en.titre = "Kubernetes-only deployment"
+en.remede = "None within the scope of the YunoHost catalogue."
+es.titre = "Despliegue únicamente con Kubernetes"
+es.remede = "Ninguna dentro del alcance del catálogo YunoHost."
+
+[PY001-major]
+en.titre = "Python {exigee} required, bookworm provides {fournie}"
+en.remede = "YunoHost has no Python resource: the version gap has to be bridged by hand, with a virtual environment."
+es.titre = "Se requiere Python {exigee}, bookworm proporciona {fournie}"
+es.remede = "YunoHost no tiene un recurso para Python: la diferencia de versión debe salvarse a mano, con un entorno virtual."
+
+[BUILD001-major]
+en.titre = "JavaScript front-end build"
+en.remede = "Check the memory needed. A build above 1.5 GB fails on a small ARM board."
+es.titre = "Compilación del frontal JavaScript"
+es.remede = "Comprueba la memoria necesaria. Una compilación de más de 1,5 GB falla en una placa ARM pequeña."
+
+[BUILD002-blocker]
+en.titre = "No build recipe found"
+en.remede = "Look for the recipe elsewhere: the project's build instructions, a Makefile, a release workflow."
+es.titre = "No se encuentra receta de construcción"
+es.remede = "Busca la receta en otro sitio: las instrucciones de construcción del proyecto, un Makefile, un flujo de publicación."
+
+[PORT001-major]
+en.titre = "Privileged port exposed: {ports}"
+en.remede = "YunoHost assigns a free port above 1024 and puts nginx in front. The application must accept a configurable port."
+es.titre = "Puerto privilegiado expuesto: {ports}"
+es.remede = "YunoHost asigna un puerto libre por encima de 1024 y pone nginx delante. La aplicación debe aceptar un puerto configurable."
+
+[MAINT001-major]
+en.titre = "Repository archived by its author"
+en.remede = "Look for a maintained fork before packaging this repository."
+es.titre = "Repositorio archivado por su autor"
+es.remede = "Busca una bifurcación mantenida antes de empaquetar este repositorio."
+
+[MAINT001-minor]
+en.titre = "No recent activity in the repository"
+es.titre = "Sin actividad reciente en el repositorio"
+
+[STACK001-major]
+en.titre = "Technology not identified"
+en.remede = "Fill in `runtime.technology` by hand after reading the project's installation instructions."
+es.titre = "Tecnología no identificada"
+es.remede = "Rellena `runtime.technology` a mano tras leer las instrucciones de instalación del proyecto."
+
+[APK001-info]
+en.titre = "Alpine dependencies translated"
+es.titre = "Dependencias de Alpine traducidas"
+
+[APK001-minor]
+en.titre = "{nombre} Alpine package(s) with no known equivalent"
+en.remede = "Find the Debian equivalent by hand, or check whether the dependency is really needed."
+es.titre = "{nombre} paquete(s) de Alpine sin equivalente conocido"
+es.remede = "Encuentra el equivalente en Debian a mano, o comprueba si la dependencia hace falta de verdad."
+
+[NPM001-info]
+en.titre = "npm modules with native compilation"
+es.titre = "Módulos npm con compilación nativa"

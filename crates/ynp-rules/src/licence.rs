@@ -61,6 +61,7 @@ impl Rule for NonLibre {
                     Severity::Major,
                     format!("Licence « {spdx} » a verifier"),
                 )
+                .arg("licence", spdx)
                 .detail(
                     "Cette licence n'est pas dans la liste des licences libres courantes. \
                          Le catalogue YunoHost accepte au cas par cas des licences ethiques qui \

@@ -121,6 +121,9 @@ ol.steps{list-style:none;margin:0;padding:0}
 .opt .v{display:block;font:13px/1.5 var(--mono);overflow-wrap:anywhere;white-space:pre-wrap}
 .opt .w{display:block;color:var(--mute);font-size:12px;margin-top:1px}
 .fld .free{height:38px;font-size:13px}
+.pistes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.pistes .look{margin:0}
+.lien-f{height:26px;padding:0 9px;font:12px var(--mono);font-weight:400}
 .out{margin-top:28px;border:1px solid var(--acc);border-radius:8px;padding:18px;background:var(--acc-bg)}
 .out h2{margin:0;font-size:17px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .out h2 code{font-size:15px;color:var(--acc)}
@@ -183,6 +186,7 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
 .audit .rm{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 .audit-m{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .audit-ok{margin:0;color:var(--acc);font-size:13px}
+.audit-note{margin:4px 0 0;color:var(--mute);font-size:12px;text-wrap:pretty}
 .pourquoi .quand{color:var(--mute);font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
 .lic{border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .votes{margin-left:8px;font:12px var(--mono);color:var(--acc);font-weight:400}
@@ -375,7 +379,13 @@ const LANGUES = {
     recherche: 'recherche…', indispo: "Le serveur n'a pas répondu.",
     aucune_corresp: 'Aucune application ne correspond à',
     afficher_suivantes: 'Afficher les', suivantes: 'suivantes',
-    refuse: 'le serveur a refusé'
+    refuse: 'le serveur a refusé',
+    ou_regarder: 'où regarder :',
+    pas_huit: "Le niveau 8 ne se corrige pas depuis un dépôt : il demande une maintenance effective dans la durée, que seule la chaîne d'intégration de YunoHost constate.",
+    contribuer: 'Proposer un correctif',
+    contribution: 'envoi…',
+    demande_ouverte: 'Voir la demande',
+    contribuer_aide: "Ouvre une demande d'intégration sur le dépôt du paquet. Rien n'est fusionné : le mainteneur décide."
   },
   en: {
     tag: 'git repository → YunoHost package',
@@ -444,7 +454,13 @@ const LANGUES = {
     recherche: 'searching…', indispo: 'The server did not answer.',
     aucune_corresp: 'No application matches',
     afficher_suivantes: 'Show the next', suivantes: '',
-    refuse: 'the server refused'
+    refuse: 'the server refused',
+    ou_regarder: 'where to look:',
+    pas_huit: "Level 8 cannot be fixed from a repository: it requires sustained maintenance over time, which only YunoHost's integration chain can observe.",
+    contribuer: 'Offer a fix',
+    contribution: 'sending…',
+    demande_ouverte: 'See the pull request',
+    contribuer_aide: 'Opens a pull request on the package repository. Nothing is merged: the maintainer decides.'
   },
   es: {
     tag: 'repositorio git → paquete YunoHost',
@@ -513,7 +529,13 @@ const LANGUES = {
     recherche: 'buscando…', indispo: 'El servidor no respondió.',
     aucune_corresp: 'Ninguna aplicación corresponde a',
     afficher_suivantes: 'Mostrar las', suivantes: 'siguientes',
-    refuse: 'el servidor rechazó'
+    refuse: 'el servidor rechazó',
+    ou_regarder: 'dónde mirar:',
+    pas_huit: 'El nivel 8 no se corrige desde un repositorio: exige un mantenimiento efectivo en el tiempo, que solo la cadena de integración de YunoHost puede constatar.',
+    contribuer: 'Proponer una corrección',
+    contribution: 'enviando…',
+    demande_ouverte: 'Ver la solicitud',
+    contribuer_aide: 'Abre una solicitud de integración en el repositorio del paquete. Nada se fusiona: decide quien lo mantiene.'
   }
 };
 
@@ -860,6 +882,16 @@ function champ(a, saisies) {
   if (technique && a.raison) d.append(h('p', {class: 'why-not', text: a.raison}));
   if (technique && a.ou_chercher && a.ou_chercher.length) {
     d.append(h('p', {class: 'look', text: tr('chercher_dans') + ' ' + a.ou_chercher.join(', ')}));
+  }
+  /* Les fichiers du dépôt où la réponse a des chances de se trouver. Dire
+     « regarde la documentation » sans dire où oblige à fouiller soi-même. */
+  if (a.pistes && a.pistes.length) {
+    d.append(h('div', {class: 'pistes'},
+      h('span', {class: 'look', text: tr('ou_regarder')}),
+      ...a.pistes.map(p => p.url
+        ? h('a', {class: 'btn sm plain lien-f', href: p.url, target: '_blank',
+                  rel: 'noopener noreferrer', text: p.chemin})
+        : h('span', {class: 'lic', text: p.chemin}))));
   }
 
   if (a.choix && a.choix.length) {
@@ -1260,9 +1292,13 @@ function basculerDetail(b, f) {
   const item = b.closest('.item');
   const deja = item.querySelector('.pourquoi');
   if (deja) { deja.remove(); return; }
+  /* Le constat est retenu dans les trois langues ; celle qui manque retombe
+     sur le français, qui vient de la règle elle-même. */
+  const dit = (m, champ) => (m.textes && m.textes[LANGUE] && m.textes[LANGUE][champ]) || m[champ];
   const motif = (m) => h('li', {},
     technique ? h('code', {class: 'code', text: m.id}) : h('span', {class: 'puce', text: '·'}),
-    h('span', {}, h('span', {text: m.titre}), m.remede ? h('span', {class: 'rm', text: m.remede}) : null));
+    h('span', {}, h('span', {text: dit(m, 'titre')}),
+      dit(m, 'remede') ? h('span', {class: 'rm', text: dit(m, 'remede')}) : null));
   const refaire = h('button', {class: 'btn sm plain', type: 'button', text: tr('reevaluer'),
     onclick: async () => {
       refaire.disabled = true; refaire.textContent = tr('en_file');
@@ -1437,6 +1473,7 @@ function bilanAudit(d) {
   return h('div', {class: 'audit'},
     h('div', {class: 'gouv-t'}, tr('audit_t'),
       ' — ', tr('audit_atteignable'), ' ', h('b', {text: d.niveau_atteignable + '/8'})),
+    d.niveau_atteignable < 8 ? h('p', {class: 'audit-note', text: tr('pas_huit')}) : null,
     h('ul', {}, d.constats.map(c => h('li', {},
       technique ? h('code', {class: 'code', text: c.id}) : h('span', {class: 'puce', text: '·'}),
       h('span', {},
@@ -1446,7 +1483,37 @@ function bilanAudit(d) {
           c.bloque_le_niveau ? h('span', {class: 'etiq mort',
             text: tr('audit_bloque') + ' ' + c.bloque_le_niveau}) : null,
           c.reparable ? h('span', {class: 'etiq pack', text: tr('audit_reparable')}) : null))))),
-    h('div', {class: 'quand'}, lienTechnique()));
+    h('div', {class: 'quand'}, lienTechnique(), boutonContribuer(d)));
+}
+
+/* Proposer le correctif au mainteneur. Rien n'est fusionne : c'est lui qui
+   décide. Un outil qui modifierait directement le paquet de quelqu'un
+   d'autre serait indéfendable, même quand il a raison. */
+function boutonContribuer(d) {
+  const mecaniques = (d.constats || []).filter(c => c.reparable).length;
+  if (!mecaniques) return null;
+  const b = h('button', {class: 'btn sm ghost', type: 'button',
+    text: tr('contribuer') + ' (' + mecaniques + ')',
+    title: tr('contribuer_aide')});
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = tr('contribution');
+    let r, c;
+    try {
+      r = await fetch(RACINE + 'contribuer', {method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({app: d.app})});
+      c = await r.json();
+    } catch (e) { c = {erreur: String(e)}; r = {ok: false}; }
+    const parent = b.parentNode;
+    b.remove();
+    if (!r.ok || c.erreur) {
+      parent.append(h('span', {class: 'hint err', text: c.erreur || tr('refuse')}));
+      return;
+    }
+    parent.append(h('a', {class: 'btn sm', href: c.demande, target: '_blank',
+      rel: 'noopener noreferrer', text: tr('demande_ouverte')}));
+  };
+  return b;
 }
 
 function niveauPaquet(q) {
