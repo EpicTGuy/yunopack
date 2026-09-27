@@ -6,10 +6,14 @@
 <meta name="color-scheme" content="light dark">
 <title>yunopack</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%232b6b4f' fill-rule='evenodd' d='M3.5 0H12.5L16 3.5V12.5L12.5 16H3.5L0 12.5V3.5Z M5 5.5L6.8 3.7L11.1 8L6.8 12.3L5 10.5L7.5 8Z'/%3E%3C/svg%3E">
+<script>try{var t=localStorage.getItem('yunopack:theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 :root{color-scheme:light dark;--bg:#fbfaf8;--fg:#1c1b19;--mute:#6b6862;--line:#e0ddd6;--panel:#f2f0eb;--acc:#2b6b4f;--acc-fg:#fbfaf8;--acc-bg:#eaf1ec;--err:#a33;--err-bg:#f9eeec;
 --mono:ui-monospace,"SF Mono","Cascadia Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans","Helvetica Neue",sans-serif}
-@media (prefers-color-scheme:dark){:root{--bg:#16171a;--fg:#e8e6e1;--mute:#9a968e;--line:#2c2e33;--panel:#1d1f23;--acc:#6fbf95;--acc-fg:#16171a;--acc-bg:#18251e;--err:#e4756b;--err-bg:#2a1c1b}}
+/* Thème : « auto » suit le système ; « clair » et « sombre » l'imposent (data-theme sur <html>). */
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark;--bg:#16171a;--fg:#e8e6e1;--mute:#9a968e;--line:#2c2e33;--panel:#1d1f23;--acc:#6fbf95;--acc-fg:#16171a;--acc-bg:#18251e;--err:#e4756b;--err-bg:#2a1c1b}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16171a;--fg:#e8e6e1;--mute:#9a968e;--line:#2c2e33;--panel:#1d1f23;--acc:#6fbf95;--acc-fg:#16171a;--acc-bg:#18251e;--err:#e4756b;--err-bg:#2a1c1b}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans)}
@@ -18,7 +22,7 @@ code{font-family:var(--mono)}
 [hidden]{display:none!important}
 .wrap{max-width:760px;margin:0 auto;padding:0 20px}
 header{border-bottom:1px solid var(--line)}
-.top{display:flex;align-items:center;gap:12px;padding:20px 0 14px}
+.top{display:flex;align-items:center;gap:12px;padding:22px 0 18px}
 .brand{display:flex;align-items:center;gap:10px;color:var(--fg);text-decoration:none}
 .brand svg{width:24px;height:24px;color:var(--acc);display:block;flex:none}
 .brand b{font:600 17px/1 var(--mono);letter-spacing:-.01em}
@@ -26,12 +30,17 @@ header{border-bottom:1px solid var(--line)}
 .bascule{appearance:none;background:none;border:0;padding:0;color:var(--mute);font:12px var(--sans);
   text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bascule:hover{color:var(--fg)}
-nav{display:flex;gap:24px;overflow-x:auto;scrollbar-width:none}
+.theme{display:flex;gap:2px;margin-left:16px;padding:2px;border:1px solid var(--line);border-radius:6px;flex:none}
+.theme button{appearance:none;border:0;background:none;color:var(--mute);font:12px var(--sans);padding:0 9px;height:26px;border-radius:4px;cursor:pointer}
+.theme button:hover{color:var(--fg)}
+.theme button[aria-pressed=true]{background:var(--panel);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
+.theme button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+nav{display:flex;gap:28px;overflow-x:auto;scrollbar-width:none}
 nav button{appearance:none;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 0 10px;font:14px var(--sans);color:var(--mute);cursor:pointer;white-space:nowrap}
 nav button:hover{color:var(--fg)}
 nav button[aria-selected=true]{color:var(--fg);border-color:var(--acc)}
 nav .n{font:12px var(--mono);color:var(--mute);margin-left:6px}
-main{padding:28px 0 56px}
+main.wrap{padding-top:40px;padding-bottom:72px}
 h1{font-size:20px;line-height:1.3;margin:0}
 .lead{color:var(--mute);margin:4px 0 20px;max-width:62ch;text-wrap:pretty}
 .lbl{display:block;font:12px var(--mono);color:var(--mute);margin:0 0 6px}
@@ -78,7 +87,7 @@ ol.steps{list-style:none;margin:0;padding:0}
 .hd:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
 .expl{margin:6px 0 2px;padding:10px 12px;background:var(--panel);border-radius:6px}
 .expl ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
-.expl li{font-size:13px;line-height:1.55;color:var(--fg);text-wrap:pretty}
+.expl li{font-size:13px;line-height:1.55;color:var(--fg)}
 .nm{font-weight:600}
 .step[data-s=pending] .nm,.step[data-s=skipped] .nm{color:var(--mute);font-weight:500}
 .sub{color:var(--mute);font-size:13px}
@@ -102,16 +111,16 @@ ol.steps{list-style:none;margin:0;padding:0}
 .why ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
 .why li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline;font-size:14px}
 .code{font:600 12px/1.6 var(--mono);padding:0 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line);color:var(--fg);white-space:nowrap}
-.why .note{margin:10px 0 0;color:var(--mute);font-size:13px;text-wrap:pretty}
+.why .note{margin:10px 0 0;color:var(--mute);font-size:13px}
 
 /* Arbitrages : ce que le depot ne dit pas, et qu'on demande plutot que d'inventer. */
 .ask{margin-top:12px;border:1px solid var(--acc);border-radius:6px;background:var(--acc-bg);padding:14px 16px}
 .ask-t{margin:0 0 4px;font-weight:600;color:var(--acc)}
-.ask-i{margin:0 0 16px;color:var(--mute);font-size:13px;text-wrap:pretty}
+.ask-i{margin:0 0 16px;color:var(--mute);font-size:13px}
 .fld{margin-bottom:18px}
 .fld:last-of-type{margin-bottom:14px}
 .fld > .k{font:600 13px var(--mono);display:block;margin-bottom:2px}
-.fld .why-not{margin:0 0 2px;color:var(--mute);font-size:13px;text-wrap:pretty}
+.fld .why-not{margin:0 0 2px;color:var(--mute);font-size:13px}
 .fld .look{margin:0 0 8px;color:var(--mute);font-size:12px;font-style:italic}
 .opts{display:grid;gap:4px;margin-bottom:8px}
 .opt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:var(--bg);cursor:pointer}
@@ -132,15 +141,15 @@ ol.steps{list-style:none;margin:0;padding:0}
 .cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;padding:4px 0}
 .cmd code::before{content:"$ ";color:var(--mute)}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-.apres{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
-.apres .note{margin:0;color:var(--mute);font-size:13px;text-wrap:pretty}
+.apres{margin-top:22px;border-top:1px solid var(--line);padding-top:20px}
+.apres .note{margin:0;color:var(--mute);font-size:13px}
 .publie{margin:0 0 12px;font:13px var(--mono);overflow-wrap:anywhere}
 .publie a{overflow-wrap:anywhere}
-.stop{margin-top:24px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:16px;font:13px var(--mono);color:var(--mute)}
+.stop{margin-top:32px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:22px;font:13px var(--mono);color:var(--mute)}
 .lh{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .lh .c{font:13px var(--mono);color:var(--mute);white-space:nowrap}
-ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--line)}
-.item{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:4px 14px;padding:14px 0;border-bottom:1px solid var(--line);align-items:center}
+ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--line)}
+.item{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:4px 14px;padding:22px 0;border-bottom:1px solid var(--line);align-items:center}
 .item .ico{width:32px;height:32px;border-radius:6px;object-fit:cover;background:var(--panel);grid-row:span 1}
 .item .ico[hidden]{display:block!important;visibility:hidden}
 .item .ds{color:var(--mute);font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:1px}
@@ -153,7 +162,8 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
       font:600 12px var(--mono);color:var(--mute);padding:3px 10px;white-space:nowrap;cursor:default;min-width:56px;text-align:center}
 .fais[data-v=feasible]{color:var(--acc);border-color:var(--acc);background:var(--acc-bg)}
 .fais[data-v=work]{color:#8a6d1f;border-color:#c9a227;background:#fbf4e0}
-@media (prefers-color-scheme:dark){.fais[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}}
+:root[data-theme=dark] .fais[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .fais[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}}
 .fais[data-v=no]{color:var(--err);border-color:var(--err);background:var(--err-bg)}
 .fais[data-v=pending]{font-style:italic;font-weight:400}
 .fais.cliquable{cursor:pointer}
@@ -162,23 +172,23 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
 .pourquoi ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .pourquoi li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline}
 .pourquoi .rm{color:var(--mute);font-size:12px;display:block;margin-top:2px}
-.gouv{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.gouv{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
 .gouv-t{font:12px var(--mono);color:var(--mute);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .gouv ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .gouv li{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:10px;align-items:baseline;font-size:13px}
 .gouv .q{font-weight:600;overflow-wrap:anywhere}
 .gouv .p{color:var(--mute);font-size:12px}
 .notes{display:grid;gap:5px;margin-top:6px}
-.note{display:grid;grid-template-columns:minmax(0,10rem) 1fr auto;gap:10px;align-items:center;font-size:13px}
-.note .n{overflow-wrap:anywhere}
-.note .v{font:12px var(--mono);color:var(--mute)}
+.critere{display:grid;grid-template-columns:minmax(0,10rem) 1fr auto;gap:10px;align-items:center;font-size:13px}
+.critere .n{overflow-wrap:anywhere}
+.critere .v{font:12px var(--mono);color:var(--mute)}
 .jauge{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
 .jauge i{display:block;height:100%;background:var(--acc)}
 .jauge[data-n=moyen] i{background:#c9a227}
 .jauge[data-n=faible] i{background:var(--err)}
 .puce{color:var(--mute)}
 .tech{margin-left:8px;font:11px var(--mono);color:var(--mute);font-weight:400}
-@media (max-width:520px){.note{grid-template-columns:minmax(0,1fr) auto}.note .jauge{grid-column:1/-1}}
+@media (max-width:520px){.critere{grid-template-columns:minmax(0,1fr) auto}.critere .jauge{grid-column:1/-1}}
 @media (max-width:520px){.gouv li{grid-template-columns:minmax(0,1fr)}}
 .audit{grid-column:2/-1;margin:8px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 .audit ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:10px}
@@ -186,7 +196,7 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
 .audit .rm{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 .audit-m{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .audit-ok{margin:0;color:var(--acc);font-size:13px}
-.audit-note{margin:4px 0 0;color:var(--mute);font-size:12px;text-wrap:pretty}
+.audit-note{margin:4px 0 0;color:var(--mute);font-size:12px}
 .pourquoi .quand{color:var(--mute);font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
 .lic{border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .votes{margin-left:8px;font:12px var(--mono);color:var(--acc);font-weight:400}
@@ -195,14 +205,16 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
 .niv[data-e=moyen]{color:#8a6d1f}
 .niv[data-e=faible]{color:var(--err)}
 .niv[data-e=inconnu]{color:var(--mute)}
-@media (prefers-color-scheme:dark){.niv[data-e=moyen]{color:#e3c05c}}
+:root[data-theme=dark] .niv[data-e=moyen]{color:#e3c05c}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .niv[data-e=moyen]{color:#e3c05c}}
 .item .mt .lien{height:28px;width:32px;padding:0;justify-content:center}
 .ic{width:16px;height:16px;display:block;flex:none}
 .etiq{border-radius:4px;padding:0 6px;border:1px solid currentColor;font-size:11px;white-space:nowrap}
 .etiq.pack{color:var(--acc)}
 .etiq.mort{color:var(--err)}
 .etiq.nonlibre{color:#8a6d1f}
-@media (prefers-color-scheme:dark){.etiq.nonlibre{color:#e3c05c}}
+:root[data-theme=dark] .etiq.nonlibre{color:#e3c05c}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .etiq.nonlibre{color:#e3c05c}}
 .suggest{position:relative}
 .liste-sug{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);max-height:16rem;overflow-y:auto;
   background:var(--carte,var(--bg));border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
@@ -212,7 +224,7 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
 
 .empty{color:var(--mute);padding:18px 0;font-size:14px}
 .more{margin-top:16px}
-@media (max-width:520px){.wrap{padding:0 16px}.tag,.sub{display:none}.item{grid-template-columns:minmax(0,1fr)}.item .btn{justify-self:start;margin-top:6px}.btn.go{padding:0 14px}}
+@media (max-width:520px){.wrap{padding:0 16px}.tag,.sub{display:none}.theme{margin-left:auto}.item{grid-template-columns:minmax(0,1fr)}.item .btn{justify-self:start;margin-top:6px}.btn.go{padding:0 14px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -225,17 +237,22 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
         <b>yunopack</b>
       </a>
       <span class="tag" data-t="tag"></span>
+      <div class="theme" id="theme" role="group">
+        <button type="button" data-v="auto" data-t="th_auto"></button>
+        <button type="button" data-v="light" data-t="th_clair"></button>
+        <button type="button" data-v="dark" data-t="th_sombre"></button>
+      </div>
     </div>
     <nav role="tablist" aria-label="Sections">
-      <button role="tab" data-tab="run" aria-selected="true" data-t="ong_run"></button>
-      <button role="tab" data-tab="wish" aria-selected="false"><span data-t="ong_wish"></span><span class="n" id="wish-n"></span></button>
-      <button role="tab" data-tab="alt" aria-selected="false" data-t="ong_alt"></button>
+      <button role="tab" id="tab-b-run" data-tab="run" aria-selected="true" aria-controls="tab-run" data-t="ong_run"></button>
+      <button role="tab" id="tab-b-wish" data-tab="wish" aria-selected="false" aria-controls="tab-wish"><span data-t="ong_wish"></span><span class="n" id="wish-n"></span></button>
+      <button role="tab" id="tab-b-alt" data-tab="alt" aria-selected="false" aria-controls="tab-alt" data-t="ong_alt"></button>
     </nav>
   </div>
 </header>
 
 <main class="wrap">
-  <section id="tab-run" role="tabpanel">
+  <section id="tab-run" role="tabpanel" aria-labelledby="tab-b-run">
     <h1 data-t="run_t"></h1>
     <p class="lead" data-t="run_lead"></p>
     <form id="form" novalidate>
@@ -259,7 +276,7 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
     </div>
   </section>
 
-  <section id="tab-wish" role="tabpanel" hidden>
+  <section id="tab-wish" role="tabpanel" aria-labelledby="tab-b-wish" hidden>
     <div class="lh"><h1 data-t="wish_t"></h1><span class="c" id="wish-c"></span></div>
     <p class="lead"><span data-t="wish_lead"></span>
       <a href="https://apps.yunohost.org/wishlist" target="_blank" rel="noopener noreferrer" data-t="wish_voter"></a>.</p>
@@ -269,7 +286,7 @@ ul.items{list-style:none;margin:18px 0 0;padding:0;border-top:1px solid var(--li
     <div class="more" id="wish-more"></div>
   </section>
 
-  <section id="tab-alt" role="tabpanel" hidden>
+  <section id="tab-alt" role="tabpanel" aria-labelledby="tab-b-alt" hidden>
     <h1 data-t="alt_t"></h1>
     <p class="lead" data-t="alt_lead"></p>
     <form id="alt-form" novalidate>
@@ -385,7 +402,8 @@ const LANGUES = {
     contribuer: 'Proposer un correctif',
     contribution: 'envoi…',
     demande_ouverte: 'Voir la demande',
-    contribuer_aide: "Ouvre une demande d'intégration sur le dépôt du paquet. Rien n'est fusionné : le mainteneur décide."
+    contribuer_aide: "Ouvre une demande d'intégration sur le dépôt du paquet. Rien n'est fusionné : le mainteneur décide.",
+    th: 'Thème', th_auto: 'auto', th_clair: 'clair', th_sombre: 'sombre'
   },
   en: {
     tag: 'git repository → YunoHost package',
@@ -460,7 +478,8 @@ const LANGUES = {
     contribuer: 'Offer a fix',
     contribution: 'sending…',
     demande_ouverte: 'See the pull request',
-    contribuer_aide: 'Opens a pull request on the package repository. Nothing is merged: the maintainer decides.'
+    contribuer_aide: 'Opens a pull request on the package repository. Nothing is merged: the maintainer decides.',
+    th: 'Theme', th_auto: 'auto', th_clair: 'light', th_sombre: 'dark'
   },
   es: {
     tag: 'repositorio git → paquete YunoHost',
@@ -535,7 +554,8 @@ const LANGUES = {
     contribuer: 'Proponer una corrección',
     contribution: 'enviando…',
     demande_ouverte: 'Ver la solicitud',
-    contribuer_aide: 'Abre una solicitud de integración en el repositorio del paquete. Nada se fusiona: decide quien lo mantiene.'
+    contribuer_aide: 'Abre una solicitud de integración en el repositorio del paquete. Nada se fusiona: decide quien lo mantiene.',
+    th: 'Tema', th_auto: 'auto', th_clair: 'claro', th_sombre: 'oscuro'
   }
 };
 
@@ -737,12 +757,30 @@ const tabs = ['run', 'wish', 'alt'];
 const HASH = {run: '', wish: 'souhaits', alt: 'alternatives'};
 function show(t, push) {
   tabs.forEach(x => { $('#tab-' + x).hidden = x !== t; });
-  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t));
+  /* Un seul onglet dans le parcours du clavier, les flèches passent aux
+     autres : c'est ainsi que se comporte un jeu d'onglets partout ailleurs. */
+  document.querySelectorAll('nav [role=tab]').forEach(b => {
+    const actif = b.dataset.tab === t;
+    b.setAttribute('aria-selected', actif);
+    b.tabIndex = actif ? 0 : -1;
+  });
   if (push) history.replaceState(null, '', HASH[t] ? '#' + HASH[t] : location.pathname + location.search);
   if (t === 'wish') loadWish();
   if (t === 'alt') setTimeout(() => $('#alt-q').focus(), 0);
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); show(b.dataset.tab, true); }));
+
+$('nav').addEventListener('keydown', e => {
+  const pas = {ArrowRight: 1, ArrowLeft: -1, Home: 'd', End: 'f'}[e.key];
+  if (pas === undefined) return;
+  e.preventDefault();
+  const onglets = [...document.querySelectorAll('nav [role=tab]')];
+  const i = onglets.findIndex(o => o.getAttribute('aria-selected') === 'true');
+  const j = pas === 'd' ? 0 : pas === 'f' ? onglets.length - 1
+          : (i + pas + onglets.length) % onglets.length;
+  show(onglets[j].dataset.tab, true);
+  onglets[j].focus();
+});
 const fromHash = () => show(Object.keys(HASH).find(k => HASH[k] && '#' + HASH[k] === location.hash) || 'run');
 
 /* ——— Pipeline ——— */
@@ -1266,7 +1304,7 @@ function gouvernance(f) {
         tr('revue') + ' — ', h('b', {text: (sc.dixiemes / 10).toFixed(1) + '/10'}),
         sc.date ? ' · ' + sc.date : ''),
       h('div', {class: 'notes'}, sc.criteres.map(c =>
-        h('div', {class: 'note'},
+        h('div', {class: 'critere'},
           h('span', {class: 'n', text: c.nom}),
           h('span', {class: 'jauge', 'data-n': c.note >= 7 ? 'bon' : c.note >= 4 ? 'moyen' : 'faible'},
             h('i', {style: 'width:' + (c.note * 10) + '%'})),
@@ -1727,6 +1765,22 @@ function redessiner() {
    pour les trois langues, et rien à tenir en double dans le balisage. */
 document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
 document.querySelectorAll('[data-ph]').forEach(e => { e.placeholder = tr(e.dataset.ph); });
+
+/* Thème : trois positions, mémorisées dans le navigateur. « auto » efface le choix. */
+const themeEl = $('#theme');
+themeEl.setAttribute('aria-label', tr('th'));
+function appliquerTheme(v) {
+  const r = document.documentElement;
+  if (v === 'light' || v === 'dark') r.dataset.theme = v; else { v = 'auto'; delete r.dataset.theme; }
+  themeEl.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  return v;
+}
+appliquerTheme(document.documentElement.dataset.theme);
+themeEl.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const v = appliquerTheme(b.dataset.v);
+  try { v === 'auto' ? localStorage.removeItem('yunopack:theme') : localStorage.setItem('yunopack:theme', v); } catch (e) {}
+});
 
 window.addEventListener('hashchange', fromHash);
 fromHash();
