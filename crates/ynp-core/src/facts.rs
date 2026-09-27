@@ -352,6 +352,35 @@ pub struct StackFacts {
     /// Dependances npm/pip exigeant des paquets `-dev` cote systeme.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub native_deps: Vec<String>,
+    /// Le langage que le depot annonce a sa racine quand YunoHost ne sait pas
+    /// le provisionner. Sa presence invalide les pistes ci-dessous : elles ne
+    /// designeraient qu'un composant secondaire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub langage_hors_perimetre: Option<String>,
+    /// La commande de demarrage que le projet declare lui-meme, quand il le
+    /// fait ailleurs que dans un Dockerfile, et d'ou elle vient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commande_declaree: Option<CommandeDeclaree>,
+    /// Technologies reperees hors de la racine, de la mieux attestee a la
+    /// moins. Renseignee seulement quand la racine n'a rien appris : elle
+    /// sert alors a proposer, pas a conclure.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pistes: Vec<PisteTechnologie>,
+}
+
+/// Une commande de demarrage que le projet enonce, et la source qui l'enonce.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandeDeclaree {
+    pub commande: String,
+    pub ou: String,
+}
+
+/// Une technologie apercue quelque part dans le depot, et ou.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PisteTechnologie {
+    pub technologie: Technology,
+    /// Le ou les fichiers qui l'attestent, tels qu'on les montrera.
+    pub ou: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

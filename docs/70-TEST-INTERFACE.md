@@ -8,6 +8,26 @@ Il se déroule à la main, dans un navigateur, sur une instance de
 développement. Chaque point a un critère vérifiable — pas « c'est joli »,
 mais « l'élément est là, à sa place, et se comporte comme ailleurs ».
 
+## Le banc d'essai
+
+    ./tools/apercu.sh     puis  http://127.0.0.1:8080/tools/apercu.html
+
+`tools/apercu.html` charge la vraie `page.html` dans un cadre et remplace
+`fetch` et `EventSource` par des relevés pris sur un serveur réel
+(`tools/apercu/`). On y passe d'un écran à l'autre — accueil, souhaits,
+alternatives, arbitrages, forge muette — et d'une largeur à l'autre sans
+serveur, sans réseau, et sans attendre qu'un dépôt s'analyse.
+
+Le bouton **Mesurer** applique les contrôles mécaniques du tableau
+ci-dessous à l'écran affiché et liste ce qui cloche : débordement
+horizontal, texte suivi mis en grille, élément qui dépasse à droite,
+colonne d'action désalignée, cible sous les 24 px de WCAG 2.5.8. Ce qu'il
+ne dit pas — lisibilité, contraste, ordre de lecture — reste à l'œil.
+
+Les relevés sont datés : les refaire consiste à rejouer les points d'entrée
+du serveur (`/wishlist`, `/alternatives`, `/audit`, un flux `/jobs/:id/events`)
+et à réécrire les fichiers correspondants.
+
 ## Ce qu'on vérifie partout
 
 | Point | Critère |
@@ -15,7 +35,7 @@ mais « l'élément est là, à sa place, et se comporte comme ailleurs ».
 | Largeur | Le contenu reste dans 760 px, centré, avec au moins 16 px de marge latérale |
 | Débordement | Aucune barre de défilement horizontale, à aucune largeur |
 | Alignement | Le bord droit de la colonne d'action s'aligne d'une ligne à l'autre. Les bords gauches peuvent différer : les libellés n'ont pas la même longueur, et les figer gaspillerait la largeur |
-| Cible | Tout ce qui se clique fait au moins 26 px de haut |
+| Cible | Tout ce qui se clique fait au moins 24 px de haut (WCAG 2.5.8) |
 | Retour | Un bouton qui déclenche une attente le dit pendant l'attente |
 | Clavier | `Tab` atteint chaque élément actionnable, `Entrée` l'active |
 | Focus | L'élément au clavier porte un contour visible |

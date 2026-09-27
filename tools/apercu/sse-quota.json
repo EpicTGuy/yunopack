@@ -1,0 +1,10 @@
+[
+ {
+  "event": "message",
+  "data": "{\"etape\": \"analyse\", \"message\": \"recuperation du depot…\", \"termine\": false, \"succes\": true}"
+ },
+ {
+  "event": "message",
+  "data": "{\"etape\": \"fin\", \"message\": \"quota d'API epuise sur github.com — definir GITHUB_TOKEN pour le relever\", \"termine\": true, \"succes\": false}"
+ }
+]

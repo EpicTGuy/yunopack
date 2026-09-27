@@ -1,0 +1,244 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aperçu yunopack</title>
+<!--
+  Banc d'essai de l'interface.
+
+  Il charge la vraie `page.html` dans un cadre et lui substitue `fetch` et
+  `EventSource` par des relevés pris sur un serveur réel (`tools/apercu/`).
+  On voit donc l'interface telle qu'elle est, sans serveur, sans réseau et
+  sans attendre qu'un dépôt s'analyse — ce qui rend le plan de test de
+  `docs/70-TEST-INTERFACE.md` rejouable à volonté.
+
+      ./tools/apercu.sh        puis  http://127.0.0.1:8080/tools/apercu.html
+
+  Ce fichier ne part pas avec le paquet : c'est un outil de développement.
+-->
+<style>
+:root{color-scheme:light dark;--l:#d8d4cc;--m:#6b665e;--b:#faf9f7;--f:#1a1814}
+@media (prefers-color-scheme:dark){:root{--l:#33302b;--m:#948e84;--b:#14130f;--f:#ecE9e3}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,sans-serif;background:var(--b);color:var(--f)}
+header{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--l)}
+h1{font-size:14px;font-weight:600;margin:0 8px 0 0}
+fieldset{border:0;margin:0;padding:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+legend{float:left;margin-right:8px;font-size:12px;color:var(--m)}
+button,select{font:inherit;font-size:13px;padding:4px 11px;border:1px solid var(--l);border-radius:999px;
+  background:var(--b);color:var(--f);cursor:pointer}
+button[aria-pressed=true]{background:var(--f);color:var(--b);border-color:var(--f)}
+main{padding:18px;display:flex;justify-content:center}
+iframe{border:1px solid var(--l);border-radius:10px;background:var(--b);width:1100px;max-width:100%;height:calc(100vh - 120px)}
+.mes{padding:0 18px 14px;font:12px ui-monospace,monospace;color:var(--m)}
+</style>
+
+<header>
+  <h1>Aperçu yunopack</h1>
+  <fieldset id="sc"><legend>Écran</legend></fieldset>
+  <fieldset id="la"><legend>Langue</legend></fieldset>
+  <fieldset id="lg"><legend>Largeur</legend></fieldset>
+  <button id="mesurer" aria-pressed="false">Mesurer</button>
+</header>
+<main><iframe id="vue" title="Interface yunopack"></iframe></main>
+<p class="mes" id="rapport"></p>
+
+<script type="module">
+const SCENARIOS = {
+  accueil:      {t: 'Accueil',      onglet: 'run'},
+  souhaits:     {t: 'Souhaits',     onglet: 'wish'},
+  alternatives: {t: 'Alternatives', onglet: 'alt', q: 'Notion'},
+  arbitrage:    {t: 'Arbitrages',   onglet: 'run', sse: 'arbitrage'},
+  quota:        {t: 'Forge muette', onglet: 'run', sse: 'quota'},
+};
+const LARGEURS = {'Bureau': 1100, 'Tablette': 760, 'Téléphone': 400, 'Étroit': 360};
+
+const $ = s => document.querySelector(s);
+let etat = {sc: 'accueil', langue: 'fr', largeur: 1100};
+
+/* Les relevés, pris une fois pour toutes sur un serveur réel. */
+const cache = new Map();
+const relever = async nom => {
+  if (!cache.has(nom)) {
+    const r = await fetch(`apercu/${nom}.json`);
+    cache.set(nom, r.ok ? await r.json() : null);
+  }
+  return cache.get(nom);
+};
+
+/* Le mock, injecté dans le cadre avant le script de la page.
+   Il est sérialisé tel quel : tout ce dont il a besoin passe par __FX__. */
+function mock() {
+  const FX = window.__FX__;
+  /* La page prefixe ses appels par son propre chemin, qui dans un srcdoc
+     vaut « srcdoc/ ». On ne garde donc que la fin, qui nomme la route. */
+  const chemin = u => {
+    const p = new URL(u, 'http://x/').pathname;
+    const m = p.match(/(jobs\/[^/]+\/[a-z.]+|jobs\/[^/]+|jobs|[a-z]+)\/?$/);
+    return m ? m[1] : p;
+  };
+  const json = d => Promise.resolve(new Response(JSON.stringify(d),
+    {status: 200, headers: {'content-type': 'application/json'}}));
+
+  /* about:srcdoc n'a pas d'adresse a reecrire. */
+  history.replaceState = () => {};
+  history.pushState = () => {};
+
+  window.fetch = (u, o) => {
+    const c = chemin(typeof u === 'string' ? u : u.url);
+    if (c === 'forge')        return json(FX.forge);
+    if (c === 'suggestions')  return json(FX.suggestions);
+    if (c === 'wishlist')     return json(FX.wishlist);
+    if (c === 'alternatives') return json(FX.alternatives);
+    if (c === 'audit')        return json(FX.audit);
+    if (c === 'evaluations')  return json({fiches: FX.evaluations || []});
+    if (c === 'recherche')    return json([]);
+    if (c === 'jobs') return json({id: 'apercu'});
+    if (c.startsWith('jobs/')) return json(FX.job || {});
+    if (c === 'contribuer')   return json({url: 'https://github.com/YunoHost-Apps/x_ynh/pull/1'});
+    return json(null);
+  };
+
+  /* L'ecran demande, une fois la page montee. Le script de la page est
+     enferme dans une fonction : on la pilote donc comme un visiteur, en
+     cliquant ses propres commandes — ce qui est aussi le meilleur test. */
+  addEventListener('load', () => setTimeout(() => {
+    const $$ = s => document.querySelector(s);
+    if (FX.onglet && FX.onglet !== 'run') $$(`nav [data-tab="${FX.onglet}"]`)?.click();
+    if (FX.q) { const c = $$('#alt-q'); if (c) { c.value = FX.q; $$('#alt-form')?.requestSubmit(); } }
+    if (FX.sse) {
+      const u = $$('#url');
+      if (u) { u.value = 'https://github.com/exemple/projet'; u.form?.requestSubmit(); }
+    }
+  }, 30));
+
+  /* Un EventSource qui rejoue un flux enregistré, à cadence resserrée :
+     l'interface se comporte comme en vrai, sans les minutes d'attente. */
+  window.EventSource = class {
+    constructor() {
+      this.l = {};
+      // La page s'abonne juste apres la construction : on laisse un tour.
+      setTimeout(() => this.rejouer(), 60);
+    }
+    addEventListener(n, f) { (this.l[n] ||= []).push(f); }
+    removeEventListener(n, f) { this.l[n] = (this.l[n] || []).filter(x => x !== f); }
+    close() { this.fini = true; }
+    emettre(nom, ev) {
+      const direct = this['on' + nom];
+      if (direct) direct.call(this, ev);
+      (this.l[nom] || []).forEach(f => f.call(this, ev));
+    }
+    rejouer() {
+      const flux = FX.sse || [];
+      flux.forEach((e, i) => setTimeout(() => {
+        if (this.fini) return;
+        this.emettre(e.event, {data: e.data, type: e.event});
+      }, i * 260));
+      /* Le serveur ne coupe pas quand il attend une decision : il garde la
+         main. On ne signale donc la fin que si le flux se termine vraiment. */
+      const dernier = flux.length ? JSON.parse(flux[flux.length - 1].data) : {};
+      if (!dernier.termine && !(dernier.arbitrages || []).length) {
+        setTimeout(() => { if (!this.fini) this.emettre('error', {type: 'error'}); },
+          flux.length * 260 + 400);
+      }
+    }
+  };
+}
+
+async function rendre() {
+  const s = SCENARIOS[etat.sc];
+  const fx = {
+    forge:        await relever('forge'),
+    suggestions:  await relever('suggestions'),
+    wishlist:     await relever('wishlist'),
+    alternatives: await relever('alternatives'),
+    audit:        await relever('audit'),
+    evaluations:  await relever('evaluations'),
+    sse:          s.sse ? await relever('sse-' + s.sse) : null,
+    job:          await relever('job'),
+    onglet:       s.onglet,
+    q:            s.q || null,
+  };
+
+  const src = await (await fetch('../crates/yunopack-server/src/page.html')).text();
+  const injection = `<script>window.__FX__=${JSON.stringify(fx)};(${mock.toString()})();<\/script>`;
+  // Le mock doit précéder le script de la page : on l'insère avant le premier.
+  const i = src.indexOf('<script');
+  const page = (src.slice(0, i) + injection + src.slice(i))
+    .replace("'__LANGUE__'", JSON.stringify(etat.langue));
+
+  const vue = $('#vue');
+  vue.style.width = etat.largeur + 'px';
+  vue.srcdoc = page;
+  $('#rapport').textContent = '';
+}
+
+/* ——— Les mesures que demande docs/70-TEST-INTERFACE.md ——— */
+function mesurer() {
+  const d = $('#vue').contentDocument, w = $('#vue').contentWindow;
+  const ennuis = [];
+  const large = d.documentElement.clientWidth;
+  const vis = e => e.offsetParent !== null;
+  const nom = e => `<${e.tagName.toLowerCase()}${e.className ? ' class="' + e.className + '"' : ''}${e.id ? ' id="' + e.id + '"' : ''}>`;
+
+  if (d.documentElement.scrollWidth > large + 1)
+    ennuis.push(`débordement horizontal : ${d.documentElement.scrollWidth}px pour ${large}px`);
+
+  /* Un texte suivi doit couler, pas se ranger en colonnes. On ne regarde que
+     les elements qui ne portent que du texte : une grille de mise en page en
+     contient d'autres, et n'a rien a se reprocher. */
+  d.querySelectorAll('p, li').forEach(e => {
+    if (vis(e) && !e.children.length && e.textContent.trim().length > 120
+        && w.getComputedStyle(e).display === 'grid')
+      ennuis.push(`texte suivi en grille : ${nom(e)} — « ${e.textContent.trim().slice(0, 40)}… »`);
+  });
+
+  d.querySelectorAll('body *').forEach(e => {
+    if (!vis(e)) return;
+    const r = e.getBoundingClientRect();
+    if (r.width && r.right > large + 1)
+      ennuis.push(`dépasse à droite de ${Math.round(r.right - large)}px : ${nom(e)}`);
+  });
+
+  /* Au-dela de 520px les actions forment une colonne : leurs bords droits
+     doivent coincider. En dessous, la mise en page les passe a la ligne. */
+  if (large > 520) ['.item .btn', '.item .fais'].forEach(sel => {
+    const bords = new Set();
+    d.querySelectorAll(sel).forEach(e => { if (vis(e)) bords.add(Math.round(e.getBoundingClientRect().right)); });
+    if (bords.size > 1) ennuis.push(`colonne « ${sel} » non alignée : ${[...bords].sort((a, b) => a - b).join(', ')}`);
+  });
+
+  /* Les cibles tactiles. Un lien au fil d'un paragraphe n'en est pas une :
+     il suit la hauteur de sa ligne, et c'est normal. */
+  d.querySelectorAll('button, input, select, a.btn, .btn').forEach(e => {
+    const r = e.getBoundingClientRect();
+    if (vis(e) && r.height && r.height < 24)
+      ennuis.push(`cible de ${Math.round(r.height)}px (24 minimum, WCAG 2.5.8) : ${nom(e)} « ${e.textContent.trim().slice(0, 20)} »`);
+  });
+
+  const vu = new Set();
+  const propres = ennuis.filter(x => !vu.has(x) && vu.add(x));
+  $('#rapport').textContent = propres.length
+    ? propres.slice(0, 14).map(x => '• ' + x).join('\n')
+    : `✓ ${etat.largeur}px / ${etat.langue} — rien à signaler`;
+  $('#rapport').style.whiteSpace = 'pre-line';
+}
+
+function boutons(hote, entrees, cle, valeur) {
+  entrees.forEach(([txt, v]) => {
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.setAttribute('aria-pressed', etat[cle] === v);
+    b.onclick = () => {
+      etat[cle] = v;
+      hote.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      rendre();
+    };
+    hote.append(b);
+  });
+}
+boutons($('#sc'), Object.entries(SCENARIOS).map(([k, v]) => [v.t, k]), 'sc');
+boutons($('#la'), [['FR', 'fr'], ['EN', 'en'], ['ES', 'es']], 'langue');
+boutons($('#lg'), Object.entries(LARGEURS), 'largeur');
+$('#mesurer').onclick = mesurer;
+rendre();
+</script>

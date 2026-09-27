@@ -228,6 +228,44 @@ impl Rule for BuildGourmand {
     }
 }
 
+/// Le depot annonce a sa racine un langage que YunoHost ne provisionne pas.
+///
+/// La difference avec `StackInconnue` : ici on sait dans quoi l'application
+/// est ecrite, et c'est justement ce qui la disqualifie. Demander a l'humain
+/// de choisir un langage dans une liste qui ne contient pas le sien ne menerait
+/// nulle part, et lui proposer le frontal JavaScript du projet — le cas de
+/// Plausible, ecrit en Elixir — serait pire : une reponse fausse presentee
+/// avec sa source.
+pub struct LangageNonProvisionnable;
+
+impl Rule for LangageNonProvisionnable {
+    fn id(&self) -> &'static str {
+        "RUN002"
+    }
+
+    fn check(&self, facts: &RepoFacts) -> Option<Finding> {
+        let langage = facts.stack.langage_hors_perimetre.as_ref()?;
+        Some(
+            Finding::new(
+                self.id(),
+                Severity::Blocker,
+                format!("{langage} : langage non provisionnable par YunoHost"),
+            )
+            .detail(format!(
+                "Le depot annonce a sa racine un projet {langage}. YunoHost fournit des \
+                 resources pour Node.js, Go, Ruby, PHP et Composer, et un environnement \
+                 virtuel se construit a la main pour Python ; il n'a rien pour {langage}. \
+                 Installer le langage lui-meme sortirait de ce qu'un paquet peut faire."
+            ))
+            .remediation(format!(
+                "Verifier si l'amont publie un binaire autonome pour Debian : il dispenserait \
+                 d'installer {langage}. Sinon, l'application sort du modele YunoHost tant que \
+                 le catalogue n'offre pas de resource pour ce langage."
+            )),
+        )
+    }
+}
+
 pub struct RecetteIntrouvable;
 
 impl Rule for RecetteIntrouvable {
@@ -268,8 +306,20 @@ impl Rule for RecetteIntrouvable {
             )
             .detail(format!(
                 "Le packager ne sait pas produire l'application a partir des sources, car \
-                     {motif} — et il ne l'inventera pas. C'est typiquement le cas d'un projet \
-                     dont le seul chemin d'auto-hebergement documente est une image publiee."
+                     {motif} — et il ne l'inventera pas.{}",
+                match facts.stack.primary {
+                    // Un programme compile se construit par une commande
+                    // unique, mais elle designe un paquet principal que le
+                    // depot ne nomme nulle part : c'est cela qui manque, pas
+                    // une recette entiere.
+                    Technology::Go | Technology::Rust =>
+                        " Le langage a pourtant une commande de construction unique : il ne \
+                         manque que le paquet principal a construire, que le depot ne designe \
+                         pas.",
+                    _ =>
+                        " C'est typiquement le cas d'un projet dont le seul chemin \
+                         d'auto-hebergement documente est une image publiee.",
+                }
             ))
             .remediation(
                 "Chercher la recette ailleurs : instructions de construction du projet, \
@@ -507,6 +557,25 @@ impl Rule for ModulesNatifs {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn un_langage_non_provisionnable_est_un_refus_et_non_une_question() {
+        // Cas de Plausible : ecrit en Elixir, avec un frontal JavaScript.
+        // Sans cette regle, l'outil proposait « Node.js, d'apres
+        // assets/package.json » — sourcé, et faux.
+        let mut f = RepoFacts::default();
+        f.stack.langage_hors_perimetre = Some("Elixir".into());
+        let c = LangageNonProvisionnable.check(&f).expect("un constat");
+        assert_eq!(c.severity, Severity::Blocker);
+        assert!(c.title.contains("Elixir"), "{}", c.title);
+    }
+
+    #[test]
+    fn un_langage_connu_ne_declenche_rien() {
+        assert!(LangageNonProvisionnable
+            .check(&RepoFacts::default())
+            .is_none());
+    }
     use super::*;
     use crate::tests::depot_sain;
     use ynp_core::facts::{BuildRecipe, Database, ServiceFacts, StackFacts};

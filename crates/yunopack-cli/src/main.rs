@@ -601,15 +601,27 @@ fn strategie(c: &ynp_forge::SourceChoice) -> &'static str {
 
 /// Gate G2 : conformite statique.
 fn verify(chemin: Option<&std::path::Path>, cli: &Cli) -> anyhow::Result<()> {
-    // Un paquet genere emporte son `.appspec.toml` : c'est ce qui permet de le
-    // reverifier tel quel, sans avoir rejoue `plan` dans le repertoire de
-    // travail. On ne se rabat dessus que si le repertoire de travail n'en a
-    // pas, pour qu'une session en cours garde la main.
-    let spec_path = match chemin {
-        Some(c) if !cli.out.join("appspec.toml").is_file() && c.join(".appspec.toml").is_file() => {
-            c.join(".appspec.toml")
-        }
-        _ => cli.out.join("appspec.toml"),
+    // `verify` relit la specification qui a produit le paquet : c'est elle qui
+    // dit ce que le paquet devait contenir. On la cherche d'abord a cote du
+    // paquet, la ou un paquet copie ailleurs emporterait la sienne, puis dans
+    // le repertoire de travail de la session en cours.
+    let a_cote = chemin
+        .map(|c| c.join(".appspec.toml"))
+        .filter(|p| p.is_file());
+    let dans_le_travail = cli.out.join("appspec.toml");
+    let spec_path = match a_cote {
+        Some(p) => p,
+        None if dans_le_travail.is_file() => dans_le_travail,
+        None => anyhow::bail!(
+            "specification introuvable : ni {} ni {}.\n  \
+             Elle est ecrite par `yunopack plan`, et le serveur la depose a cote \
+             du paquet qu'il produit — indiquer ce repertoire avec `--out`.",
+            chemin
+                .map(|c| c.join(".appspec.toml"))
+                .unwrap_or_else(|| dans_le_travail.clone())
+                .display(),
+            dans_le_travail.display()
+        ),
     };
     let spec: ynp_core::AppSpec = toml::from_str(
         &std::fs::read_to_string(&spec_path)

@@ -42,6 +42,7 @@ nav button[aria-selected=true]{color:var(--fg);border-color:var(--acc)}
 nav .n{font:12px var(--mono);color:var(--mute);margin-left:6px}
 main.wrap{padding-top:40px;padding-bottom:72px}
 h1{font-size:20px;line-height:1.3;margin:0}
+#tab-run > h1{margin-bottom:20px}
 .lead{color:var(--mute);margin:4px 0 20px;max-width:62ch;text-wrap:pretty}
 .lbl{display:block;font:12px var(--mono);color:var(--mute);margin:0 0 6px}
 .row{display:flex;gap:8px}
@@ -87,7 +88,7 @@ ol.steps{list-style:none;margin:0;padding:0}
 .hd:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
 .expl{margin:6px 0 2px;padding:10px 12px;background:var(--panel);border-radius:6px}
 .expl ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
-.expl li{font-size:13px;line-height:1.55;color:var(--fg)}
+.expl li{font-size:13px;line-height:1.55;color:var(--fg);text-wrap:pretty}
 .nm{font-weight:600}
 .step[data-s=pending] .nm,.step[data-s=skipped] .nm{color:var(--mute);font-weight:500}
 .sub{color:var(--mute);font-size:13px}
@@ -111,16 +112,16 @@ ol.steps{list-style:none;margin:0;padding:0}
 .why ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
 .why li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline;font-size:14px}
 .code{font:600 12px/1.6 var(--mono);padding:0 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line);color:var(--fg);white-space:nowrap}
-.why .note{margin:10px 0 0;color:var(--mute);font-size:13px}
+.why .note{margin:10px 0 0;color:var(--mute);font-size:13px;text-wrap:pretty}
 
 /* Arbitrages : ce que le depot ne dit pas, et qu'on demande plutot que d'inventer. */
 .ask{margin-top:12px;border:1px solid var(--acc);border-radius:6px;background:var(--acc-bg);padding:14px 16px}
 .ask-t{margin:0 0 4px;font-weight:600;color:var(--acc)}
-.ask-i{margin:0 0 16px;color:var(--mute);font-size:13px}
+.ask-i{margin:0 0 16px;color:var(--mute);font-size:13px;text-wrap:pretty}
 .fld{margin-bottom:18px}
 .fld:last-of-type{margin-bottom:14px}
 .fld > .k{font:600 13px var(--mono);display:block;margin-bottom:2px}
-.fld .why-not{margin:0 0 2px;color:var(--mute);font-size:13px}
+.fld .why-not{margin:0 0 2px;color:var(--mute);font-size:13px;text-wrap:pretty}
 .fld .look{margin:0 0 8px;color:var(--mute);font-size:12px;font-style:italic}
 .opts{display:grid;gap:4px;margin-bottom:8px}
 .opt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:var(--bg);cursor:pointer}
@@ -142,7 +143,7 @@ ol.steps{list-style:none;margin:0;padding:0}
 .cmd code::before{content:"$ ";color:var(--mute)}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .apres{margin-top:22px;border-top:1px solid var(--line);padding-top:20px}
-.apres .note{margin:0;color:var(--mute);font-size:13px}
+.apres .note{margin:0;color:var(--mute);font-size:13px;text-wrap:pretty}
 .publie{margin:0 0 12px;font:13px var(--mono);overflow-wrap:anywhere}
 .publie a{overflow-wrap:anywhere}
 .stop{margin-top:32px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:22px;font:13px var(--mono);color:var(--mute)}
@@ -159,7 +160,7 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
 /* Badge de faisabilite : le meme verdict que celui du pipeline, pas une
    estimation faite a part qui pourrait en diverger. */
 .fais{appearance:none;border:1px solid var(--line);border-radius:999px;background:transparent;
-      font:600 12px var(--mono);color:var(--mute);padding:3px 10px;white-space:nowrap;cursor:default;min-width:56px;text-align:center}
+      font:600 12px var(--mono);color:var(--mute);padding:3px 10px;white-space:nowrap;cursor:default;min-width:56px;text-align:center;min-height:24px}
 .fais[data-v=feasible]{color:var(--acc);border-color:var(--acc);background:var(--acc-bg)}
 .fais[data-v=work]{color:#8a6d1f;border-color:#c9a227;background:#fbf4e0}
 :root[data-theme=dark] .fais[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}
@@ -196,7 +197,7 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
 .audit .rm{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 .audit-m{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .audit-ok{margin:0;color:var(--acc);font-size:13px}
-.audit-note{margin:4px 0 0;color:var(--mute);font-size:12px}
+.audit-note{margin:4px 0 0;color:var(--mute);font-size:12px;text-wrap:pretty}
 .pourquoi .quand{color:var(--mute);font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
 .lic{border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .votes{margin-left:8px;font:12px var(--mono);color:var(--acc);font-weight:400}
@@ -224,7 +225,209 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
 
 .empty{color:var(--mute);padding:18px 0;font-size:14px}
 .more{margin-top:16px}
-@media (max-width:520px){.wrap{padding:0 16px}.tag,.sub{display:none}.theme{margin-left:auto}.item{grid-template-columns:minmax(0,1fr)}.item .btn{justify-self:start;margin-top:6px}.btn.go{padding:0 14px}}
+@media (max-width:520px){.wrap{padding:0 16px}.tag,.sub{display:none}nav{gap:12px}nav button > .ic{display:none}.theme{margin-left:auto}.item{grid-template-columns:minmax(0,1fr)}.item .btn{justify-self:start;margin-top:6px}.btn.go{padding:0 14px}}
+/* ——— Icônes et lecture visuelle ——— */
+nav button{display:inline-flex;align-items:center;gap:7px}
+nav button > .ic{width:15px;height:15px}
+nav button[aria-selected=true] > .ic{color:var(--acc)}
+.btn .ic{width:16px;height:16px}
+.btn.sm .ic{width:14px;height:14px}
+.btn.icone-seule{width:34px;padding:0;justify-content:center}
+.promesses{list-style:none;margin:12px 0 28px;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.promesses li{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 9px;border:1px solid var(--line);border-radius:999px;font-size:13px}
+.promesses .ic{color:var(--acc);width:15px;height:15px}
+.champ-ic{position:relative;flex:1;min-width:0;display:flex}
+.champ-ic > .ic{position:absolute;left:13px;top:50%;margin-top:-8px;color:var(--mute);pointer-events:none}
+.champ-ic > input{padding-left:40px}
+.etapes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:4px 0 0}
+.et{position:relative;appearance:none;background:none;border:0;padding:0;margin:0;color:inherit;font:inherit;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;text-align:center;min-width:0}
+.et::before{content:"";position:absolute;top:23px;left:calc(-50% + 30px);right:calc(50% + 30px);height:2px;border-radius:1px;background:var(--line)}
+.et:first-child::before{display:none}
+.et:not([data-s=pending]):not([data-s=skipped])::before{background:var(--acc)}
+.pas{position:relative;width:48px;height:48px;border-radius:14px;display:grid;place-items:center;border:1.5px solid var(--line);background:var(--bg);color:var(--mute);transition:background .2s,border-color .2s,color .2s}
+.pas > .ic{width:22px;height:22px}
+.et:hover .pas,.et[aria-expanded=true] .pas{border-color:var(--acc);color:var(--acc)}
+.et:focus-visible{outline:none}.et:focus-visible .pas{outline:2px solid var(--acc);outline-offset:3px}
+.et[data-s=running] .pas,.et[data-s=waiting] .pas{border-color:var(--acc);color:var(--acc);background:var(--acc-bg)}
+.et[data-s=running] .pas::after{content:"";position:absolute;inset:-6px;border-radius:18px;border:2px solid var(--acc);animation:pulse 1.2s ease-in-out infinite}
+.et[data-s=ok] .pas{background:var(--acc);border-color:var(--acc);color:var(--acc-fg)}
+.et[data-s=fail] .pas{background:var(--err);border-color:var(--err);color:var(--bg)}
+.et[data-s=skipped] .pas{border-style:dashed}
+.pastille{position:absolute;right:-7px;bottom:-7px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--bg);color:var(--acc);border:1.5px solid currentColor}
+.pastille:empty{display:none}
+.pastille .ic{width:11px;height:11px}
+.pastille .ic path{stroke-width:3}
+.et[data-s=fail] .pastille{color:var(--err)}
+.et .l{font-size:12px;font-weight:600;line-height:1.3;color:var(--fg);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
+.et[data-s=pending] .l,.et[data-s=skipped] .l{color:var(--mute);font-weight:500}
+.expl-et{margin:22px 0 0;padding:14px 16px;border-radius:8px;background:var(--panel)}
+.expl-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap}
+.expl-h .ic{color:var(--acc)}
+.expl-h .sub{color:var(--mute);font-size:13px}
+.expl-et ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.expl-et li{font-size:13px;line-height:1.55;text-wrap:pretty}
+.statut{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:26px 0 24px;padding:10px 14px;border-radius:8px;background:var(--panel);font:13px var(--mono);color:var(--mute)}
+#pipe-t{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;white-space:nowrap}
+#pipe-t strong{color:var(--fg);font-weight:600}
+#pipe-t > .ic{color:var(--acc)}
+.statut.ok #pipe-t strong{color:var(--acc)}
+.statut.fail #pipe-t strong,.statut.fail #pipe-t > .ic{color:var(--err)}
+.spin{width:14px;height:14px;flex:none;border-radius:50%;border:2px solid var(--line);border-top-color:var(--acc);animation:spin .9s linear infinite}
+.horloge{display:inline-flex;align-items:center;gap:6px;flex:none}
+.horloge .ic{width:14px;height:14px}
+.mk .ic{width:13px;height:13px}
+.step[data-s=ok] .mk .ic path,.step[data-s=fail] .mk .ic path{stroke-width:2.6}
+.hd .i{display:inline-flex;align-self:center;color:var(--mute)}
+.hd .i .ic{width:14px;height:14px}
+.hd:hover .i{color:var(--acc)}
+.sum{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;font:12px/1.5 var(--mono);padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.chip .ic{width:13px;height:13px;color:var(--mute)}
+.verdict{display:inline-flex;align-items:center;gap:6px;font:600 12px/1.5 var(--mono);padding:2px 10px 2px 8px;border-radius:999px;border:1px solid var(--acc);color:var(--acc);background:var(--acc-bg)}
+.verdict .ic{width:13px;height:13px}
+.verdict[data-v=work]{color:#8a6d1f;border-color:#c9a227;background:#fbf4e0}
+:root[data-theme=dark] .verdict[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .verdict[data-v=work]{color:#e3c05c;border-color:#7a6220;background:#2a2313}}
+.verdict[data-v=no]{color:var(--err);border-color:var(--err);background:var(--err-bg)}
+.score{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--mute)}
+.score .jauge{width:96px}
+.score b{color:var(--fg)}
+.log summary{align-items:center}
+.log summary .ic{width:13px;height:13px}
+.why-t{display:flex;align-items:center;gap:8px}
+.why li,.pourquoi li,.audit li{align-items:start}
+.why li > .ic{color:var(--err);margin-top:3px}
+.pourquoi li > .ic,.audit li > .ic{margin-top:2px}
+.m-croix > .ic{color:var(--err)}
+.m-alerte > .ic{color:#c9a227}
+.m-info > .ic{color:var(--mute)}
+.ask-t{display:flex;align-items:center;gap:8px}
+.out{display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:center;padding:20px}
+.boite{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;background:var(--acc);color:var(--acc-fg)}
+.boite .ic{width:28px;height:28px}
+.out-t{min-width:0}
+.stats{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.out > .cmd,.out > .acts,.out > .apres{grid-column:1/-1;margin-top:0}
+.apres-l{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:13px;color:var(--mute)}
+.apres-l > span:first-of-type{flex:1;min-width:180px;text-wrap:pretty}
+.apres-a{display:flex;gap:6px;flex-wrap:wrap}
+.fais{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.fais .ic{width:12px;height:12px}
+.item .mt .m{display:inline-flex;align-items:center;gap:4px}
+.item .mt .m .ic{width:13px;height:13px}
+.votes{display:inline-flex;align-items:center;gap:4px}
+.votes .ic{width:12px;height:12px}
+.etiq{display:inline-flex;align-items:center;gap:4px}
+.etiq .ic{width:11px;height:11px}
+.gouv ul{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px}
+.gouv li{grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.gouv li > .ic{color:var(--acc);margin-top:2px}
+.gouv .q,.gouv .p{display:block}
+@media (max-width:520px){.et .l{display:none}.pas{width:44px;height:44px}.et::before{top:21px;left:calc(-50% + 26px);right:calc(50% + 26px)}
+  .out{grid-template-columns:44px minmax(0,1fr)}.boite{width:44px;height:44px;border-radius:12px}.boite .ic{width:22px;height:22px}}
+/* Un seul format d'encart : même bord, même fond, même rayon, même marge
+   intérieure. Le ton (erreur, décision, succès) ne passe que par le titre. */
+.why,.ask,.out,.expl,.expl-et,.statut,.pourquoi,.audit,.log ol{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px 16px;box-shadow:none}
+.statut{padding:10px 16px}
+.why,.ask,.expl,.pourquoi,.audit{margin-top:12px}
+.out{padding:16px}
+/* Colonnes fixes pour le badge et l'action : chaque ligne est sa propre
+   grille, des colonnes « auto » décalaient donc tout d'une ligne à l'autre. */
+.item{grid-template-columns:32px minmax(0,1fr) 104px 164px}
+.item > .fais{width:100%;justify-self:stretch}
+.item > .btn{width:100%;justify-content:center;justify-self:stretch}
+@media (max-width:520px){.item{grid-template-columns:minmax(0,1fr)}.item > .fais,.item > .btn{width:auto;justify-self:start}}
+/* Rien à signaler : ni liste vide, ni trait de séparation au-dessus de rien. */
+.pourquoi > ul:empty{display:none}
+.pourquoi > ul:empty + .gouv{border-top:0;margin-top:0;padding-top:0}
+/* Mobile : plus compact, sans tasser. */
+@media (max-width:520px){
+  .top{padding:14px 0 10px}
+  nav{gap:20px}
+  main.wrap{padding-top:24px;padding-bottom:40px}
+  #tab-run > h1{margin-bottom:14px}
+  .lead{margin:2px 0 14px;font-size:14px}
+  .pipe{margin-top:22px}
+  .statut{margin:18px 0 16px}
+  .step{padding-bottom:16px}
+  .expl-et{margin-top:16px}
+  ul.items{margin-top:16px}
+  .item{padding:14px 0;gap:4px 12px}
+  .item > .fais,.item > .btn{margin-top:4px}
+  .why,.ask,.out,.expl,.expl-et,.pourquoi,.audit{padding:12px 14px}
+  .out{gap:12px}
+  .gouv ul{grid-template-columns:minmax(0,1fr)}
+  .apres{padding-top:14px}
+  .stop{margin-top:20px;padding-top:14px}
+}
+/* Mobile : le bloc de texte se dissout dans la grille de la ligne, ce qui
+   place les liens, le score et l'action sur une même rangée. Les liens
+   occupent la colonne souple et passent à la ligne au besoin : rien ne se
+   chevauche, quelle que soit la largeur des boutons. */
+@media (max-width:520px){
+  .item{grid-template-columns:32px minmax(0,1fr) auto auto;
+    grid-template-areas:"ico nm nm nm" "ico ds ds ds" "ico mt mt mt" "ico lk fa bt";align-items:center;row-gap:0}
+  .item > .ico{grid-area:ico;align-self:start}
+  .item > div:not(.pourquoi):not(.audit){display:contents}
+  .item > div > .nm{grid-area:nm}
+  .item > div > .ds{grid-area:ds}
+  .item > div > .mt:not(:last-child){grid-area:mt}
+  .item > div > .mt:last-child{grid-area:lk;margin-top:8px}
+  .item > .fais,.item > span:empty:not(.ico){grid-area:fa;justify-self:end;margin-top:8px}
+  .item > .btn{grid-area:bt;justify-self:end;margin-top:8px}
+  .item > .pourquoi,.item > .audit{grid-column:1/-1;grid-row:5}
+  .item > .fais{min-width:0}
+}
+/* Encarts intérieurs (propositions, commande, traits du projet, critères) :
+   un seul format, posé sur le fond de l'encart parent. */
+.opt,.cmd,.gouv li,.notes .critere{border:1px solid var(--line);border-radius:6px;background:var(--bg);padding:8px 12px;box-shadow:none}
+.opt:has(input:checked){border-color:var(--acc);box-shadow:none;outline:1px solid var(--acc);outline-offset:-2px}
+.cmd{padding:6px 6px 6px 12px}
+.notes{gap:6px}
+.opts,.gouv ul,.notes{gap:6px}
+.fld .free,.ask select{border-radius:6px;background:var(--bg)}
+/* Étiquettes : même hauteur, même rayon, même police. */
+.lic,.etiq,.niv,.code{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:4px;font:500 11px/1 var(--mono);border:1px solid currentColor;white-space:nowrap}
+.lic,.code{border-color:var(--line);color:var(--fg);background:var(--bg)}
+.niv{margin-left:8px}
+/* Mobile, réglage fin : sous l'icône, les rangées de méta et de liens
+   repartent du bord gauche au lieu de laisser une marge vide ; les liens
+   tiennent ainsi sur une ligne avec le score et l'action. */
+@media (max-width:520px){
+  .item{grid-template-columns:28px minmax(0,1fr) auto auto;column-gap:10px;
+    grid-template-areas:"ico nm nm nm" "ico ds ds ds" "mt mt mt mt" "lk lk fa bt"}
+  .item > .ico{width:28px;height:28px}
+  .item .mt{gap:4px 8px}
+  .item .mt .lien{width:30px;height:30px}
+  .item > div > .mt:not(:last-child){margin-top:6px}
+  .item > .btn{padding:0 10px}
+}
+/* Mobile, alignement : une seule marge gauche pour tout le bloc. L'icône
+   devient une vignette posée devant le nom, comme un titre. */
+@media (max-width:520px){
+  .item{grid-template-columns:22px minmax(0,1fr) auto auto;column-gap:10px;padding:16px 0;
+    grid-template-areas:"ico nm nm nm" "ds ds ds ds" "mt mt mt mt" "lk lk fa bt"}
+  .item > .ico{width:22px;height:22px;border-radius:5px;align-self:center}
+  .item > div > .nm{align-self:center}
+  .item > div > .ds{margin-top:6px}
+  .item > div > .mt:not(:last-child){margin-top:8px}
+  .item > div > .mt:last-child,.item > .fais,.item > span:empty:not(.ico),.item > .btn{margin-top:12px}
+  #alt-form .row{flex-wrap:wrap}
+  #alt-form .champ-ic{flex:1 1 100%}
+  #alt-form .row > .btn{flex:1;justify-content:center}
+  #alt-form .liste-sug{top:48px}
+}
+/* Noms de fichiers : jamais coupés au milieu (« CONTRIBUTING.m / d »).
+   Chacun est une étiquette insécable ; trop long pour la ligne, il passe
+   entier à la suivante, et s'abrège en « … » seulement s'il dépasse la
+   largeur disponible — le nom complet reste au survol. */
+.nomf{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;
+  height:20px;line-height:18px;padding:0 7px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font:500 11px/18px var(--mono)}
+.q.fichiers{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:3px}
+.lien-f{max-width:100%;min-width:0}
+.lien-f .nomf{border:0;background:none;padding:0;height:auto;color:inherit;font:inherit;line-height:inherit}
+.pistes > .nomf{height:26px;line-height:24px}
+.gouv .q,.gouv .p,.item .ds,.pourquoi .rm,.audit .rm,.why li,.opt .w{text-wrap:pretty}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -244,9 +447,9 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
       </div>
     </div>
     <nav role="tablist" aria-label="Sections">
-      <button role="tab" id="tab-b-run" data-tab="run" aria-selected="true" aria-controls="tab-run" data-t="ong_run"></button>
-      <button role="tab" id="tab-b-wish" data-tab="wish" aria-selected="false" aria-controls="tab-wish"><span data-t="ong_wish"></span><span class="n" id="wish-n"></span></button>
-      <button role="tab" id="tab-b-alt" data-tab="alt" aria-selected="false" aria-controls="tab-alt" data-t="ong_alt"></button>
+      <button role="tab" id="tab-b-run" data-tab="run" aria-selected="true" aria-controls="tab-run" data-t="ong_run" data-i="paquet"></button>
+      <button role="tab" id="tab-b-wish" data-tab="wish" aria-selected="false" aria-controls="tab-wish" data-i="coeur"><span data-t="ong_wish"></span><span class="n" id="wish-n"></span></button>
+      <button role="tab" id="tab-b-alt" data-tab="alt" aria-selected="false" aria-controls="tab-alt" data-t="ong_alt" data-i="boussole"></button>
     </nav>
   </div>
 </header>
@@ -254,13 +457,13 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
 <main class="wrap">
   <section id="tab-run" role="tabpanel" aria-labelledby="tab-b-run">
     <h1 data-t="run_t"></h1>
-    <p class="lead" data-t="run_lead"></p>
+
     <form id="form" novalidate>
       <label class="lbl" for="url" data-t="run_lbl"></label>
       <div class="row suggest">
-        <input id="url" name="url" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+        <div class="champ-ic" data-i="loupe"><input id="url" name="url" type="text" inputmode="url" autocomplete="off" spellcheck="false"
                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="url-sug"
-               data-ph="run_ph" required>
+               data-ph="run_ph" required></div>
         <div class="liste-sug" id="url-sug" role="listbox" hidden></div>
         <button class="btn go" id="go" type="submit" data-t="run_go"></button>
       </div>
@@ -269,9 +472,10 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
     <ul class="items" id="trouvailles" hidden></ul>
 
     <div class="pipe" aria-live="polite">
-      <div class="pipe-h" id="pipe-h"><span id="pipe-t"></span><span id="clock"></span></div>
-      <div class="rail" id="rail" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-      <ol class="steps" id="steps"></ol>
+      <div class="etapes" id="etapes"></div>
+      <div class="expl-et" id="expl-et" hidden></div>
+      <div class="statut" id="pipe-h" hidden><span id="pipe-t"></span><span class="horloge" data-i="horloge"><span id="clock"></span></span></div>
+      <ol class="steps" id="steps" hidden></ol>
       <div id="outcome"></div>
     </div>
   </section>
@@ -281,7 +485,7 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
     <p class="lead"><span data-t="wish_lead"></span>
       <a href="https://apps.yunohost.org/wishlist" target="_blank" rel="noopener noreferrer" data-t="wish_voter"></a>.</p>
     <label class="lbl" for="wish-q" data-t="wish_filtre"></label>
-    <input id="wish-q" type="search" autocomplete="off" spellcheck="false" data-ph="wish_filtre_ph">
+    <div class="champ-ic" data-i="loupe"><input id="wish-q" type="search" autocomplete="off" spellcheck="false" data-ph="wish_filtre_ph"></div>
     <ul class="items" id="wish-list"></ul>
     <div class="more" id="wish-more"></div>
   </section>
@@ -292,8 +496,8 @@ ul.items{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--li
     <form id="alt-form" novalidate>
       <label class="lbl" for="alt-q" data-t="alt_lbl"></label>
       <div class="row suggest">
-        <input id="alt-q" type="search" autocomplete="off" spellcheck="false" role="combobox"
-               aria-autocomplete="list" aria-expanded="false" aria-controls="alt-sug" data-ph="alt_ph">
+        <div class="champ-ic" data-i="loupe"><input id="alt-q" type="search" autocomplete="off" spellcheck="false" role="combobox"
+               aria-autocomplete="list" aria-expanded="false" aria-controls="alt-sug" data-ph="alt_ph"></div>
         <div class="liste-sug" id="alt-sug" role="listbox" hidden></div>
         <button class="btn" type="submit" data-t="alt_go"></button>
         <a class="btn plain" id="alt-ailleurs" target="_blank" rel="noopener noreferrer"
@@ -330,6 +534,7 @@ const API = {
    français plutôt que d'afficher une clé. */
 const LANGUES = {
   fr: {
+    repere_depot: 'repéré dans le dépôt', autres_langages: 'autres langages',
     tag: 'dépôt git → paquet YunoHost',
     ong_run: 'Empaqueter', ong_wish: 'Liste de souhaits', ong_alt: 'Alternatives',
     run_t: 'Empaqueter un dépôt',
@@ -403,9 +608,13 @@ const LANGUES = {
     contribution: 'envoi…',
     demande_ouverte: 'Voir la demande',
     contribuer_aide: "Ouvre une demande d'intégration sur le dépôt du paquet. Rien n'est fusionné : le mainteneur décide.",
-    th: 'Thème', th_auto: 'auto', th_clair: 'clair', th_sombre: 'sombre'
+    th: 'Thème', th_auto: 'auto', th_clair: 'clair', th_sombre: 'sombre',
+    p_lit: 'Lit, sans rien exécuter', p_demande: 'Demande plutôt que deviner', p_verifie: 'Vérifie le paquet produit',
+    detail: 'Ce que fait cette étape',
+    apres_court: 'Pas encore installé : à tester sur une machine jetable, jamais en production.'
   },
   en: {
+    repere_depot: 'found in the repository', autres_langages: 'other languages',
     tag: 'git repository → YunoHost package',
     ong_run: 'Package', ong_wish: 'Wishlist', ong_alt: 'Alternatives',
     run_t: 'Package a repository',
@@ -479,9 +688,13 @@ const LANGUES = {
     contribution: 'sending…',
     demande_ouverte: 'See the pull request',
     contribuer_aide: 'Opens a pull request on the package repository. Nothing is merged: the maintainer decides.',
-    th: 'Theme', th_auto: 'auto', th_clair: 'light', th_sombre: 'dark'
+    th: 'Theme', th_auto: 'auto', th_clair: 'light', th_sombre: 'dark',
+    p_lit: 'Reads, never runs', p_demande: 'Asks instead of guessing', p_verifie: 'Checks the package',
+    detail: 'What this step does',
+    apres_court: 'Not installed yet: test it on a throwaway machine, never in production.'
   },
   es: {
+    repere_depot: 'detectado en el repositorio', autres_langages: 'otros lenguajes',
     tag: 'repositorio git → paquete YunoHost',
     ong_run: 'Empaquetar', ong_wish: 'Lista de deseos', ong_alt: 'Alternativas',
     run_t: 'Empaquetar un repositorio',
@@ -555,7 +768,10 @@ const LANGUES = {
     contribution: 'enviando…',
     demande_ouverte: 'Ver la solicitud',
     contribuer_aide: 'Abre una solicitud de integración en el repositorio del paquete. Nada se fusiona: decide quien lo mantiene.',
-    th: 'Tema', th_auto: 'auto', th_clair: 'claro', th_sombre: 'oscuro'
+    th: 'Tema', th_auto: 'auto', th_clair: 'claro', th_sombre: 'oscuro',
+    p_lit: 'Lee, sin ejecutar nada', p_demande: 'Pregunta en vez de adivinar', p_verifie: 'Verifica el paquete',
+    detail: 'Qué hace esta etapa',
+    apres_court: 'Aún sin instalar: pruébalo en una máquina desechable, nunca en producción.'
   }
 };
 
@@ -675,39 +891,60 @@ const CHAMPS_PAR_LANGUE = {
       "L'application doit savoir sur quel port écouter. Chacune attend cette information sous un nom différent."],
     'runtime.database_binding': ['Comment lui indiquer sa base de données',
       "YunoHost crée la base ; reste à dire à l'application comment la joindre."],
-    'runtime.execstart': ["La commande qui démarre l'application", ''],
-    'runtime.technology': ["Le langage de l'application", ''],
-    'app.description_en': ['La description affichée dans le catalogue', ''],
-    'app.version': ['Le numéro de version', ''],
-    'upstream.license': ['La licence du logiciel', ''],
-    'resources.sources.url': ["L'adresse du fichier à télécharger", ''],
-    'resources.sources.sha256': ["L'empreinte du fichier téléchargé", '']
+    'runtime.execstart': ["La commande qui démarre l'application",
+      "La ligne que le serveur lancera au démarrage, et relancera si l'application s'arrête. Elle figure souvent dans le Dockerfile, le Procfile, ou la section « démarrer » du README."],
+    'runtime.technology': ["Le langage de l'application",
+      "Le langage dans lequel le logiciel est écrit : il détermine ce qu'il faut installer pour le faire tourner."],
+    'app.description_en': ['La description affichée dans le catalogue',
+      "Une phrase en anglais, affichée sous le nom du logiciel dans le catalogue YunoHost."],
+    'app.version': ['Le numéro de version',
+      "La version qui sera empaquetée. Elle reprend en principe le nom de la dernière publication du projet."],
+    'upstream.license': ['La licence du logiciel',
+      "La licence sous laquelle le logiciel est publié. Le catalogue n'accepte que des licences libres."],
+    'resources.sources.url': ["L'adresse du fichier à télécharger",
+      "L'adresse exacte de l'archive téléchargée au moment de l'installation."],
+    'resources.sources.sha256': ["L'empreinte du fichier téléchargé",
+      "L'empreinte de cette archive, qui permet de vérifier qu'elle n'a pas été modifiée en chemin."]
   },
   en: {
     'runtime.port_binding': ['How to tell it which port to use',
       'The application needs to know which port to listen on. Each one expects that under a different name.'],
     'runtime.database_binding': ['How to tell it about its database',
       'YunoHost creates the database; what remains is telling the application how to reach it.'],
-    'runtime.execstart': ['The command that starts the application', ''],
-    'runtime.technology': ['The language of the application', ''],
-    'app.description_en': ['The description shown in the catalogue', ''],
-    'app.version': ['The version number', ''],
-    'upstream.license': ['The licence of the software', ''],
-    'resources.sources.url': ['The address of the file to download', ''],
-    'resources.sources.sha256': ['The checksum of the downloaded file', '']
+    'runtime.execstart': ['The command that starts the application',
+      "The line the server will run at startup, and run again if the application stops. It is often in the Dockerfile, the Procfile, or the README's “running” section."],
+    'runtime.technology': ['The language of the application',
+      "The language the software is written in: it decides what has to be installed to run it."],
+    'app.description_en': ['The description shown in the catalogue',
+      "One sentence in English, shown under the software's name in the YunoHost catalogue."],
+    'app.version': ['The version number',
+      "The version that will be packaged. It normally matches the name of the project's latest release."],
+    'upstream.license': ['The licence of the software',
+      "The licence the software is published under. The catalogue only accepts free licences."],
+    'resources.sources.url': ['The address of the file to download',
+      "The exact address of the archive downloaded at install time."],
+    'resources.sources.sha256': ['The checksum of the downloaded file',
+      "The checksum of that archive, which proves it was not altered on the way."]
   },
   es: {
     'runtime.port_binding': ['Cómo indicarle su puerto',
       'La aplicación debe saber en qué puerto escuchar. Cada una espera ese dato bajo un nombre distinto.'],
     'runtime.database_binding': ['Cómo indicarle su base de datos',
       'YunoHost crea la base; queda decirle a la aplicación cómo alcanzarla.'],
-    'runtime.execstart': ['El comando que arranca la aplicación', ''],
-    'runtime.technology': ['El lenguaje de la aplicación', ''],
-    'app.description_en': ['La descripción mostrada en el catálogo', ''],
-    'app.version': ['El número de versión', ''],
-    'upstream.license': ['La licencia del programa', ''],
-    'resources.sources.url': ['La dirección del archivo a descargar', ''],
-    'resources.sources.sha256': ['La huella del archivo descargado', '']
+    'runtime.execstart': ['El comando que arranca la aplicación',
+      "La línea que el servidor ejecutará al arrancar, y volverá a ejecutar si la aplicación se detiene. Suele estar en el Dockerfile, el Procfile o la sección «arrancar» del README."],
+    'runtime.technology': ['El lenguaje de la aplicación',
+      "El lenguaje en que está escrito el programa: determina qué hay que instalar para ejecutarlo."],
+    'app.description_en': ['La descripción mostrada en el catálogo',
+      "Una frase en inglés, mostrada bajo el nombre del programa en el catálogo YunoHost."],
+    'app.version': ['El número de versión',
+      "La versión que se empaquetará. Normalmente corresponde al nombre de la última publicación del proyecto."],
+    'upstream.license': ['La licencia del programa',
+      "La licencia con la que se publica el programa. El catálogo solo acepta licencias libres."],
+    'resources.sources.url': ['La dirección del archivo a descargar',
+      "La dirección exacta del archivo descargado al instalar."],
+    'resources.sources.sha256': ['La huella del archivo descargado',
+      "La huella de ese archivo, que permite comprobar que no fue alterado por el camino."]
   }
 };
 const CHAMPS = CHAMPS_PAR_LANGUE[LANGUE] || CHAMPS_PAR_LANGUE.fr;
@@ -740,6 +977,93 @@ function h(tag, props, ...kids) {
   for (const c of kids.flat()) if (c != null && c !== false) e.append(c instanceof Node ? c : document.createTextNode(String(c)));
   return e;
 }
+/* Icônes dessinées pour le projet : quelques traits sur une grille de 24, au
+   même trait que le reste. Aucune police ni bibliothèque externe. */
+const TRAITS = {
+  code: 'M8 6 3 12l5 6M16 6l5 6-5 6',
+  site: 'M12 3a9 9 0 100 18 9 9 0 000-18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 000 18a14 14 0 000-18',
+  paquet: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
+  loupe: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4',
+  lecture: 'M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h4M13 3l6 6v2M13 3v6h6M16.5 13.5a3 3 0 100 6 3 3 0 000-6zM18.8 18.8 21 21',
+  bouclier: 'M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6zM9 12l2 2 4-4',
+  reglages: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+  ecriture: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  controle: 'M9 3h6v3H9zM9 4.5H6.5a1 1 0 00-1 1V20a1 1 0 001 1h11a1 1 0 001-1V5.5a1 1 0 00-1-1H15M9 14l2 2 4-4',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  croix: 'M6.5 6.5l11 11M17.5 6.5l-11 11',
+  question: 'M9.5 9a2.5 2.5 0 115 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01',
+  alerte: 'M12 4l9 16H3zM12 10v4M12 17h.01',
+  info: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v5M12 8h.01',
+  horloge: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2',
+  etoile: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  coeur: 'M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z',
+  balance: 'M12 4v16M8 20h8M4 7h16M6 7l-3 7h6zM18 7l-3 7h6z',
+  fichiers: 'M9 3h6l4 4v10a1 1 0 01-1 1H9a1 1 0 01-1-1V4a1 1 0 011-1zM15 3v4h4M5 7v13a1 1 0 001 1h9',
+  etiquette: 'M3 12V4a1 1 0 011-1h8l9 9-9 9zM8 8h.01',
+  telecharger: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  envoyer: 'M12 20V9M7 14l5-5 5 5M5 4h14',
+  copier: 'M9 9h10v11H9zM5 15V4h10',
+  rejouer: 'M4 12a8 8 0 102.3-5.7M4 4v4h4',
+  journal: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  archive: 'M3 5h18v4H3zM5 9v10h14V9M10 13h4',
+  fourche: 'M6 3a2 2 0 100 4 2 2 0 000-4zM18 3a2 2 0 100 4 2 2 0 000-4zM12 17a2 2 0 100 4 2 2 0 000-4zM6 7v1a3 3 0 003 3h6a3 3 0 003-3V7M12 11v6',
+  groupe: 'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 5.5a3 3 0 010 5.5M18 14a5 5 0 013 6',
+  personne: 'M12 11a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0',
+  livre: 'M5 5a2 2 0 012-2h12v15H7a2 2 0 00-2 2zM5 20V5M9 7h6',
+  serveur: 'M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01',
+  boussole: 'M12 3a9 9 0 100 18 9 9 0 000-18zM15.5 8.5l-2 5-5 2 2-5z',
+  plus: 'M12 5v14M5 12h14',
+  fleche: 'M5 12h14M13 6l6 6-6 6',
+  oeil: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z'
+};
+function icone_(nom, cls) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'ic' + (cls ? ' ' + cls : ''));
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', TRAITS[nom] || '');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+function badgeTexte(b, ic, t) { b.replaceChildren(...(ic ? [icone_(ic)] : []), t); }
+
+/* Le résumé d'une étape, rendu lisible d'un coup d'œil : un verdict devient
+   une pastille et une jauge, une liste « a · b · c » devient des étiquettes.
+   Le texte du serveur reste intact, il est seulement découpé. */
+function iconePour(p) {
+  if (/\d+\s+(fichiers?|files?|archivos?)/i.test(p)) return 'fichiers';
+  if (/^(source\b|v?\d+\.\d)/i.test(p)) return 'etiquette';
+  if (/^(go|rust|python|node(\.?js)?|php|java|ruby|typescript|javascript|elixir|kotlin|dart|c#|\.net)$/i.test(p)) return 'code';
+  return null;
+}
+function resume(el, msg) {
+  el.textContent = '';
+  const sc = msg.match(/^(.*?)\s*[—–-]\s*score\s*(\d+)\s*\/\s*100\s*$/i);
+  if (sc) {
+    const v = /non|not|no\s/i.test(sc[1]) ? 'no' : /travail|work|trabajo/i.test(sc[1]) ? 'work' : 'feasible';
+    const n = Math.max(0, Math.min(100, +sc[2]));
+    el.append(h('span', {class: 'verdict', 'data-v': v}, icone_({feasible: 'check', work: 'alerte', no: 'croix'}[v]), sc[1].trim()),
+      h('span', {class: 'score'},
+        h('span', {class: 'jauge', 'data-n': n >= 80 ? 'bon' : n >= 50 ? 'moyen' : 'faible'}, h('i', {style: 'width:' + n + '%'})),
+        h('span', {}, h('b', {text: String(n)}), '/100')));
+    return;
+  }
+  const parts = msg.split(/\s+·\s+/).filter(Boolean);
+  if (parts.length > 1) {
+    el.append(...parts.map(p => { const ic = iconePour(p); return h('span', {class: 'chip', title: p}, ic ? icone_(ic) : null, p); }));
+    return;
+  }
+  if (/^\d+\s+(fichiers?|files?|archivos?)/i.test(msg)) { el.append(h('span', {class: 'chip'}, icone_('fichiers'), msg)); return; }
+  el.textContent = msg;
+}
+
 function safeUrl(u) {
   try { const x = new URL(String(u), location.href); return /^https?:$/.test(x.protocol) ? x.href : null; } catch { return null; }
 }
@@ -757,19 +1081,22 @@ const tabs = ['run', 'wish', 'alt'];
 const HASH = {run: '', wish: 'souhaits', alt: 'alternatives'};
 function show(t, push) {
   tabs.forEach(x => { $('#tab-' + x).hidden = x !== t; });
-  /* Un seul onglet dans le parcours du clavier, les flèches passent aux
+  /* Un seul onglet dans le parcours du clavier, les fleches passent aux
      autres : c'est ainsi que se comporte un jeu d'onglets partout ailleurs. */
   document.querySelectorAll('nav [role=tab]').forEach(b => {
     const actif = b.dataset.tab === t;
     b.setAttribute('aria-selected', actif);
     b.tabIndex = actif ? 0 : -1;
   });
-  if (push) history.replaceState(null, '', HASH[t] ? '#' + HASH[t] : location.pathname + location.search);
   if (t === 'wish') loadWish();
   if (t === 'alt') setTimeout(() => $('#alt-q').focus(), 0);
+  /* En dernier : l'adresse n'est qu'un confort de partage, et certains
+     contextes d'affichage la refusent. Son echec ne doit rien emporter. */
+  if (push) try {
+    history.replaceState(null, '', HASH[t] ? '#' + HASH[t] : location.pathname + location.search);
+  } catch (e) { /* page imbriquee ou bac a sable : tant pis pour l'adresse */ }
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); show(b.dataset.tab, true); }));
-
 $('nav').addEventListener('keydown', e => {
   const pas = {ArrowRight: 1, ArrowLeft: -1, Home: 'd', End: 'f'}[e.key];
   if (pas === undefined) return;
@@ -783,30 +1110,61 @@ $('nav').addEventListener('keydown', e => {
 });
 const fromHash = () => show(Object.keys(HASH).find(k => HASH[k] && '#' + HASH[k] === location.hash) || 'run');
 
-/* ——— Pipeline ——— */
-const stepsEl = $('#steps'), railEls = [...$('#rail').children];
+/* ——— Pipeline ———
+   En haut, cinq tuiles : l'ensemble d'un coup d'œil. En dessous, le détail
+   de chaque étape, qui n'apparaît qu'une fois le travail lancé. */
+const etapesEl = $('#etapes'), stepsEl = $('#steps');
+const ICONES_ETAPES = ['lecture', 'bouclier', 'reglages', 'ecriture', 'controle'];
+const tuiles = STAGES.map(([k], i) => {
+  const past = h('span', {class: 'pastille', 'aria-hidden': 'true'});
+  const b = h('button', {class: 'et', type: 'button', 'data-s': 'pending', 'aria-expanded': 'false',
+                         'aria-label': stageNom(i), title: stageSous(i)},
+    h('span', {class: 'pas'}, icone_(ICONES_ETAPES[i]), past),
+    h('span', {class: 'l', text: stageNom(i)}));
+  b.addEventListener('click', () => ouvrirEtape(i));
+  etapesEl.append(b);
+  return {b, past};
+});
+function ouvrirEtape(i) {
+  if (run) {
+    const r = refs[i];
+    r.expl.hidden = false;
+    window.scrollTo({top: r.li.getBoundingClientRect().top + window.scrollY - 16, behavior: 'smooth'});
+    return;
+  }
+  const p = $('#expl-et');
+  const meme = !p.hidden && p.dataset.i === String(i);
+  tuiles.forEach((t, j) => t.b.setAttribute('aria-expanded', String(!meme && j === i)));
+  if (meme) { p.hidden = true; return; }
+  p.dataset.i = String(i);
+  p.replaceChildren(
+    h('div', {class: 'expl-h'}, icone_(ICONES_ETAPES[i]), h('b', {text: stageNom(i)}), h('span', {class: 'sub', text: stageSous(i)})),
+    h('ul', {}, (EXPLICATIONS[STAGES[i][0]] || []).map(t => h('li', {text: t}))));
+  p.hidden = false;
+}
+
 const refs = STAGES.map(([k], i) => {
-  const mk = h('span', {class: 'mk', text: i + 1});
+  const mk = h('span', {class: 'mk'}, icone_(ICONES_ETAPES[i]));
   const st = h('span', {class: 'st', text: tr(LABEL.pending)});
   const sum = h('div', {class: 'sum'});
   const logN = h('span');
   const logOl = h('ol');
-  const log = h('details', {class: 'log', hidden: true}, h('summary', {}, tr('journal'), logN), logOl);
+  const log = h('details', {class: 'log', hidden: true}, h('summary', {}, icone_('journal'), tr('journal'), logN), logOl);
   const why = h('div');
-  const explication = h('div', {class: 'expl', hidden: true},
+  const expl = h('div', {class: 'expl', hidden: true},
     h('ul', {}, (EXPLICATIONS[k] || []).map(t => h('li', {text: t}))));
-  const hd = h('div', {class: 'hd', role: 'button', tabindex: '0',
-                       title: tr('st_' + (['analyse','fais','spec','gen','verif'][i]) + '_s')},
-    h('span', {class: 'nm', text: stageNom(i)}), h('span', {class: 'sub', text: stageSous(i)}), st);
-  const ouvrir = () => { explication.hidden = !explication.hidden; };
+  const hd = h('div', {class: 'hd', role: 'button', tabindex: '0', title: stageSous(i),
+                       'aria-label': tr('detail') + ' — ' + stageNom(i)},
+    h('span', {class: 'nm', text: stageNom(i)}), h('span', {class: 'i'}, icone_('info')), st);
+  const ouvrir = () => { expl.hidden = !expl.hidden; };
   hd.addEventListener('click', ouvrir);
   hd.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(); }
   });
   const li = h('li', {class: 'step', 'data-s': 'pending'}, mk,
-    h('div', {}, hd, explication, sum, why, log));
+    h('div', {}, hd, expl, sum, why, log));
   stepsEl.append(li);
-  return {li, mk, st, sum, log, logN, logOl, why};
+  return {li, mk, st, sum, log, logN, logOl, why, expl};
 });
 
 let run = null, ticker = null;
@@ -817,25 +1175,37 @@ function reset() {
     r.logOl.textContent = ''; r.log.hidden = true; r.log.open = false; r.why.textContent = '';
   });
   $('#outcome').textContent = '';
+  $('#expl-et').hidden = true;
+  tuiles.forEach(t => t.b.setAttribute('aria-expanded', 'false'));
+  refs.forEach(r => { r.expl.hidden = true; });
   clearInterval(ticker);
 }
+const ICONE_ETAT = {ok: 'check', fail: 'croix', waiting: 'question'};
 function setState(i, s) {
-  const r = refs[i];
-  r.li.dataset.s = s; railEls[i].dataset.s = s;
+  const r = refs[i], t = tuiles[i];
+  r.li.dataset.s = s; t.b.dataset.s = s;
   r.st.textContent = tr(LABEL[s]);
-  r.mk.textContent = s === 'ok' ? '✓' : s === 'fail' ? '✕' : s === 'skipped' ? '–' : s === 'waiting' ? '?' : i + 1;
+  const ie = ICONE_ETAT[s];
+  r.mk.replaceChildren(icone_(ie || ICONES_ETAPES[i]));
+  t.past.replaceChildren(...(ie ? [icone_(ie)] : []));
   if (run) run.state[i] = s;
 }
 function header() {
-  const hd = $('#pipe-h'); hd.className = 'pipe-h';
-  const t = $('#pipe-t'); t.textContent = '';
-  if (!run) { t.append(h('strong', {text: tr('etapes')})); $('#clock').textContent = ''; return; }
+  const hd = $('#pipe-h'), t = $('#pipe-t');
+  hd.hidden = !run; stepsEl.hidden = !run;
+  if (!run) { t.dataset.k = ''; $('#clock').textContent = ''; return; }
   const cur = run.state.findIndex(s => s === 'running' || s === 'fail' || s === 'waiting');
-  if (run.result === 'ok') { hd.classList.add('ok'); t.append(h('strong', {text: '5/5'}), ' · ' + tr('conforme')); }
-  else if (run.result === 'fail') { hd.classList.add('fail'); t.append(h('strong', {text: tr('arret') + ' ' + (run.failAt + 1) + '/5'}), ' · ' + stageNom(run.failAt).toLowerCase()); }
-  else if (run.waiting) t.append(h('strong', {text: tr('attente')}), ' · ' + tr('decision_cours'));
-  else if (cur >= 0) t.append(h('strong', {text: tr('etape') + ' ' + (cur + 1) + '/5'}), ' · ' + stageNom(cur).toLowerCase());
-  else t.append(h('strong', {text: tr('connexion')}));
+  /* Ne reconstruit la ligne que si elle change : l'horloge tourne toutes les
+     demi-secondes, et recréer l'indicateur relancerait son animation. */
+  const k = [run.result, run.waiting, cur, run.failAt].join('|');
+  if (t.dataset.k !== k) {
+    t.dataset.k = k; t.textContent = ''; hd.className = 'statut';
+    if (run.result === 'ok') { hd.classList.add('ok'); t.append(icone_('check'), h('strong', {text: '5/5'}), '· ' + tr('conforme')); }
+    else if (run.result === 'fail') { hd.classList.add('fail'); t.append(icone_('croix'), h('strong', {text: tr('arret') + ' ' + (run.failAt + 1) + '/5'}), '· ' + stageNom(run.failAt).toLowerCase()); }
+    else if (run.waiting) t.append(icone_('question'), h('strong', {text: tr('attente')}), '· ' + tr('decision_cours'));
+    else if (cur >= 0) t.append(h('span', {class: 'spin'}), h('strong', {text: tr('etape') + ' ' + (cur + 1) + '/5'}), '· ' + stageNom(cur).toLowerCase());
+    else t.append(h('span', {class: 'spin'}), h('strong', {text: tr('connexion')}));
+  }
   $('#clock').textContent = fmtT((run.end || Date.now()) - run.t0);
 }
 
@@ -852,9 +1222,9 @@ function renderFailure(i, msg) {
   const r = refs[i];
   r.sum.textContent = '';
   r.why.append(h('div', {class: 'why', role: 'alert'},
-    h('p', {class: 'why-t', text: nonFaisable ? tr('non_faisable') : tr('echec')}),
+    h('p', {class: 'why-t'}, icone_('alerte'), nonFaisable ? tr('non_faisable') : tr('echec')),
     h('ul', {}, items.map(it => h('li', {},
-      technique && it.code ? h('code', {class: 'code', text: it.code}) : h('span', {class: 'puce', text: '·'}),
+      technique && it.code ? h('code', {class: 'code', text: it.code}) : icone_('croix'),
       h('span', {text: it.text}))))));
 }
 
@@ -867,13 +1237,13 @@ function renderAsk(arbitrages) {
   r.why.textContent = '';
 
   const form = h('form', {class: 'ask'},
-    h('p', {class: 'ask-t', text: arbitrages.length + ' ' + tr(arbitrages.length > 1 ? 'champs_n' : 'champs_1')}),
+    h('p', {class: 'ask-t'}, icone_('question'), arbitrages.length + ' ' + tr(arbitrages.length > 1 ? 'champs_n' : 'champs_1')),
     h('p', {class: 'ask-i', text: tr('champs_i')}));
 
   const saisies = {};
   for (const a of arbitrages) form.append(champ(a, saisies));
 
-  const envoyer = h('button', {class: 'btn sm', type: 'submit', text: tr('continuer')});
+  const envoyer = h('button', {class: 'btn sm', type: 'submit'}, tr('continuer'), icone_('fleche'));
   const erreur = h('p', {class: 'hint err', hidden: true, role: 'alert'});
   form.append(h('div', {class: 'acts'}, envoyer, lienTechnique()), erreur);
 
@@ -928,12 +1298,25 @@ function champ(a, saisies) {
       h('span', {class: 'look', text: tr('ou_regarder')}),
       ...a.pistes.map(p => p.url
         ? h('a', {class: 'btn sm plain lien-f', href: p.url, target: '_blank',
-                  rel: 'noopener noreferrer', text: p.chemin})
-        : h('span', {class: 'lic', text: p.chemin}))));
+                  rel: 'noopener noreferrer', title: p.chemin}, h('span', {class: 'nomf', text: p.chemin}))
+        : h('span', {class: 'nomf', title: p.chemin, text: p.chemin}))));
   }
 
+  /* Liste fermee. Quand l'analyse a tout de meme relevé des indices, ils
+     passent en tete avec ce sur quoi ils reposent : une liste alphabetique
+     sans indication perdrait le seul travail utile déjà fait. */
   if (a.choix && a.choix.length) {
-    const menu = h('select', {class: 'free'}, a.choix.map(c => h('option', {value: c, text: c})));
+    const attestes = (a.candidats || []).filter(c => a.choix.includes(c.value));
+    const reste = a.choix.filter(c => !attestes.some(x => x.value === c));
+    const menu = h('select', {class: 'free'});
+    if (attestes.length) {
+      menu.append(h('optgroup', {label: tr('repere_depot')},
+        attestes.map(c => h('option', {value: c.value, text: c.value + ' — ' + c.why}))));
+      menu.append(h('optgroup', {label: tr('autres_langages')},
+        reste.map(c => h('option', {value: c, text: c}))));
+    } else {
+      menu.append(...a.choix.map(c => h('option', {value: c, text: c})));
+    }
     saisies[a.champ] = menu;
     d.append(menu);
     return d;
@@ -972,7 +1355,7 @@ function onEvent(ev) {
       const n = r.logOl.children.length;
       r.logN.textContent = ' · ' + n + ' ' + (n > 1 ? tr('lignes') : tr('ligne'));
       r.log.hidden = n < 2;
-      r.sum.textContent = msg;
+      resume(r.sum, msg);
       r.sum.className = 'sum' + (ev.termine ? ' final' : '');
       const g = msg.match(/(\d+)\s+fichiers?/); if (i === 3 && g) run.files = +g[1];
       const f = msg.match(/^(\d[\d\s]*) fichiers/); if (i === 0 && f) run.lus = f[1];
@@ -1003,7 +1386,7 @@ function finish(result, at) {
     const url = run.url;
     $('#outcome').append(h('div', {class: 'stop'},
       h('span', {text: tr('arrete_a') + ' ' + (at + 1) + '/5.'}),
-      h('button', {class: 'btn sm plain', type: 'button', text: tr('relancer'), onclick: () => start(url)})));
+      h('button', {class: 'btn sm plain', type: 'button', onclick: () => start(url)}, icone_('rejouer'), tr('relancer'))));
   } else renderSuccess();
   header(); busy(false);
 }
@@ -1019,21 +1402,29 @@ function renderSuccess() {
      chemin pour qui fait tourner yunopack sur son propre YunoHost. */
   const chemin = (run.chemin || './' + name);
   const cmd = 'sudo yunohost app install ' + chemin;
-  const copyBtn = h('button', {class: 'btn sm ghost', type: 'button', text: tr('copier')});
+  const copyBtn = h('button', {class: 'btn sm ghost icone-seule', type: 'button', title: tr('copier'), 'aria-label': tr('copier')}, icone_('copier'));
   copyBtn.addEventListener('click', () => {
+    const etat = (ic, t) => { copyBtn.replaceChildren(icone_(ic)); copyBtn.title = t; copyBtn.setAttribute('aria-label', t); };
     (navigator.clipboard ? navigator.clipboard.writeText(cmd) : Promise.reject()).then(
-      () => { copyBtn.textContent = tr('copie'); setTimeout(() => copyBtn.textContent = tr('copier'), 1600); },
-      () => { copyBtn.textContent = tr('selectionne'); });
+      () => { etat('check', tr('copie')); setTimeout(() => etat('copier', tr('copier')), 1600); },
+      () => { copyBtn.title = tr('selectionne'); });
   });
-  const meta = [run.files ? run.files + ' ' + tr('fichiers') : null, tr('conforme'), tr('en_temps') + ' ' + fmtT(run.end - run.t0)].filter(Boolean).join(' · ');
+  const stats = [
+    run.files ? ['fichiers', run.files + ' ' + tr('fichiers')] : null,
+    ['bouclier', tr('conforme')],
+    ['horloge', fmtT(run.end - run.t0)]
+  ].filter(Boolean);
   $('#outcome').append(h('div', {class: 'out'},
-    h('h2', {}, tr('pret'), h('code', {text: name})),
-    h('div', {class: 'meta', text: meta}),
+    h('div', {class: 'boite'}, icone_('paquet')),
+    h('div', {class: 'out-t'},
+      h('h2', {}, tr('pret'), h('code', {text: name})),
+      h('div', {class: 'stats'}, stats.map(([ic, t]) => h('span', {class: 'chip'}, icone_(ic), t)))),
     h('div', {class: 'cmd'}, h('code', {text: cmd}), copyBtn),
     h('div', {class: 'acts'},
-      h('a', {class: 'btn', href: API.paquet(run.id), download: name + '.tar.gz', text: tr('telecharger')}),
+      h('a', {class: 'btn', href: API.paquet(run.id), download: name + '.tar.gz'}, icone_('telecharger'), tr('telecharger')),
       publierBtn(run.id, name),
-      h('button', {class: 'btn plain', type: 'button', text: tr('autre'), onclick: () => { reset(); run = null; header(); const u = $('#url'); u.value = ''; u.focus(); }})),
+      h('button', {class: 'btn plain', type: 'button', onclick: () => { reset(); run = null; header(); const u = $('#url'); u.value = ''; u.focus(); }},
+        icone_('plus'), tr('autre'))),
     h('div', {class: 'apres', id: 'apres'})));
   suite(name);
 }
@@ -1045,8 +1436,8 @@ function renderSuccess() {
    voie propre est de publier, puis de laisser une machine jetable l'installer
    — c'est exactement ce que fait la CI de YunoHost. */
 function publierBtn(id, nom) {
-  const b = h('button', {class: 'btn plain', type: 'button', text: tr('publier'), disabled: true,
-                         title: 'vérification de la configuration…'});
+  const b = h('button', {class: 'btn plain', type: 'button', disabled: true,
+                         title: 'vérification de la configuration…'}, icone_('envoyer'), tr('publier'));
   fetch(API.forge).then(r => r.json()).then(f => {
     if (!f.configuree) {
       b.title = 'aucune forge configurée — il manque ' + (f.manque || 'la configuration');
@@ -1071,16 +1462,13 @@ function publierBtn(id, nom) {
 function suite(nom) {
   const a = $('#apres');
   if (!a) return;
-  a.replaceChildren(
-    h('p', {class: 'note', text:
-      "Conforme statiquement, pas encore installé. Un paquet non relu s'exécute en root : à tester dans un conteneur jetable."}),
-    h('div', {class: 'acts'},
-      h('a', {class: 'btn sm plain', target: '_blank', rel: 'noopener noreferrer',
-              href: 'https://doc.yunohost.org/packaging/packaging_apps_testing',
-              text: tr('doc')}),
-      h('a', {class: 'btn sm plain', target: '_blank', rel: 'noopener noreferrer',
-              href: 'https://ci-apps-dev.yunohost.org/',
-              text: tr('ci')})));
+  const lien = (href, ic, t) => h('a', {class: 'btn sm plain', target: '_blank', rel: 'noopener noreferrer', href}, icone_(ic), t);
+  a.replaceChildren(h('div', {class: 'apres-l'},
+    icone_('info'),
+    h('span', {text: tr('apres_court'), title: tr('apres')}),
+    h('span', {class: 'apres-a'},
+      lien('https://doc.yunohost.org/packaging/packaging_apps_testing', 'livre', tr('doc')),
+      lien('https://ci-apps-dev.yunohost.org/', 'serveur', tr('ci')))));
 }
 
 function publie(url, nom) {
@@ -1204,9 +1592,9 @@ async function chercherDepot(terme) {
         h('div', {class: 'nm', text: t.nom || '—'}),
         t.description ? h('div', {class: 'ds', text: t.description}) : null,
         h('div', {class: 'mt'},
-          t.etoiles ? h('span', {text: '★ ' + nf.format(t.etoiles)}) : null,
+          t.etoiles ? h('span', {class: 'm', title: tr('etoiles')}, icone_('etoile'), nf.format(t.etoiles)) : null,
           h('span', {class: 'lic', text: t.origine}),
-          t.deja_package ? h('span', {class: 'etiq pack', text: tr('deja_cat')}) : null),
+          t.deja_package ? h('span', {class: 'etiq pack'}, icone_('check'), tr('deja_cat')) : null),
         h('div', {class: 'mt'}, ...liens(t))),
       b || h('span'),
       choisir);
@@ -1262,12 +1650,12 @@ function majBadge(b) {
   }
   if (b.dataset.pack) {
     b.dataset.v = 'feasible';
-    b.textContent = tr('le_projet');
+    badgeTexte(b, 'oeil', tr('le_projet'));
     b.title = tr('projet_tenu');
   } else {
     const [v, fmt] = VERDICTS[f.verdict] || ['pending', s => String(s)];
     b.dataset.v = v;
-    b.textContent = fmt(f.score);
+    badgeTexte(b, {feasible: 'check', work: 'alerte', no: 'croix'}[v], fmt(f.score));
     b.title = f.verdict.toLowerCase() + (f.technologie ? ' · ' + f.technologie : '');
   }
   b.classList.add('cliquable');
@@ -1282,18 +1670,22 @@ function majBadge(b) {
 function gouvernance(f) {
   const g = f.gouvernance || {};
   const traits = [];
-  if (f.archive) traits.push([tr('archive'), tr('archive_p')]);
-  if (g.fourche_de) traits.push([tr('fourche') + ' ' + g.fourche_de, tr('fourche_p')]);
-  if (g.proprietaire_collectif === true) traits.push([tr('orga'), tr('orga_p')]);
-  if (g.proprietaire_collectif === false) traits.push([tr('perso'), tr('perso_p')]);
-  if (g.chartes && g.chartes.length) traits.push([g.chartes.join(', '), tr('chartes_p')]);
-  else traits.push([tr('sans_charte'), tr('sans_charte_p')]);
-  if (f.etoiles) traits.push([nf.format(f.etoiles) + ' ' + tr('etoiles'), tr('audience')]);
+  if (f.archive) traits.push([tr('archive'), tr('archive_p'), 'archive']);
+  if (g.fourche_de) traits.push([tr('fourche') + ' ' + g.fourche_de, tr('fourche_p'), 'fourche']);
+  if (g.proprietaire_collectif === true) traits.push([tr('orga'), tr('orga_p'), 'groupe']);
+  if (g.proprietaire_collectif === false) traits.push([tr('perso'), tr('perso_p'), 'personne']);
+  if (g.chartes && g.chartes.length) traits.push([g.chartes, tr('chartes_p'), 'livre']);
+  else traits.push([tr('sans_charte'), tr('sans_charte_p'), 'alerte']);
+  if (f.etoiles) traits.push([nf.format(f.etoiles) + ' ' + tr('etoiles'), tr('audience'), 'etoile']);
 
   const bloc = h('div', {class: 'gouv'},
     h('div', {class: 'gouv-t', text: tr('conduite')}),
-    h('ul', {}, traits.map(([quoi, pourquoi]) =>
-      h('li', {}, h('span', {class: 'q', text: quoi}), h('span', {class: 'p', text: pourquoi})))));
+    h('ul', {}, traits.map(([quoi, pourquoi, ic]) =>
+      h('li', {}, icone_(ic), h('span', {},
+        Array.isArray(quoi)
+          ? h('span', {class: 'q fichiers'}, quoi.map(f => h('code', {class: 'nomf', title: f, text: f})))
+          : h('span', {class: 'q', text: quoi}),
+        h('span', {class: 'p', text: pourquoi}))))));
 
   /* Notes publiées par la fondation OpenSSF. Elle ne passe en revue qu'une
      partie des dépôts GitHub : l'absence de note ne dit rien du projet. */
@@ -1333,8 +1725,8 @@ function basculerDetail(b, f) {
   /* Le constat est retenu dans les trois langues ; celle qui manque retombe
      sur le français, qui vient de la règle elle-même. */
   const dit = (m, champ) => (m.textes && m.textes[LANGUE] && m.textes[LANGUE][champ]) || m[champ];
-  const motif = (m) => h('li', {},
-    technique ? h('code', {class: 'code', text: m.id}) : h('span', {class: 'puce', text: '·'}),
+  const motif = ic => m => h('li', {class: 'm-' + ic},
+    technique ? h('code', {class: 'code', text: m.id}) : icone_(ic),
     h('span', {}, h('span', {text: dit(m, 'titre')}),
       dit(m, 'remede') ? h('span', {class: 'rm', text: dit(m, 'remede')}) : null));
   const refaire = h('button', {class: 'btn sm plain', type: 'button', text: tr('reevaluer'),
@@ -1348,7 +1740,7 @@ function basculerDetail(b, f) {
       planifier();
     }});
   const panneau = h('div', {class: 'pourquoi'},
-    h('ul', {}, f.bloquants.map(motif), f.reserves.map(motif), (f.remarques || []).map(motif)),
+    h('ul', {}, f.bloquants.map(motif('croix')), f.reserves.map(motif('alerte')), (f.remarques || []).map(motif('info'))),
     gouvernance(f),
     h('div', {class: 'quand'},
       h('span', {}, tr('examine_sur') + ' ' + (f.reference || '?') +
@@ -1429,36 +1821,6 @@ function packBtn(repo, analysable) {
     text: ok ? tr('empaqueter') : u ? tr('forge_non') : tr('depot_inconnu'),
     onclick: () => { show('run', true); window.scrollTo(0, 0); start(u); }});
 }
-/* Icônes dessinées pour le projet : quelques traits sur une grille de 24, au
-   même trait que le reste. Aucune police ni bibliothèque externe — rien à
-   charger, rien à concéder à personne, aucune licence tierce à porter. */
-const TRAITS = {
-  /* chevrons < > : du code */
-  code: 'M8 6 3 12l5 6M16 6l5 6-5 6',
-  /* un globe */
-  site: 'M12 3a9 9 0 100 18 9 9 0 000-18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 000 18a14 14 0 000-18',
-  /* une boîte : le paquet */
-  paquet: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
-  /* une loupe */
-  loupe: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4'
-};
-
-function icone_(nom) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'ic');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', TRAITS[nom]);
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', 'currentColor');
-  path.setAttribute('stroke-width', '1.8');
-  path.setAttribute('stroke-linecap', 'round');
-  path.setAttribute('stroke-linejoin', 'round');
-  svg.append(path);
-  return svg;
-}
-
 /* Un lien devient un bouton à icône : plus facile à viser qu'une adresse
    tronquée, et le nom reste lisible par un lecteur d'écran. */
 function lienBouton(url, icone, libelle) {
@@ -1512,8 +1874,8 @@ function bilanAudit(d) {
     h('div', {class: 'gouv-t'}, tr('audit_t'),
       ' — ', tr('audit_atteignable'), ' ', h('b', {text: d.niveau_atteignable + '/8'})),
     d.niveau_atteignable < 8 ? h('p', {class: 'audit-note', text: tr('pas_huit')}) : null,
-    h('ul', {}, d.constats.map(c => h('li', {},
-      technique ? h('code', {class: 'code', text: c.id}) : h('span', {class: 'puce', text: '·'}),
+    h('ul', {}, d.constats.map(c => h('li', {class: c.bloque_le_niveau ? 'm-croix' : 'm-alerte'},
+      technique ? h('code', {class: 'code', text: c.id}) : icone_(c.bloque_le_niveau ? 'croix' : 'alerte'),
       h('span', {},
         h('span', {text: c.quoi}),
         h('span', {class: 'rm', text: c.remede}),
@@ -1586,9 +1948,9 @@ function renderWish() {
       a.repo ? icone(a.repo) : h('span', {class: 'ico'}),
       h('div', {},
         h('div', {class: 'nm'}, a.name || '—',
-          a.votes ? h('span', {class: 'votes', text: '♥ ' + a.votes}) : null,
-          a.deja_package ? h('span', {class: 'etiq pack', text: tr('deja_cat'),
-                                      title: 'la demande peut être retirée de la liste'}) : null,
+          a.votes ? h('span', {class: 'votes'}, icone_('coeur'), a.votes) : null,
+          a.deja_package ? h('span', {class: 'etiq pack', title: 'la demande peut être retirée de la liste'},
+                                      icone_('check'), tr('deja_cat')) : null,
           niveauPaquet(a.qualite)),
         a.description ? h('div', {class: 'ds', text: a.description}) : null,
         h('div', {class: 'mt'},
@@ -1679,14 +2041,14 @@ brancherSuggestions($('#url'), $('#url-sug'), () => $('#form').requestSubmit());
 
 function etiquettes(a) {
   const e = [];
-  if (a.deja_package) e.push(h('span', {class: 'etiq pack', text: tr('deja_cat')}));
+  if (a.deja_package) e.push(h('span', {class: 'etiq pack'}, icone_('check'), tr('deja_cat')));
   if (a.abandonne) {
     const j = a.jours_sans_activite;
-    e.push(h('span', {class: 'etiq mort', text: 'sans activité depuis ' + Math.floor(j / 365) + ' ans',
-                      title: 'dernière activité connue : ' + (a.derniere_activite || 'inconnue')}));
+    e.push(h('span', {class: 'etiq mort', title: 'dernière activité connue : ' + (a.derniere_activite || 'inconnue')},
+                      icone_('archive'), 'sans activité depuis ' + Math.floor(j / 365) + ' ans'));
   }
-  if (a.libre === false) e.push(h('span', {class: 'etiq nonlibre', text: 'licence à vérifier',
-                                           title: 'hors des licences que le catalogue YunoHost accepte'}));
+  if (a.libre === false) e.push(h('span', {class: 'etiq nonlibre', title: 'hors des licences que le catalogue YunoHost accepte'},
+                                           icone_('alerte'), 'licence à vérifier'));
   return e;
 }
 
@@ -1718,8 +2080,8 @@ function chercherAlt() {
         h('div', {},
           h('div', {class: 'nm'}, a.name || '—', niveauPaquet(a.qualite)),
           a.description ? h('div', {class: 'ds', text: a.description}) : null,
-          h('div', {class: 'mt'}, a.stars ? h('span', {text: '★ ' + nf.format(a.stars)}) : null,
-            a.license ? h('span', {class: 'lic', text: a.license}) : null, ...etiquettes(a)),
+          h('div', {class: 'mt'}, a.stars ? h('span', {class: 'm', title: tr('etoiles')}, icone_('etoile'), nf.format(a.stars)) : null,
+            a.license ? h('span', {class: 'm'}, icone_('balance'), a.license) : null, ...etiquettes(a)),
           h('div', {class: 'mt'}, ...liens(a))),
         b || h('span'),
         a.deja_package
@@ -1765,6 +2127,7 @@ function redessiner() {
    pour les trois langues, et rien à tenir en double dans le balisage. */
 document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
 document.querySelectorAll('[data-ph]').forEach(e => { e.placeholder = tr(e.dataset.ph); });
+document.querySelectorAll('[data-i]').forEach(e => { e.prepend(icone_(e.dataset.i)); });
 
 /* Thème : trois positions, mémorisées dans le navigateur. « auto » efface le choix. */
 const themeEl = $('#theme');

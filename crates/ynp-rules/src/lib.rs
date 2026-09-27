@@ -35,6 +35,7 @@ pub fn catalog() -> Vec<Box<dyn Rule>> {
         Box::new(runtime::ConteneurRequis),
         Box::new(runtime::KubernetesSeulement),
         Box::new(runtime::BaseNonSupportee),
+        Box::new(runtime::LangageNonProvisionnable),
         Box::new(runtime::PythonHorsBookworm),
         Box::new(runtime::BuildGourmand),
         Box::new(runtime::RecetteIntrouvable),

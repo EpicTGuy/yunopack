@@ -1,0 +1,26 @@
+[
+ {
+  "data": "{\"etape\":\"analyse\",\"message\":\"recuperation du depot…\",\"termine\":false,\"succes\":true}",
+  "event": "message"
+ },
+ {
+  "data": "{\"etape\":\"analyse\",\"message\":\"3455 fichiers · Node.js · source v3.2.2\",\"termine\":false,\"succes\":true}",
+  "event": "message"
+ },
+ {
+  "data": "{\"etape\":\"faisabilite\",\"message\":\"application des regles…\",\"termine\":false,\"succes\":true}",
+  "event": "message"
+ },
+ {
+  "data": "{\"etape\":\"faisabilite\",\"message\":\"FAISABLE — score 100/100\",\"termine\":false,\"succes\":true}",
+  "event": "message"
+ },
+ {
+  "data": "{\"etape\":\"specification\",\"message\":\"arbitrages…\",\"termine\":false,\"succes\":true}",
+  "event": "message"
+ },
+ {
+  "data": "{\"etape\":\"decision\",\"message\":\"3 champ(s) que le depot ne permet pas de determiner\",\"termine\":false,\"succes\":true,\"arbitrages\":[{\"champ\":\"runtime.execstart\",\"raison\":\"commande « pnpm run start » non transposable automatiquement\",\"ou_chercher\":[\"packages/e2e-auth-server/Dockerfile\",\"la documentation du projet d'origine\"],\"pistes\":[{\"chemin\":\"README.md\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/README.md\"},{\"chemin\":\"packages/e2e-auth-server/Dockerfile\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/packages/e2e-auth-server/Dockerfile\"}]},{\"champ\":\"runtime.port_binding\",\"raison\":\"on ignore sous quel nom l'application attend son port d'ecoute ; la forme varie d'une application a l'autre (PORT=__PORT__, LISTEN_ADDR=127.0.0.1:__PORT__...)\",\"ou_chercher\":[\"la documentation du projet d'origine\",\"sortie de --help du binaire\"],\"candidats\":[{\"value\":\"PORT=__PORT__\",\"why\":\"EXPOSE 2286 dans le Dockerfile, sans nom de variable\"},{\"value\":\"HTTP_PORT=__PORT__\",\"why\":\"variante courante\"},{\"value\":\"LISTEN_ADDR=127.0.0.1:__PORT__\",\"why\":\"applications Go qui prennent une adresse complete\"},{\"value\":\"SERVER_PORT=__PORT__\",\"why\":\"variante courante des applications Java et Go\"}],\"pistes\":[{\"chemin\":\"README.md\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/README.md\"},{\"chemin\":\"packages/e2e-auth-server/Dockerfile\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/packages/e2e-auth-server/Dockerfile\"}]},{\"champ\":\"runtime.database_binding\",\"raison\":\"une base est provisionnee mais on ignore sous quel nom l'application attend son adresse ; la valeur a transmettre est « postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable »\",\"ou_chercher\":[\"la documentation du projet d'origine\",\"le depot ne publie aucun exemple de configuration\"],\"candidats\":[{\"value\":\"DATABASE_URL=postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable\",\"why\":\"forme la plus repandue\"},{\"value\":\"DB_URL=postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable\",\"why\":\"variante courante\"},{\"value\":\"DATABASE_URI=postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable\",\"why\":\"variante courante\"},{\"value\":\"DB_HOST=127.0.0.1\\nDB_NAME=__DB_NAME__\\nDB_USER=__DB_USER__\\nDB_PASSWORD=__DB_PWD__\",\"why\":\"applications qui attendent les champs separement plutot qu'une URL\"}],\"pistes\":[{\"chemin\":\"README.md\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/README.md\"},{\"chemin\":\"packages/e2e-auth-server/Dockerfile\",\"url\":\"https://github.com/immich-app/immich/blob/v3.2.2/packages/e2e-auth-server/Dockerfile\"}]}]}",
+  "event": "message"
+ }
+]

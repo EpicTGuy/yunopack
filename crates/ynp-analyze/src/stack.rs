@@ -7,7 +7,7 @@
 
 use crate::knowledge;
 use serde_json::Value;
-use ynp_core::facts::{BuildRecipe, StackFacts, Technology};
+use ynp_core::facts::{BuildRecipe, CommandeDeclaree, PisteTechnologie, StackFacts, Technology};
 use ynp_core::tree::RepoTree;
 
 pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
@@ -34,6 +34,22 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     facts.has_lockfile = from_files.has_lockfile;
     facts.build_script = from_files.build_script;
     facts.native_deps = native_deps(tree);
+
+    facts.commande_declaree =
+        commande_declaree(tree).map(|(commande, ou)| CommandeDeclaree { commande, ou });
+
+    // La racine n'a rien appris. Soit elle annonce un langage hors perimetre
+    // — et c'est lui qu'il faut nommer — soit on regarde plus bas, pour
+    // proposer plutot que de demander les mains vides.
+    if facts.primary == Technology::Unknown {
+        facts.langage_hors_perimetre = langage_hors_perimetre(tree).map(str::to_string);
+        if facts.langage_hors_perimetre.is_none() {
+            facts.pistes = pistes_de_technologie(tree)
+                .into_iter()
+                .map(|(technologie, ou)| PisteTechnologie { technologie, ou })
+                .collect();
+        }
+    }
 
     facts
 }
@@ -118,6 +134,177 @@ fn from_project_files(tree: &RepoTree) -> StackFacts {
     f.package_managers = package_managers(tree);
     f.has_lockfile = !f.package_managers.is_empty();
     f
+}
+
+/// Un langage que le depot annonce a sa racine et que YunoHost ne sait pas
+/// provisionner, s'il y en a un.
+///
+/// Sans cela, un projet Elixir ou .NET voit son frontal JavaScript propose
+/// comme « le langage de l'application » : une proposition datee de sa source,
+/// et pourtant fausse. Mieux vaut nommer le langage reel et dire qu'il sort du
+/// modele que de designer un composant secondaire.
+pub fn langage_hors_perimetre(tree: &RepoTree) -> Option<&'static str> {
+    const ANNONCES: &[(&str, &str)] = &[
+        ("mix.exs", "Elixir"),
+        ("build.sbt", "Scala"),
+        ("pubspec.yaml", "Dart"),
+        ("deno.json", "Deno"),
+        ("deno.jsonc", "Deno"),
+        ("Package.swift", "Swift"),
+        ("stack.yaml", "Haskell"),
+        ("dune-project", "OCaml"),
+        ("shard.yml", "Crystal"),
+        ("rebar.config", "Erlang"),
+    ];
+    for (fichier, langage) in ANNONCES {
+        if tree.has(fichier) {
+            return Some(langage);
+        }
+    }
+    // Les projets .NET nomment leur fichier d'apres la solution : c'est
+    // l'extension qui les identifie, pas un nom fixe.
+    if tree
+        .paths()
+        .iter()
+        .any(|p| !p.contains('/') && (p.ends_with(".csproj") || p.ends_with(".sln")))
+    {
+        return Some(".NET");
+    }
+    None
+}
+
+/// La commande de demarrage que le projet declare lui-meme, et d'ou elle sort.
+///
+/// Sans Dockerfile, l'outil demandait la commande alors que beaucoup de
+/// projets la declarent noir sur blanc — et il citait le `Procfile` dans les
+/// pistes a consulter sans jamais l'ouvrir. On lit donc les declarations,
+/// dans l'ordre ou elles sont sans ambiguite.
+pub fn commande_declaree(tree: &RepoTree) -> Option<(String, String)> {
+    // Un Procfile nomme ses processus : `web` est celui qui sert le trafic.
+    if let Some(texte) = tree.text("Procfile") {
+        for ligne in texte.lines() {
+            if let Some(reste) = ligne.trim().strip_prefix("web:") {
+                let reste = reste.trim();
+                if !reste.is_empty() {
+                    return Some((reste.to_string(), "Procfile".into()));
+                }
+            }
+        }
+    }
+
+    // Un point d'entree declare par un projet Python devient un executable de
+    // l'environnement virtuel, sous le nom exact de la cle.
+    if let Some(texte) = tree.text("pyproject.toml") {
+        for section in ["[project.scripts]", "[tool.poetry.scripts]"] {
+            if let Some(nom) = premiere_cle(texte, section) {
+                return Some((nom, format!("pyproject.toml, {section}")));
+            }
+        }
+    }
+
+    None
+}
+
+/// La premiere cle declaree sous une section TOML, telle quelle.
+fn premiere_cle(texte: &str, section: &str) -> Option<String> {
+    let apres = texte.split_once(section)?.1;
+    for ligne in apres.lines() {
+        let l = ligne.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        if l.starts_with('[') {
+            return None; // section suivante : celle-ci etait vide
+        }
+        let (cle, _) = l.split_once('=')?;
+        let cle = cle.trim().trim_matches('"').trim_matches('\'');
+        if !cle.is_empty() {
+            return Some(cle.to_string());
+        }
+    }
+    None
+}
+
+/// Les technologies reperees ailleurs qu'a la racine, de la mieux attestee a
+/// la moins bien.
+///
+/// Beaucoup de gros projets ne montrent rien a leur racine : leurs composants
+/// vivent dans des sous-repertoires, et `from_project_files` en sort les mains
+/// vides. Plutot que de demander sans rien proposer, on compte les fichiers de
+/// projet qu'ils portent plus bas et on dit ou on les a vus. C'est une
+/// proposition datee de sa source, pas une deduction : le choix reste humain.
+pub fn pistes_de_technologie(tree: &RepoTree) -> Vec<(Technology, String)> {
+    const MARQUEURS: &[(&str, Technology)] = &[
+        ("package.json", Technology::NodeJs),
+        ("go.mod", Technology::Go),
+        ("composer.json", Technology::Php),
+        ("Gemfile", Technology::Ruby),
+        ("Cargo.toml", Technology::Rust),
+        ("pyproject.toml", Technology::Python),
+        ("requirements.txt", Technology::Python),
+        ("setup.py", Technology::Python),
+        ("pom.xml", Technology::Java),
+        ("build.gradle", Technology::Java),
+        ("build.gradle.kts", Technology::Java),
+    ];
+
+    let mut vus: Vec<(Technology, Vec<String>)> = Vec::new();
+    for chemin in tree.paths() {
+        if est_du_decor(&chemin) {
+            continue;
+        }
+        let Some(nom) = chemin.rsplit('/').next() else {
+            continue;
+        };
+        let Some((_, tech)) = MARQUEURS.iter().find(|(m, _)| *m == nom) else {
+            continue;
+        };
+        match vus.iter_mut().find(|(t, _)| t == tech) {
+            Some((_, ou)) => ou.push(chemin),
+            None => vus.push((*tech, vec![chemin])),
+        }
+    }
+
+    // Le plus d'indices d'abord ; a egalite, l'ordre de rencontre, qui suit
+    // celui du depot et donc n'invente aucune preference.
+    vus.sort_by_key(|(_, ou)| std::cmp::Reverse(ou.len()));
+    vus.into_iter()
+        .map(|(tech, mut ou)| {
+            ou.sort();
+            let quoi = if ou.len() == 1 {
+                ou[0].clone()
+            } else {
+                format!("{} et {} autres", ou[0], ou.len() - 1)
+            };
+            (tech, quoi)
+        })
+        .collect()
+}
+
+/// Vrai pour les chemins qui n'appartiennent pas au projet lui-meme.
+///
+/// Un `package.json` sous `node_modules` est celui d'une dependance, et un
+/// `Cargo.toml` sous `tests/fixtures` celui d'un cas de test : les compter
+/// ferait passer une technologie absente devant la vraie.
+fn est_du_decor(chemin: &str) -> bool {
+    const ECARTES: &[&str] = &[
+        "node_modules",
+        "vendor",
+        "third_party",
+        "thirdparty",
+        "fixtures",
+        "testdata",
+        "examples",
+        "example",
+        "docs",
+        "target",
+        "dist",
+        "build",
+        ".git",
+    ];
+    chemin
+        .split('/')
+        .any(|segment| ECARTES.contains(&segment.to_lowercase().as_str()))
 }
 
 fn package_managers(tree: &RepoTree) -> Vec<String> {

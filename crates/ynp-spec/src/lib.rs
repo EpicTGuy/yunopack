@@ -210,10 +210,36 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
 
     Runtime {
         technology: match facts.stack.primary {
-            Technology::Unknown => Known::unresolved(
-                "aucun Dockerfile exploitable ni fichier de projet reconnu",
-                &["README.md", "la documentation du projet d'origine"],
-            ),
+            // Rien a la racine. Si le depot porte des fichiers de projet plus
+            // bas, on les propose en disant ou ils sont : a lui de trancher.
+            Technology::Unknown => {
+                let candidats: Vec<Candidate> = facts
+                    .stack
+                    .pistes
+                    .iter()
+                    .map(|p| Candidate::new(p.technologie.to_string(), format!("d'apres {}", p.ou)))
+                    .collect();
+                let raison = if let Some(langage) = &facts.stack.langage_hors_perimetre {
+                    format!(
+                        "le projet est ecrit en {langage}, que YunoHost ne sait pas installer \
+                         par lui-meme ; aucun des langages proposes n'est celui de \
+                         l'application"
+                    )
+                } else if candidats.is_empty() {
+                    "aucun Dockerfile exploitable ni fichier de projet reconnu".to_string()
+                } else {
+                    format!(
+                        "la racine du depot ne dit pas dans quel langage l'application est \
+                         ecrite ; {} sont attestees plus bas, sans qu'aucune s'impose",
+                        candidats.len()
+                    )
+                };
+                Known::unresolved_avec(
+                    raison,
+                    &["README.md", "la documentation du projet d'origine"],
+                    candidats,
+                )
+            }
             t => Known::resolved(t),
         },
         build_steps: if facts
