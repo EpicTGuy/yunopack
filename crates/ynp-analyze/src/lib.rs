@@ -41,6 +41,16 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     facts.tags = forge.tags;
     facts.tree = tree.paths();
 
+    // `is_none_or` demanderait Rust 1.82 ; le projet en vise 1.79.
+    if !facts
+        .meta
+        .description
+        .as_deref()
+        .is_some_and(|d| !d.trim().is_empty())
+    {
+        facts.meta.description_readme = resume_du_readme(tree);
+    }
+
     let dockerfile = ynp_dockerfile::choose_dockerfile(tree);
     facts.build = dockerfile.as_ref().and_then(|path| {
         tree.text(path)
@@ -196,5 +206,98 @@ mod tests {
         let text = serde_json::to_string(&f).unwrap();
         let back: RepoFacts = serde_json::from_str(&text).unwrap();
         assert_eq!(f, back);
+    }
+}
+
+/// La premiere phrase de prose d'un README.
+///
+/// Le plan prevoyait ce repli des le depart et il n'avait jamais ete ecrit :
+/// un depot sans description sur sa forge — le cas de Taiga — demandait la
+/// description a l'humain sans rien proposer, alors que son README l'annonce
+/// en toutes lettres.
+///
+/// Elle est proposee, jamais retenue d'office : un README commence souvent
+/// par un bandeau, une rangee de badges ou un sommaire, et une description de
+/// catalogue fausse est pire qu'un champ a remplir.
+pub fn resume_du_readme(tree: &RepoTree) -> Option<String> {
+    let (_, texte) = tree.first_text(&["README.md", "readme.md", "README"])?;
+
+    let mut titres = 0;
+    for ligne in texte.lines() {
+        let l = ligne.trim();
+        // Une description vit sous le premier titre. Passe le deuxieme, on
+        // est dans les sections — « Documentation », « Installation » — et
+        // leur premiere phrase ne dit pas ce qu'est le logiciel. Le README de
+        // Taiga faisait ainsi proposer « Currently, we have authored three
+        // main documentation hubs: » comme description de catalogue.
+        if l.starts_with('#') {
+            titres += 1;
+            if titres > 1 {
+                return None;
+            }
+        }
+        // Titres, images, badges, HTML, citations, listes, tableaux, code :
+        // tout cela habille un README sans le decrire.
+        if l.is_empty()
+            || l.starts_with('#')
+            || l.starts_with('<')
+            || l.starts_with('!')
+            || l.starts_with('>')
+            || l.starts_with('|')
+            || l.starts_with('-')
+            || l.starts_with('*')
+            || l.starts_with("```")
+            || l.starts_with('[')
+        {
+            continue;
+        }
+        // Une amorce de liste n'est pas une description.
+        if l.ends_with(':') {
+            continue;
+        }
+        // Une phrase, pas un fragment : on s'arrete au premier point.
+        let phrase = l.split_once(". ").map(|(a, _)| a).unwrap_or(l);
+        let phrase = phrase.trim_end_matches('.').trim();
+        if phrase.chars().filter(char::is_ascii_alphabetic).count() < 20 {
+            continue;
+        }
+        return Some(phrase.to_string());
+    }
+    None
+}
+
+#[cfg(test)]
+mod readme {
+    use super::*;
+
+    #[test]
+    fn le_bandeau_et_les_badges_sont_passes() {
+        let arbre = RepoTree::from_pairs([(
+            "README.md",
+            "<p align=\"center\"><img src=\"logo.png\"></p>\n\n# Taiga\n\n\
+             [![build](https://x/b.svg)](https://x)\n\n\
+             Taiga is a project management platform. It is free and open source.\n",
+        )]);
+        assert_eq!(
+            resume_du_readme(&arbre).as_deref(),
+            Some("Taiga is a project management platform")
+        );
+    }
+
+    #[test]
+    fn un_readme_qui_ne_decrit_rien_ne_propose_rien() {
+        // Cas de Taiga : un titre, des badges, puis les sections. Nulle part
+        // une phrase disant ce qu'est le logiciel.
+        let arbre = RepoTree::from_pairs([(
+            "README.md",
+            "## Taiga Backend\n\n[![badge](https://x/b.svg)](https://x)\n\n             ## Documentation\n\nCurrently, we have authored three main documentation hubs:\n",
+        )]);
+        assert_eq!(resume_du_readme(&arbre), None);
+    }
+
+    #[test]
+    fn un_readme_sans_prose_ne_propose_rien() {
+        let arbre = RepoTree::from_pairs([("README.md", "# Projet\n\n- a\n- b\n")]);
+        assert_eq!(resume_du_readme(&arbre), None);
     }
 }

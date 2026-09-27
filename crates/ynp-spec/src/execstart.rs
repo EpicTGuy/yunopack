@@ -85,7 +85,7 @@ fn depuis_declaration(d: &CommandeDeclaree, tech: Technology) -> Option<String> 
 }
 
 fn traduire(commande: &str, tech: Technology) -> Option<String> {
-    let mots: Vec<&str> = commande.split_whitespace().collect();
+    let mots = sans_enveloppe(&commande.split_whitespace().collect::<Vec<_>>());
     let premier = *mots.first()?;
 
     // Un script d'entree enveloppe le vrai demarrage : on ne sait pas ce qu'il
@@ -139,6 +139,42 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
                 binaire
             })
         }
+    }
+}
+
+/// Retire les enveloppes qui n'ont de sens que dans un conteneur.
+///
+/// `tini` et `dumb-init` existent pour tenir le role de PID 1 et transmettre
+/// les signaux : systemd le fait deja, et mieux. `gosu` et `su-exec` changent
+/// d'utilisateur, ce que fait la directive `User=` du service. `env` ne fait
+/// que chercher un binaire dans le PATH. Les garder ferait echouer la
+/// traduction sur une commande qui, elle, se traduit tres bien.
+fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
+    const ENVELOPPES: &[&str] = &["tini", "dumb-init", "gosu", "su-exec", "env", "exec"];
+
+    let mut reste = mots;
+    loop {
+        let Some((premier, suite)) = reste.split_first() else {
+            return reste.to_vec();
+        };
+        let nom = nom_de_fichier(premier);
+        if !ENVELOPPES.contains(&nom) {
+            return reste.to_vec();
+        }
+        // `gosu` et `su-exec` prennent l'utilisateur en premier argument, et
+        // `tini` separe ses options de la commande par `--`. On saute l'un
+        // comme l'autre pour retomber sur la vraie commande.
+        let mut suite = suite;
+        if matches!(nom, "gosu" | "su-exec") {
+            suite = suite.get(1..).unwrap_or(&[]);
+        }
+        while suite.first().is_some_and(|m| m.starts_with('-')) {
+            suite = &suite[1..];
+        }
+        if suite.is_empty() {
+            return reste.to_vec(); // rien derriere : ce n'etait pas une enveloppe
+        }
+        reste = suite;
     }
 }
 
@@ -217,6 +253,50 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn les_enveloppes_de_conteneur_sont_retirees() {
+        // Cas de Dashy : `/sbin/tini -- node server.js`. tini n'existe que
+        // pour tenir le role de PID 1 ; systemd le tient deja.
+        let f = facts_avec(
+            Some(vec![
+                "/sbin/tini".into(),
+                "--".into(),
+                "node".into(),
+                "server.js".into(),
+            ]),
+            Technology::NodeJs,
+        );
+        assert_eq!(
+            derive(&f, "dashy").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node server.js")
+        );
+    }
+
+    #[test]
+    fn gosu_saute_l_utilisateur_qu_il_prend_en_argument() {
+        let f = facts_avec(
+            Some(vec![
+                "gosu".into(),
+                "appuser".into(),
+                "node".into(),
+                "index.js".into(),
+            ]),
+            Technology::NodeJs,
+        );
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node index.js")
+        );
+    }
+
+    #[test]
+    fn une_enveloppe_sans_rien_derriere_n_en_est_pas_une() {
+        // `env` seul n'enveloppe rien : le retirer laisserait une commande
+        // vide, et inventer la suite serait une supposition.
+        let f = facts_avec(Some(vec!["env".into()]), Technology::NodeJs);
+        assert!(derive(&f, "x").value().is_none());
     }
 
     #[test]

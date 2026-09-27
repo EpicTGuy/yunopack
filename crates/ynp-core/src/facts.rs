@@ -104,6 +104,10 @@ impl Forge {
 pub struct RepoMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Premiere phrase de prose du README, quand la forge ne dit rien. Elle
+    /// est proposee a l'humain, jamais retenue d'office.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_readme: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

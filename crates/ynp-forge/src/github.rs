@@ -76,6 +76,7 @@ impl GitHub {
 
         source.default_branch = Some(raw.default_branch.clone());
         Ok(RepoMeta {
+            description_readme: None,
             description: raw.description,
             homepage: raw.homepage.filter(|h| !h.trim().is_empty()),
             topics: raw.topics,

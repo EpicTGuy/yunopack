@@ -119,7 +119,7 @@ fn is_interesting(path: &str) -> bool {
 
     EXACT.contains(&lower.as_str())
         || est_un_fichier_de_paquet(&path.to_lowercase())
-        || lower.starts_with("dockerfile")
+        || ynp_core::noms::est_un_dockerfile(&lower)
         || lower.starts_with("docker-compose.")
         || lower.starts_with("compose.")
         || lower.starts_with(".env")

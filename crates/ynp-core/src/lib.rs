@@ -17,6 +17,7 @@ pub mod facts;
 pub mod finding;
 pub mod gate;
 pub mod known;
+pub mod noms;
 pub mod spec;
 pub mod traduction;
 pub mod tree;

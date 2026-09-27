@@ -73,6 +73,7 @@ impl Gitea {
 
         source.default_branch = Some(raw.default_branch.clone());
         Ok(RepoMeta {
+            description_readme: None,
             description: raw.description.filter(|d| !d.trim().is_empty()),
             homepage: raw.website.filter(|h| !h.trim().is_empty()),
             topics: raw.topics,

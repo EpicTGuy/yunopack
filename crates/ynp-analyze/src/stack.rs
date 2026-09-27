@@ -114,7 +114,12 @@ fn from_project_files(tree: &RepoTree) -> StackFacts {
     } else if tree.has("pyproject.toml") || tree.has("requirements.txt") || tree.has("setup.py") {
         f.primary = Technology::Python;
         f.runtime_version = python_version(tree);
-    } else if tree.has("package.json") {
+    // Un `package.json` a la racine est le marqueur le plus faible de tous :
+    // c'est souvent la chaine d'assets d'une application ecrite ailleurs.
+    // Koha, en Perl, s'annoncait ainsi comme un projet Node.js. Quand la
+    // racine declare par ailleurs un langage que YunoHost ne provisionne pas,
+    // c'est lui l'application.
+    } else if tree.has("package.json") && langage_hors_perimetre(tree).is_none() {
         f.primary = Technology::NodeJs;
         f.runtime_version = node_version(tree);
     } else if tree.has("pom.xml") || tree.has("build.gradle") || tree.has("build.gradle.kts") {
@@ -146,6 +151,9 @@ fn from_project_files(tree: &RepoTree) -> StackFacts {
 pub fn langage_hors_perimetre(tree: &RepoTree) -> Option<&'static str> {
     const ANNONCES: &[(&str, &str)] = &[
         ("mix.exs", "Elixir"),
+        ("cpanfile", "Perl"),
+        ("Makefile.PL", "Perl"),
+        ("Build.PL", "Perl"),
         ("build.sbt", "Scala"),
         ("pubspec.yaml", "Dart"),
         ("deno.json", "Deno"),
@@ -250,7 +258,11 @@ pub fn pistes_de_technologie(tree: &RepoTree) -> Vec<(Technology, String)> {
 
     let mut vus: Vec<(Technology, Vec<String>)> = Vec::new();
     for chemin in tree.paths() {
-        if est_du_decor(&chemin) {
+        // Les composants d'un depot vivent pres de la surface. Plus bas, on
+        // tombe sur des bibliotheques embarquees : le `package.json` de
+        // `www/js/jquery-ui/` faisait passer Sympa, ecrit en Perl, pour du
+        // Node.js — une proposition datee de sa source, et fausse.
+        if chemin.matches('/').count() > 2 || est_du_decor(&chemin) {
             continue;
         }
         let Some(nom) = chemin.rsplit('/').next() else {
@@ -292,6 +304,11 @@ fn est_du_decor(chemin: &str) -> bool {
         "vendor",
         "third_party",
         "thirdparty",
+        "bower_components",
+        "jquery",
+        "jquery-ui",
+        "static",
+        "public",
         "fixtures",
         "testdata",
         "examples",
@@ -450,6 +467,48 @@ fn python_version(tree: &RepoTree) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn un_pipeline_d_assets_ne_fait_pas_le_langage_de_l_application() {
+        // Cas de Koha, ecrit en Perl : son `package.json` racine construit
+        // ses feuilles de style, et le faisait annoncer comme du Node.js.
+        let arbre = RepoTree::from_pairs([
+            ("Makefile.PL", "use ExtUtils::MakeMaker;"),
+            ("package.json", r#"{"name":"koha"}"#),
+        ]);
+        let f = detect(&arbre, None);
+        assert_eq!(f.primary, Technology::Unknown);
+        assert_eq!(f.langage_hors_perimetre.as_deref(), Some("Perl"));
+    }
+
+    #[test]
+    fn un_vrai_projet_node_reste_un_projet_node() {
+        let arbre = RepoTree::from_pairs([("package.json", r#"{"name":"x"}"#)]);
+        assert_eq!(detect(&arbre, None).primary, Technology::NodeJs);
+    }
+
+    #[test]
+    fn une_bibliotheque_embarquee_n_est_pas_le_langage_de_l_application() {
+        // Cas de Sympa, ecrit en Perl : son `www/js/jquery-ui/package.json`
+        // le faisait proposer comme un projet Node.js.
+        let arbre = RepoTree::from_pairs([
+            ("cpanfile", "requires 'DBI';"),
+            ("www/js/jquery-ui/package.json", "{}"),
+        ]);
+        assert!(pistes_de_technologie(&arbre).is_empty());
+        assert_eq!(langage_hors_perimetre(&arbre), Some("Perl"));
+    }
+
+    #[test]
+    fn un_composant_du_depot_reste_une_piste() {
+        // A l'inverse, les composants qu'un depot range a un ou deux niveaux
+        // sont bien les siens : c'est le cas de BigBlueButton.
+        let arbre = RepoTree::from_pairs([
+            ("bbb-export-annotations/package.json", "{}"),
+            ("record-and-playback/core/Gemfile", "source 'x'"),
+        ]);
+        assert_eq!(pistes_de_technologie(&arbre).len(), 2);
+    }
     use ynp_core::facts::BuildStage;
 
     fn recipe(image: &str, tag: Option<&str>) -> BuildRecipe {

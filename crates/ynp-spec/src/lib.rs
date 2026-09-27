@@ -66,9 +66,22 @@ fn description(facts: &RepoFacts) -> Known<String> {
         .filter(|d| !d.is_empty())
     {
         Some(d) => Known::resolved(tronquer(d, 150)),
-        None => Known::unresolved(
+        // Le README en donne souvent une : on la propose, sans la retenir.
+        // Un README s'ouvre aussi bien sur un bandeau que sur une phrase.
+        None => Known::unresolved_avec(
             "la forge ne donne aucune description",
             &["README.md", "site du projet"],
+            facts
+                .meta
+                .description_readme
+                .as_deref()
+                .map(|d| {
+                    vec![Candidate::new(
+                        tronquer(d, 150),
+                        "premiere phrase du README",
+                    )]
+                })
+                .unwrap_or_default(),
         ),
     }
 }

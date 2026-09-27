@@ -543,30 +543,7 @@ fn runtime_score(path: &str, recipe: &BuildRecipe) -> i32 {
 
 /// Vrai si ce nom de fichier designe reellement un Dockerfile.
 ///
-/// Le seul prefixe « dockerfile » ne suffit pas : ce projet contient des
-/// fichiers source nommes `dockerfile.rs`, que l'outil a pris pour des
-/// Dockerfiles en s'analysant lui-meme. Il en a tire les dependances de ses
-/// propres fixtures de test, et conclu qu'il etait ecrit en Python.
-pub fn est_un_dockerfile(nom: &str) -> bool {
-    // Extensions de code, de documentation ou de donnees : jamais celles d'un
-    // Dockerfile, dont le suffixe decrit une variante (`.prod`, `.alpine`).
-    const EXTENSIONS_EXCLUES: &[&str] = &[
-        "rs", "py", "go", "js", "mjs", "cjs", "ts", "tsx", "jsx", "java", "kt", "rb", "php", "c",
-        "h", "cc", "cpp", "hpp", "cs", "swift", "sh", "bash", "ps1", "md", "txt", "rst", "adoc",
-        "html", "css", "yml", "yaml", "json", "toml", "ini", "cfg", "lock", "xml", "j2", "tera",
-        "tmpl", "template", "bak", "orig", "patch", "diff",
-    ];
-
-    let minuscule = nom.to_lowercase();
-    if let Some((_, extension)) = minuscule.rsplit_once('.') {
-        if EXTENSIONS_EXCLUES.contains(&extension) {
-            return false;
-        }
-    }
-    minuscule.starts_with("dockerfile")
-        || minuscule.ends_with(".dockerfile")
-        || minuscule == "containerfile"
-}
+pub use ynp_core::noms::est_un_dockerfile;
 
 /// Vrai pour les images de base qui portent un runtime applicatif.
 fn is_runtime_image(image: &str) -> bool {

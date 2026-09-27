@@ -72,6 +72,7 @@ impl GitLab {
 
         source.default_branch = Some(raw.default_branch.clone().unwrap_or_else(|| "main".into()));
         Ok(RepoMeta {
+            description_readme: None,
             description: raw.description.filter(|d| !d.trim().is_empty()),
             homepage: raw.web_url,
             topics: raw.topics,
