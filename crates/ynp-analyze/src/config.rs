@@ -100,6 +100,25 @@ pub fn detect_avec_build(
     facts
 }
 
+/// Ajoute les variables que le code de l'application lit.
+///
+/// Source la plus sure sur le fond — c'est ce que l'application lit
+/// reellement — mais la derniere consultee : un fichier d'exemple ou un
+/// compose disent en plus la valeur attendue, et un nom declare la-bas
+/// l'emporte toujours. Comme pour le README, on ne retient que les noms dont
+/// le role est connu, ou prefixes du nom du depot — que la regle suivante
+/// sait reconnaitre ; le reste irait grossir la configuration du paquet.
+pub fn ajouter_les_lectures(facts: &mut ConfigFacts, tree: &RepoTree, depot: &str) {
+    let prefixe = format!("{}_", depot.to_uppercase().replace(['-', '.'], "_"));
+    for (nom, chemin) in tree.lectures() {
+        let connu = knowledge::get().role_of(nom) != ConfigRole::Other;
+        if !connu && !nom.starts_with(&prefixe) {
+            continue;
+        }
+        ajouter(facts, nom, None, &format!("lu par le code, {chemin}"));
+    }
+}
+
 /// Reconnait le port d'une application dans une variable prefixee de son nom.
 ///
 /// Beaucoup d'applications rangent leurs reglages sous leur propre prefixe :
@@ -343,6 +362,31 @@ mod tests {
 
     fn var(nom: &str, defaut: Option<&str>) -> ConfigVar {
         make_var(nom, defaut.map(String::from), "test")
+    }
+
+    #[test]
+    fn le_code_dit_sous_quel_nom_l_application_attend_son_port() {
+        // Ni fichier d'exemple, ni compose, ni README : seul le code le dit.
+        let arbre = RepoTree::from_pairs([
+            ("src/server.js", "app.listen(process.env.PORT || 3000)"),
+            ("test/server.test.js", "process.env.TEST_PORT"),
+        ]);
+        let mut f = ConfigFacts::default();
+        ajouter_les_lectures(&mut f, &arbre, "monappli");
+        let v = f.get(ConfigRole::Port).unwrap();
+        assert_eq!(v.name, "PORT");
+        assert!(v.source.contains("src/server.js"), "{}", v.source);
+    }
+
+    #[test]
+    fn une_declaration_explicite_passe_devant_le_code() {
+        let arbre = RepoTree::from_pairs([("main.go", "os.Getenv(\"PORT\")")]);
+        let mut f = ConfigFacts {
+            variables: vec![var("HTTP_PORT", Some("8080"))],
+            ..Default::default()
+        };
+        ajouter_les_lectures(&mut f, &arbre, "x");
+        assert_eq!(f.get(ConfigRole::Port).unwrap().name, "HTTP_PORT");
     }
 
     #[test]

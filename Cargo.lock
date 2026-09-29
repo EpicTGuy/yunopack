@@ -2423,6 +2423,7 @@ name = "ynp-core"
 version = "0.8.1"
 dependencies = [
  "indexmap",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",

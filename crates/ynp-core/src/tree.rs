@@ -14,6 +14,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct RepoTree {
     files: BTreeMap<String, String>,
     paths: BTreeSet<String>,
+    /// Variables d'environnement lues par le code, et le premier fichier qui
+    /// les lit. Le contenu des sources n'est pas garde, seulement ceci.
+    lectures: BTreeMap<String, String>,
 }
 
 impl RepoTree {
@@ -23,8 +26,30 @@ impl RepoTree {
 
     pub fn insert(&mut self, path: impl Into<String>, content: impl Into<String>) {
         let path = path.into();
+        let content = content.into();
+        self.noter_les_lectures(&path, &content);
         self.paths.insert(path.clone());
-        self.files.insert(path, content.into());
+        self.files.insert(path, content);
+    }
+
+    /// Releve les variables qu'un fichier source lit, sans garder le fichier.
+    pub fn noter_les_lectures(&mut self, path: &str, contenu: &str) {
+        if !crate::lectures::est_un_source_de_production(path) {
+            return;
+        }
+        // Prefiltre : la plupart des fichiers ne lisent aucune variable, et
+        // les expressions regulieres n'ont pas a les parcourir.
+        if !(contenu.contains("env") || contenu.contains("ENV")) {
+            return;
+        }
+        for nom in crate::lectures::variables_lues(contenu) {
+            self.lectures.entry(nom).or_insert_with(|| path.to_string());
+        }
+    }
+
+    /// Variables lues par le code, avec le fichier qui les lit.
+    pub fn lectures(&self) -> &BTreeMap<String, String> {
+        &self.lectures
     }
 
     /// Memorise l'existence d'un fichier sans conserver son contenu.
