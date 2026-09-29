@@ -127,7 +127,16 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
         },
         "runtime": {
             "technology": technologie,
-            "build_steps": spec.runtime.build_steps,
+            // Chaque etape passe par `bash -c` : `ynh_exec_as_app` execute une
+            // commande et ses arguments, pas une ligne de shell. Une etape de
+            // Dockerfile comme `(cd src/gui && npm ci)` — celle de Puter —
+            // cassait la syntaxe du script d'installation.
+            "build_steps": spec
+                .runtime
+                .build_steps
+                .iter()
+                .map(|e| entre_apostrophes(e))
+                .collect::<Vec<_>>(),
             "execstart": execstart,
             "port_env_var": spec.runtime.port_env_var,
             "port_binding": port_binding,
@@ -242,5 +251,39 @@ mod tests {
         assert_eq!(build(&s).0["integration"]["ldap"], "\"not_relevant\"");
         s.integration.ldap = Triple::No;
         assert_eq!(build(&s).0["integration"]["ldap"], "false");
+    }
+}
+
+/// Une chaine citee pour le shell, entre apostrophes.
+///
+/// Rien n'est interprete entre apostrophes, sauf l'apostrophe elle-meme, qu'on
+/// ferme, echappe et rouvre : `it's` devient `'it'\''s'`.
+pub fn entre_apostrophes(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+#[cfg(test)]
+mod citation {
+    use super::entre_apostrophes;
+
+    #[test]
+    fn une_ligne_de_shell_reste_intacte_une_fois_citee() {
+        assert_eq!(
+            entre_apostrophes("(cd src/gui && npm ci)"),
+            "'(cd src/gui && npm ci)'"
+        );
+        assert_eq!(entre_apostrophes("echo 'a b'"), r"'echo '\''a b'\'''");
+    }
+
+    #[test]
+    fn bash_relit_la_commande_d_origine() {
+        // La preuve par bash lui-meme, plutot qu'une chaine attendue.
+        let origine = r#"(cd src/gui && echo "it's $HOME" > /dev/null) || true"#;
+        let sortie = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("printf %s {}", entre_apostrophes(origine)))
+            .output()
+            .expect("bash");
+        assert_eq!(String::from_utf8_lossy(&sortie.stdout), origine);
     }
 }

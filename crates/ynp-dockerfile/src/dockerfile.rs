@@ -17,6 +17,44 @@ use indexmap::IndexMap;
 use ynp_core::facts::{BuildRecipe, BuildStage};
 
 /// Analyse un Dockerfile et en extrait la recette de build.
+/// Les copies d'un `COPY` ou `ADD`, par chemin dans l'image.
+///
+/// Les copies entre etapes (`--from=`) et les URL ne viennent pas du depot :
+/// elles sont ignorees. Une destination en repertoire recoit chaque source
+/// sous son propre nom.
+fn parse_copy(args: &str) -> Vec<(String, String)> {
+    let mots: Vec<String> = if args.trim_start().starts_with('[') {
+        parse_exec_form(args)
+    } else {
+        args.split_whitespace().map(unquote).collect()
+    };
+    if mots.iter().any(|m| m.starts_with("--from")) {
+        return Vec::new();
+    }
+    let mots: Vec<&String> = mots.iter().filter(|m| !m.starts_with("--")).collect();
+    let Some((dest, sources)) = mots.split_last() else {
+        return Vec::new();
+    };
+    let repertoire = dest.ends_with('/') || sources.len() > 1;
+    sources
+        .iter()
+        .filter(|s| !s.contains("://") && !s.contains('*'))
+        .map(|s| {
+            let s = s.trim_start_matches("./").to_string();
+            let d = if repertoire {
+                format!(
+                    "{}/{}",
+                    dest.trim_end_matches('/'),
+                    s.rsplit('/').next().unwrap_or(&s)
+                )
+            } else {
+                dest.to_string()
+            };
+            (d, s)
+        })
+        .collect()
+}
+
 pub fn parse(path: &str, content: &str) -> BuildRecipe {
     let instructions = lex(content);
 
@@ -67,6 +105,13 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             "VOLUME" => {
                 if let Some(s) = stages.last_mut() {
                     s.volumes.extend(parse_string_list(&ins.args));
+                }
+            }
+            "COPY" | "ADD" => {
+                // Les destinations s'ecrivent souvent avec une variable :
+                // `COPY docker/entry.sh $MEALIE_HOME/run.sh`.
+                for (dans_l_image, dans_le_depot) in parse_copy(&expand(&ins.args, &args)) {
+                    recipe.copies.insert(dans_l_image, dans_le_depot);
                 }
             }
             "CMD" => {

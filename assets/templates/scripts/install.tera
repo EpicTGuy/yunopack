@@ -24,7 +24,7 @@ ynh_script_progression "Construction de $app..."
 
 pushd "$install_dir"
 {%- for etape in runtime.build_steps %}
-    ynh_exec_as_app {{ etape }}
+    ynh_exec_as_app bash -c {{ etape }}
 {%- endfor %}
 popd
 {%- endif %}

@@ -167,10 +167,21 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
             // l'application.
             extract: !binaire_nu,
             rename: binaire_nu.then(|| app_id.to_string()),
-            // Une archive de release est plate, contrairement au tarball d'une
-            // forge qui enveloppe tout dans `repo-sha/`. Le paquet officiel de
-            // gotify declare ainsi `in_subdir = false` sur ses zips.
-            in_subdir: !sel.is_some_and(|s| s.evite_la_compilation()),
+            // Le tarball d'une forge enveloppe tout dans `repo-sha/`. Une archive
+            // de release, elle, peut etre plate (les zips de gotify) ou non
+            // (`flaresolverr/flaresolverr`) : on se fie a ce qu'on en a lu, et
+            // a l'ancienne hypothese — plate — seulement faute de mieux.
+            in_subdir: match sel.filter(|s| s.evite_la_compilation()) {
+                None => true,
+                Some(s) => {
+                    let lus: Vec<bool> = s
+                        .prebuilt
+                        .iter()
+                        .filter_map(|a| a.sous_repertoire)
+                        .collect();
+                    !lus.is_empty() && lus.iter().all(|&r| r)
+                }
+            },
         },
         system_user: true,
         install_dir: true,

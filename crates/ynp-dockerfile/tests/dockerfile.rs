@@ -566,3 +566,41 @@ fn une_variante_nommee_par_sa_base_reste_une_recette() {
     ]);
     assert!(choose_dockerfile(&tree).is_some());
 }
+
+#[test]
+fn les_copies_depuis_le_depot_sont_relevees_par_leur_chemin_dans_l_image() {
+    // Cas de Mealie : le point d'entree `/app/run.sh` est `docker/entry.sh`.
+    let r = ynp_dockerfile::parse_dockerfile(
+        "Dockerfile",
+        "FROM python:3.12\n\
+         COPY --chmod=755 ./docker/entry.sh /app/run.sh\n\
+         COPY entrypoint.sh healthcheck.sh /usr/local/bin/\n\
+         COPY --from=builder /app/dist /app/dist\n\
+         ENTRYPOINT [\"/app/run.sh\"]\n",
+    );
+    assert_eq!(
+        r.copies.get("/app/run.sh").map(String::as_str),
+        Some("docker/entry.sh")
+    );
+    assert_eq!(
+        r.copies
+            .get("/usr/local/bin/entrypoint.sh")
+            .map(String::as_str),
+        Some("entrypoint.sh")
+    );
+    // Une copie entre etapes ne vient pas du depot.
+    assert!(!r.copies.contains_key("/app/dist"));
+}
+
+#[test]
+fn une_destination_de_copy_ecrite_avec_une_variable_est_developpee() {
+    // Cas de Mealie : `COPY ./docker/entry.sh $MEALIE_HOME/run.sh`.
+    let r = ynp_dockerfile::parse_dockerfile(
+        "Dockerfile",
+        "FROM python:3.12\nENV MEALIE_HOME=/app\nCOPY ./docker/entry.sh $MEALIE_HOME/run.sh\n",
+    );
+    assert_eq!(
+        r.copies.get("/app/run.sh").map(String::as_str),
+        Some("docker/entry.sh")
+    );
+}

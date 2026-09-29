@@ -51,6 +51,7 @@ fn depot_go_avec_binaires() -> RepoFacts {
                 sha256: "cd".repeat(32),
                 empreinte_publiee: None,
                 taille: 0,
+                sous_repertoire: None,
                 pattern: "^miniflux-linux-amd64$".into(),
                 extract: false,
             }],

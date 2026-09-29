@@ -180,6 +180,12 @@ pub struct ReleaseAsset {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildRecipe {
     pub dockerfile_path: String,
+    /// Fichiers que le Dockerfile copie depuis le depot, par leur chemin dans
+    /// l'image. `COPY docker/entry.sh /app/run.sh` : le point d'entree
+    /// `/app/run.sh` est en realite `docker/entry.sh`, et c'est lui qu'il faut
+    /// lire pour savoir ce que lance l'image.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub copies: IndexMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<BuildStage>,
     /// Paquets Debian, extraits litteralement des `apt-get install`.
@@ -370,6 +376,11 @@ pub struct StackFacts {
     /// commande directement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exec_du_point_d_entree: Option<String>,
+    /// Les executables que le `pyproject.toml` declare. Un script d'entree
+    /// qui finit par `exec mealie` lance l'un d'eux : il vit dans
+    /// l'environnement virtuel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scripts_python: Vec<String>,
     /// Les scripts du `package.json` racine. `npm start` n'est pas une
     /// commande qu'on puisse ecrire dans un service, mais ce qu'il lance l'est,
     /// et c'est le projet qui le declare.
@@ -639,6 +650,10 @@ pub struct ArchAsset {
     /// evite de rapatrier le fichier pour retrouver ce qu'elle a deja dit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empreinte_publiee: Option<String>,
+    /// Vrai si l'archive enveloppe tout dans un repertoire racine, faux si
+    /// elle est plate, absent si on n'a pas pu le lire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sous_repertoire: Option<bool>,
     /// Taille annoncee, pour pouvoir dire ce qu'on telecharge.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub taille: u64,

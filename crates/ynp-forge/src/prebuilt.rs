@@ -57,6 +57,7 @@ pub fn select(release: &Release) -> Vec<ArchAsset> {
                 sha256: String::new(),
                 empreinte_publiee: asset.sha256.clone(),
                 taille: asset.size,
+                sous_repertoire: None,
                 extract: ARCHIVES
                     .iter()
                     .any(|e| asset.name.to_lowercase().ends_with(e)),

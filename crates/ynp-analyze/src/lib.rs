@@ -103,7 +103,12 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         .and_then(|b| b.start_command())
         .and_then(|c| premier_mot_de_script(&c))
     {
-        facts.stack.exec_du_point_d_entree = ligne_exec_du_point_d_entree(tree, &script);
+        let copies = facts
+            .build
+            .as_ref()
+            .map(|b| b.copies.clone())
+            .unwrap_or_default();
+        facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
     }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     config::ajouter_les_lectures(&mut facts.config, tree, &forge.source.repo);
@@ -335,7 +340,20 @@ mod readme {
 /// treize qui s'arretaient sur la commande de demarrage le faisaient sur un
 /// script d'entree que personne n'avait ouvert.
 pub fn ligne_exec_du_point_d_entree(tree: &RepoTree, script: &str) -> Option<String> {
-    let texte = texte_du_script(tree, script)?;
+    ligne_exec_suivant_les_copies(tree, script, &indexmap::IndexMap::new())
+}
+
+/// Meme chose, en suivant les `COPY` du Dockerfile : le script que l'image
+/// lance sous `/app/run.sh` est, dans le depot, `docker/entry.sh`.
+pub fn ligne_exec_suivant_les_copies(
+    tree: &RepoTree,
+    script: &str,
+    copies: &indexmap::IndexMap<String, String>,
+) -> Option<String> {
+    let texte = copies
+        .get(script)
+        .and_then(|source| tree.text(source))
+        .or_else(|| texte_du_script(tree, script))?;
 
     // Les commandes longues se poursuivent d'une ligne a l'autre.
     let recolle = texte.replace("\\\n", " ");
@@ -594,5 +612,23 @@ mod script_enveloppe {
         );
         // Un binaire en tete : rien a ouvrir.
         assert_eq!(premier_mot_de_script("node server.js"), None);
+    }
+}
+
+#[cfg(test)]
+mod copies_du_dockerfile {
+    use super::*;
+
+    #[test]
+    fn le_script_renomme_par_un_copy_est_retrouve() {
+        // Cas de Mealie : `COPY docker/entry.sh /app/run.sh`.
+        let arbre =
+            RepoTree::from_pairs([("docker/entry.sh", "#!/bin/bash\necho go\nexec mealie\n")]);
+        let mut copies = indexmap::IndexMap::new();
+        copies.insert("/app/run.sh".to_string(), "docker/entry.sh".to_string());
+        assert_eq!(
+            ligne_exec_suivant_les_copies(&arbre, "/app/run.sh", &copies).as_deref(),
+            Some("mealie")
+        );
     }
 }

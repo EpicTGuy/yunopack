@@ -86,6 +86,26 @@ impl Client {
         }
     }
 
+    /// Les premiers octets d'un fichier, par une requete partielle.
+    ///
+    /// Assez pour lire la forme d'une archive sans la rapatrier. Un serveur
+    /// qui ignore la plage renvoie le fichier entier : on le coupe alors.
+    pub async fn debut(&self, url: &str, taille: usize) -> Option<Vec<u8>> {
+        let r = crate::client_http()
+            .ok()?
+            .get(url)
+            .header("Range", format!("bytes=0-{}", taille - 1))
+            .send()
+            .await
+            .ok()?;
+        if !r.status().is_success() {
+            return None;
+        }
+        let mut octets = r.bytes().await.ok()?.to_vec();
+        octets.truncate(taille);
+        Some(octets)
+    }
+
     /// Telecharge, en retentant sur une erreur passagere.
     ///
     /// Une coupure au milieu d'une archive faisait echouer toute l'analyse :

@@ -128,8 +128,20 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
         // a rapatrier le fichier pour retrouver ce qu'elle a deja dit.
         // FlareSolverr en publie un de 263 Mo : plusieurs minutes de
         // telechargement par analyse, sans rien afficher pendant ce temps.
+        // La forme de l'archive decide ou atterrit le binaire. Son debut
+        // suffit a la lire.
+        let tar_gz = {
+            let n = asset.name.to_lowercase();
+            n.ends_with(".tar.gz") || n.ends_with(".tgz")
+        };
         if let Some(empreinte) = asset.empreinte_publiee.clone() {
             asset.sha256 = empreinte;
+            if asset.extract && tar_gz {
+                asset.sous_repertoire = client
+                    .debut(&asset.url, 64 * 1024)
+                    .await
+                    .and_then(|d| archive::repertoire_racine(&d));
+            }
             retenus.push(asset);
             continue;
         }
@@ -142,6 +154,9 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
         match client.download(&asset.url).await {
             Ok(bytes) => {
                 asset.sha256 = sources::sha256(&bytes);
+                if asset.extract && tar_gz {
+                    asset.sous_repertoire = archive::repertoire_racine(&bytes);
+                }
                 retenus.push(asset);
             }
             Err(e) => tracing::warn!("binaire {} ignore : {e}", asset.name),

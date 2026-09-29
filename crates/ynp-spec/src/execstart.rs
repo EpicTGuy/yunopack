@@ -118,9 +118,14 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
         .as_deref()
         .and_then(|c| traduire_avec(c, facts));
 
-    match traduire_avec(&commande, facts)
+    // Un Procfile ou une unite systemd decrivent l'application hors
+    // conteneur — la situation de YunoHost. Un Procfile suppose meme une
+    // plateforme qui attribue le port, exactement comme YunoHost ; un script
+    // de conteneur suppose un port fixe. Helpy lancait `unicorn` sans port
+    // dans son image, `unicorn_rails -p $PORT` dans son Procfile.
+    match declaree
+        .or_else(|| traduire_avec(&commande, facts))
         .or(depuis_le_script)
-        .or(declaree)
     {
         Some(execstart) => Known::resolved(execstart),
         None => Known::unresolved_avec(
@@ -156,6 +161,23 @@ fn depuis_declaration(d: &CommandeDeclaree, facts: &RepoFacts) -> Option<String>
 /// lance si : le `package.json` du projet le dit.
 fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
     let c = developper(commande, facts);
+
+    // Un executable que le `pyproject.toml` declare vit dans l'environnement
+    // virtuel. Le script d'entree de Mealie finit par `exec mealie` : ce nom
+    // seul ne dit pas ou le trouver, le pyproject le dit.
+    if facts.stack.primary == Technology::Python {
+        let mots = sans_enveloppe(&mots_de(&c));
+        if let Some(nom) = mots.first() {
+            if facts.stack.scripts_python.iter().any(|s| s == nom) {
+                let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
+                return Some(
+                    format!("__INSTALL_DIR__/venv/bin/{nom} {}", args.join(" "))
+                        .trim()
+                        .to_string(),
+                );
+            }
+        }
+    }
 
     // Un outil installe par npm s'appelle par son nom dans un script
     // (`next start`) ; il vit dans `node_modules/.bin`, et s'execute avec
@@ -767,6 +789,37 @@ mod tests {
             Technology::Python,
         );
         assert!(derive(&f, "x").value().is_none());
+    }
+
+    #[test]
+    fn un_executable_declare_par_pyproject_et_lance_par_le_script_vit_dans_le_venv() {
+        // Cas de Mealie : le script finit par `exec mealie`, et `mealie` est
+        // declare dans [project.scripts].
+        let mut f = facts_avec_script(vec!["/app/run.sh"], "mealie", Technology::Python);
+        f.stack.scripts_python = vec!["mealie".into()];
+        assert_eq!(
+            derive(&f, "mealie").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/mealie")
+        );
+    }
+
+    #[test]
+    fn un_procfile_passe_devant_le_script_du_conteneur() {
+        // Cas de Helpy : le script de l'image lance unicorn sans port, le
+        // Procfile avec `-p $PORT`, comme YunoHost l'attend.
+        let mut f = facts_avec_script(
+            vec!["/bin/bash", "/helpy/docker/run.sh"],
+            "bundle exec unicorn -E production -c config/unicorn.rb",
+            Technology::Ruby,
+        );
+        f.stack.commande_declaree = Some(CommandeDeclaree {
+            commande: "bundle exec unicorn_rails -p $PORT -c ./config/unicorn.rb".into(),
+            ou: "Procfile".into(),
+        });
+        assert_eq!(
+            derive(&f, "helpy").value().map(String::as_str),
+            Some("__RUBY_DIR__/bundle exec unicorn_rails -p __PORT__ -c __INSTALL_DIR__/config/unicorn.rb")
+        );
     }
 
     #[test]

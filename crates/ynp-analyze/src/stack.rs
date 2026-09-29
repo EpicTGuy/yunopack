@@ -34,6 +34,11 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     facts.has_lockfile = from_files.has_lockfile;
     facts.build_script = from_files.build_script;
     facts.native_deps = native_deps(tree);
+    if let Some(texte) = tree.text("pyproject.toml") {
+        for section in ["[project.scripts]", "[tool.poetry.scripts]"] {
+            facts.scripts_python.extend(cles_de_section(texte, section));
+        }
+    }
     if let Some(pkg) = json(tree, "package.json") {
         if let Some(Value::Object(scripts)) = pkg.get("scripts") {
             facts.scripts_npm = scripts
@@ -259,6 +264,22 @@ pub fn commande_declaree(tree: &RepoTree) -> Option<(String, String)> {
     }
 
     None
+}
+
+/// Toutes les cles declarees sous une section TOML.
+fn cles_de_section(texte: &str, section: &str) -> Vec<String> {
+    let Some((_, apres)) = texte.split_once(section) else {
+        return Vec::new();
+    };
+    apres
+        .lines()
+        .map(str::trim)
+        .take_while(|l| !l.starts_with('['))
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, _)| k.trim().trim_matches('"').trim_matches('\'').to_string())
+        .filter(|k| !k.is_empty())
+        .collect()
 }
 
 /// La premiere cle declaree sous une section TOML, telle quelle.

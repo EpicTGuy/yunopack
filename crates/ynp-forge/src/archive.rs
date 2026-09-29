@@ -130,9 +130,10 @@ fn is_interesting(path: &str) -> bool {
         || est_un_fichier_de_paquet(&path.to_lowercase())
         || ynp_core::noms::est_un_dockerfile(&lower)
         // Le script d'entree d'une image finit presque toujours par `exec`,
-        // qui nomme le vrai processus a lancer. Sans son contenu, l'outil ne
-        // pouvait que refuser de traduire la commande de demarrage.
-        || (lower.ends_with(".sh") && lower.contains("entrypoint"))
+        // qui nomme le vrai processus a lancer. Il ne s'appelle pas toujours
+        // `entrypoint` : `run.sh` chez Mealie, `bootstrap.sh` chez Linkding,
+        // `docker_start.sh` chez Loomio. Ces scripts sont courts.
+        || lower.ends_with(".sh")
         // Une unite systemd livree par le projet dit comment il se lance en
         // demon : c'est exactement ce que le paquet doit ecrire.
         || lower.ends_with(".service")
@@ -211,8 +212,17 @@ mod tests {
             assert!(is_interesting(f), "{f} devrait etre lu");
         }
         // Ce qui n'est pas un fichier de paquet le reste.
-        assert!(!is_interesting("scripts/build.sh"));
+        assert!(!is_interesting("scripts/build.py"));
         assert!(!is_interesting("autre/install"));
+    }
+
+    #[test]
+    fn les_scripts_shell_sont_lus_quel_que_soit_leur_nom() {
+        // `run.sh` chez Mealie, `bootstrap.sh` chez Linkding : le point
+        // d'entree d'une image ne s'appelle pas toujours `entrypoint.sh`.
+        for f in ["docker/entry.sh", "bootstrap.sh", "scripts/build.sh"] {
+            assert!(is_interesting(f), "{f}");
+        }
     }
 
     #[test]
@@ -222,7 +232,7 @@ mod tests {
         assert!(is_interesting("config/monapp.env.sample"));
         // Ce qui contient « env » sans etre un fichier .env reste ecarte.
         assert!(!is_interesting("src/environment.ts"));
-        assert!(!is_interesting("scripts/setup-env.sh"));
+        assert!(!is_interesting("scripts/setup-env.py"));
     }
 
     #[test]
@@ -307,5 +317,124 @@ mod licence_conservee {
         for f in ["LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING", "license"] {
             assert!(is_interesting(f), "{f} doit etre conserve");
         }
+    }
+}
+
+/// Dit, d'apres le debut d'une archive `.tar.gz`, si tout y est range dans un
+/// repertoire racine.
+///
+/// La reponse decide de `in_subdir` dans le manifeste, donc de l'endroit ou
+/// atterrit le binaire. FlareSolverr publie `flaresolverr/flaresolverr` : le
+/// declarer plat faisait lancer au service un repertoire. Le debut de
+/// l'archive suffit — les premiers en-tetes tar disent la forme — et permet
+/// de ne pas rapatrier des centaines de megaoctets pour cela.
+///
+/// Rend `None` quand le debut ne permet pas de conclure.
+pub fn repertoire_racine(debut: &[u8]) -> Option<bool> {
+    let mut noms: Vec<String> = Vec::new();
+    let mut archive = Archive::new(GzDecoder::new(debut));
+    // Un debut tronque finit en erreur : on garde ce qui a ete lu avant.
+    if let Ok(entrees) = archive.entries() {
+        for entree in entrees {
+            let Ok(entree) = entree else { break };
+            let Ok(chemin) = entree.path() else { break };
+            let nom = chemin
+                .to_string_lossy()
+                .trim_start_matches("./")
+                .to_string();
+            if !nom.is_empty() {
+                noms.push(nom);
+            }
+            if noms.len() >= 20 {
+                break;
+            }
+        }
+    }
+    if noms.is_empty() {
+        return None;
+    }
+    // Un fichier a la racine : l'archive est plate.
+    if noms
+        .iter()
+        .any(|n| !n.trim_end_matches('/').contains('/') && !n.ends_with('/'))
+    {
+        return Some(false);
+    }
+    let premier = |n: &String| n.split('/').next().unwrap_or_default().to_string();
+    let racine = premier(&noms[0]);
+    Some(noms.iter().all(|n| premier(n) == racine))
+}
+
+#[cfg(test)]
+mod repertoire_racine_tests {
+    use super::*;
+
+    fn tar_gz(chemins: &[&str]) -> Vec<u8> {
+        let mut t = tar::Builder::new(Vec::new());
+        for c in chemins {
+            let mut h = tar::Header::new_gnu();
+            let donnees = b"x";
+            h.set_size(if c.ends_with('/') { 0 } else { 1 });
+            h.set_entry_type(if c.ends_with('/') {
+                tar::EntryType::Directory
+            } else {
+                tar::EntryType::Regular
+            });
+            h.set_mode(0o755);
+            h.set_cksum();
+            let contenu: &[u8] = if c.ends_with('/') { &[] } else { donnees };
+            t.append_data(&mut h, c, contenu).unwrap();
+        }
+        let brut = t.into_inner().unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, &brut).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn un_repertoire_racine_est_reconnu() {
+        // Cas de FlareSolverr.
+        let a = tar_gz(&[
+            "flaresolverr/",
+            "flaresolverr/flaresolverr",
+            "flaresolverr/_internal/x",
+        ]);
+        assert_eq!(repertoire_racine(&a), Some(true));
+    }
+
+    #[test]
+    fn une_archive_plate_est_reconnue() {
+        let a = tar_gz(&["miniflux", "LICENSE"]);
+        assert_eq!(repertoire_racine(&a), Some(false));
+    }
+
+    #[test]
+    fn un_debut_tronque_suffit() {
+        // Comme en vrai : un gros binaire, dont on ne lit que 64 Ko.
+        let mut t = tar::Builder::new(Vec::new());
+        let mut graine: u64 = 42;
+        let lourd: Vec<u8> = (0..2_000_000)
+            .map(|_| {
+                graine = graine.wrapping_mul(6364136223846793005).wrapping_add(1);
+                (graine >> 33) as u8
+            })
+            .collect();
+        for (chemin, contenu) in [("app-1.0/bin", &lourd[..]), ("app-1.0/lib", &b"x"[..])] {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(contenu.len() as u64);
+            h.set_mode(0o755);
+            h.set_cksum();
+            t.append_data(&mut h, chemin, contenu).unwrap();
+        }
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, &t.into_inner().unwrap()).unwrap();
+        let a = gz.finish().unwrap();
+        assert!(a.len() > 1_000_000);
+        assert_eq!(repertoire_racine(&a[..65_536]), Some(true));
+    }
+
+    #[test]
+    fn des_octets_quelconques_ne_concluent_rien() {
+        assert_eq!(repertoire_racine(b"pas une archive"), None);
     }
 }
