@@ -66,6 +66,18 @@ impl Client {
         }
     }
 
+    pub async fn dernier_commit(
+        &self,
+        source: &SourceRef,
+        branche: &str,
+    ) -> Result<(String, String), ForgeError> {
+        match self {
+            Client::GitHub(c) => c.dernier_commit(source, branche).await,
+            Client::Gitea(c) => c.dernier_commit(source, branche).await,
+            Client::GitLab(c) => c.dernier_commit(source, branche).await,
+        }
+    }
+
     pub async fn tags(&self, source: &SourceRef) -> Result<Vec<String>, ForgeError> {
         match self {
             Client::GitHub(c) => c.tags(source).await,

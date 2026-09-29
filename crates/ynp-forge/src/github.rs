@@ -24,6 +24,26 @@ pub enum ForgeError {
     Archive(#[from] std::io::Error),
 }
 
+/// Identifiant et date d'un commit, lus dans la reponse d'une forge.
+///
+/// La date est rendue sous la forme `AAAA.MM.JJ` : c'est ainsi que
+/// l'autoupdater de YunoHost date une version quand l'amont n'en publie pas,
+/// et deux conventions differentes feraient diverger le paquet au premier
+/// cycle de mise a jour.
+pub fn commit_de(
+    sha: &serde_json::Value,
+    date: &serde_json::Value,
+) -> Result<(String, String), ForgeError> {
+    let (Some(sha), Some(date)) = (sha.as_str(), date.as_str()) else {
+        return Err(ForgeError::Unexpected {
+            status: 200,
+            body: "commit sans identifiant ni date".into(),
+        });
+    };
+    let jour = date.get(..10).unwrap_or(date).replace('-', ".");
+    Ok((sha.to_string(), jour))
+}
+
 pub struct GitHub {
     client: reqwest::Client,
     token: Option<String>,
@@ -136,6 +156,22 @@ impl GitHub {
         let body = self.get(&path).await?;
         let raw: Vec<RawTag> = serde_json::from_str(&body).unwrap_or_default();
         Ok(raw.into_iter().map(|t| t.name).collect())
+    }
+
+    /// Le dernier commit d'une branche : son identifiant et sa date.
+    pub async fn dernier_commit(
+        &self,
+        source: &SourceRef,
+        branche: &str,
+    ) -> Result<(String, String), ForgeError> {
+        let path = format!("/repos/{}/{}/commits/{branche}", source.owner, source.repo);
+        let body = self.get(&path).await?;
+        let v: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| ForgeError::Unexpected {
+                status: 200,
+                body: e.to_string(),
+            })?;
+        commit_de(&v["sha"], &v["commit"]["author"]["date"])
     }
 
     /// Telecharge et extrait l'archive du depot a une reference donnee.
@@ -252,6 +288,22 @@ struct RawTag {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn un_commit_donne_son_identifiant_et_sa_date_au_format_de_yunohost() {
+        let (sha, date) = commit_de(
+            &serde_json::json!("3e192bcc"),
+            &serde_json::json!("2026-09-03T14:12:00Z"),
+        )
+        .unwrap();
+        assert_eq!(sha, "3e192bcc");
+        assert_eq!(date, "2026.09.03");
+    }
+
+    #[test]
+    fn une_reponse_incomplete_est_une_erreur_et_non_une_date_inventee() {
+        assert!(commit_de(&serde_json::json!("abc"), &serde_json::Value::Null).is_err());
+    }
     use super::*;
     use ynp_core::facts::Forge;
 

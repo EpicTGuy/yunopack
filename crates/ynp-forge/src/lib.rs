@@ -77,7 +77,30 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     let releases = client.releases(&source).await?;
     let tags = client.tags(&source).await?;
 
-    let choice = sources::choose_avec(&source, &releases, &tags, |s, r| client.archive_url(s, r));
+    let mut choice =
+        sources::choose_avec(&source, &releases, &tags, |s, r| client.archive_url(s, r));
+
+    // Sans publication ni tag, la source est une branche. Son archive change a
+    // chaque commit, alors que le manifeste en fige l'empreinte : au premier
+    // commit suivant, l'installation echouerait sur une somme qui ne
+    // correspond plus. On la fige donc sur son dernier commit — dont la date
+    // devient la version, comme le fait l'autoupdater de YunoHost. Huit depots
+    // sur un echantillon de 86 demandaient leur version pour cette raison,
+    // alors que l'outil ecrivait lui-meme qu'elle serait « datee du commit ».
+    if choice.kind == sources::SourceKind::Commit {
+        match client.dernier_commit(&source, &choice.reference).await {
+            Ok((sha, date)) => {
+                choice.url = client.archive_url(&source, &sha);
+                choice.reference = sha;
+                choice.version = Some(date);
+            }
+            Err(e) => tracing::warn!(
+                "dernier commit de {} introuvable ({e}) : la source reste la branche",
+                choice.reference
+            ),
+        }
+    }
+
     let bytes = client.download(&choice.url).await?;
     let sha256 = sources::sha256(&bytes);
     let tree = archive::extract(&bytes).map_err(ForgeError::from)?;

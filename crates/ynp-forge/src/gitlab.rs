@@ -141,6 +141,27 @@ impl GitLab {
         Ok(raw.into_iter().map(|t| t.name).collect())
     }
 
+    /// Le dernier commit d'une branche : son identifiant et sa date.
+    pub async fn dernier_commit(
+        &self,
+        source: &SourceRef,
+        branche: &str,
+    ) -> Result<(String, String), ForgeError> {
+        let body = self
+            .get(&format!(
+                "/projects/{}/repository/commits/{}",
+                chemin_encode(source),
+                branche.replace('/', "%2F")
+            ))
+            .await?;
+        let v: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| ForgeError::Unexpected {
+                status: 200,
+                body: e.to_string(),
+            })?;
+        crate::github::commit_de(&v["id"], &v["authored_date"])
+    }
+
     pub async fn download(&self, url: &str) -> Result<Vec<u8>, ForgeError> {
         let mut req = self.client.get(url);
         if let Some(t) = &self.jeton {

@@ -130,6 +130,22 @@ impl Gitea {
         Ok(raw.into_iter().map(|t| t.name).collect())
     }
 
+    /// Le dernier commit d'une branche : son identifiant et sa date.
+    pub async fn dernier_commit(
+        &self,
+        source: &SourceRef,
+        branche: &str,
+    ) -> Result<(String, String), ForgeError> {
+        let chemin = format!("/repos/{}/{}/branches/{branche}", source.owner, source.repo);
+        let body = self.get(&chemin).await?;
+        let v: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| ForgeError::Unexpected {
+                status: 200,
+                body: e.to_string(),
+            })?;
+        crate::github::commit_de(&v["commit"]["id"], &v["commit"]["timestamp"])
+    }
+
     pub async fn download(&self, url: &str) -> Result<Vec<u8>, ForgeError> {
         let mut req = self.client.get(url);
         if let Some(t) = &self.jeton {
