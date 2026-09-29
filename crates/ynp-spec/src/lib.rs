@@ -269,7 +269,13 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .map(|b| b.build_steps.clone())
                 .unwrap_or_default()
         },
-        execstart: execstart::derive(facts, app_id),
+        // PHP est servi par php-fpm et un site statique par nginx : aucun
+        // service a demarrer, donc aucune commande a demander. Chaque
+        // application PHP sans Dockerfile posait pourtant la question.
+        execstart: match facts.stack.primary {
+            Technology::Php | Technology::Static => Known::resolved(String::new()),
+            _ => execstart::derive(facts, app_id),
+        },
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
         port_binding: liaison_port(facts),
         database_binding: liaison_base(facts),

@@ -124,6 +124,9 @@ fn is_interesting(path: &str) -> bool {
         // qui nomme le vrai processus a lancer. Sans son contenu, l'outil ne
         // pouvait que refuser de traduire la commande de demarrage.
         || (lower.ends_with(".sh") && lower.contains("entrypoint"))
+        // Une unite systemd livree par le projet dit comment il se lance en
+        // demon : c'est exactement ce que le paquet doit ecrire.
+        || lower.ends_with(".service")
         || lower.starts_with("docker-compose.")
         || lower.starts_with("compose.")
         || lower.starts_with(".env")

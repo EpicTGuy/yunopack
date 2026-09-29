@@ -87,6 +87,13 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
 
     facts.stack = stack::detect(tree, facts.build.as_ref());
 
+    // Une unite systemd livree par le projet, faute de Procfile ou de point
+    // d'entree declare.
+    if facts.stack.commande_declaree.is_none() {
+        facts.stack.commande_declaree = commande_d_unite_systemd(tree, &forge.source.repo)
+            .map(|(commande, ou)| ynp_core::facts::CommandeDeclaree { commande, ou });
+    }
+
     // Apres `detect`, qui remplace la structure entiere : le script d'entree,
     // s'il y en a un. Sa ligne `exec` nomme le vrai processus, et c'est le
     // premier motif de blocage de l'outil.
@@ -421,4 +428,127 @@ fn premier_mot_de_script(commande: &str) -> Option<String> {
     let premier = commande.split_whitespace().next()?;
     let bas = premier.to_lowercase();
     (bas.ends_with(".sh") || bas.contains("entrypoint")).then(|| premier.to_string())
+}
+
+/// La commande d'une unite systemd que le projet livre lui-meme.
+///
+/// Un projet qui fournit `flaresolverr.service` ou `opencast.service` enonce
+/// en toutes lettres comment il tourne en demon : c'est la ligne `ExecStart`
+/// que le paquet doit ecrire. Seize depots sur un echantillon de quatre-vingt-
+/// six demandaient leur commande faute de Dockerfile ; trois livraient une
+/// telle unite.
+///
+/// Deux garde-fous, tires des cas reels. Une unite dont la commande appelle
+/// des variables definies ailleurs — `$JAVA_ARGS` chez Suwayomi, lu d'un
+/// fichier de `/etc` — donnerait une commande cassee : on la laisse. Et un
+/// depot qui livre plusieurs unites auxiliaires — chatmail en a deux, pour
+/// des certificats et des politiques de courrier — ne dit pas laquelle est
+/// l'application : on ne retient que celle dont le nom rappelle le depot, ou
+/// l'unique unite s'il n'y en a qu'une.
+pub fn commande_d_unite_systemd(tree: &RepoTree, depot: &str) -> Option<(String, String)> {
+    let unites: Vec<String> = tree
+        .find_by_name(|n| n.ends_with(".service") && !n.contains('@'))
+        .into_iter()
+        .filter(|p| tree.text(p).is_some())
+        .collect();
+
+    let nom_depot = depot.to_lowercase().replace(['-', '_'], "");
+    let rappelle_le_depot = |p: &String| {
+        let tige = p
+            .rsplit('/')
+            .next()
+            .unwrap_or(p)
+            .trim_end_matches(".service");
+        let tige = tige.to_lowercase().replace(['-', '_'], "");
+        !tige.is_empty() && (tige.contains(&nom_depot) || nom_depot.contains(&tige))
+    };
+    let choisie = match unites.iter().find(|p| rappelle_le_depot(p)) {
+        Some(p) => p.clone(),
+        None if unites.len() == 1 => unites[0].clone(),
+        None => return None,
+    };
+
+    let texte = tree.text(&choisie)?;
+    let commande = texte
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("ExecStart="))?
+        .trim()
+        // `-` en tete demande a systemd d'ignorer un echec : sans rapport ici.
+        .trim_start_matches('-')
+        .to_string();
+    if commande.is_empty() || commande.contains('$') {
+        return None;
+    }
+    Some((ramener_a_l_installation(&commande), choisie))
+}
+
+/// `/opt/opencast/bin/start` devient `./bin/start` : dans une unite livree
+/// par le projet, `/opt/<appli>/` designe son propre repertoire
+/// d'installation, que YunoHost place ailleurs.
+fn ramener_a_l_installation(commande: &str) -> String {
+    commande
+        .split_whitespace()
+        .map(
+            |mot| match mot.strip_prefix("/opt/").and_then(|r| r.split_once('/')) {
+                Some((_, reste)) => format!("./{reste}"),
+                None => mot.to_string(),
+            },
+        )
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(test)]
+mod unite_systemd {
+    use super::*;
+
+    #[test]
+    fn l_unite_du_projet_donne_sa_commande() {
+        let arbre = RepoTree::from_pairs([(
+            "flaresolverr.service",
+            "[Service]\nWorkingDirectory=/opt/flaresolverr\nExecStart=/opt/flaresolverr/flaresolverr\n",
+        )]);
+        assert_eq!(
+            commande_d_unite_systemd(&arbre, "FlareSolverr"),
+            Some(("./flaresolverr".into(), "flaresolverr.service".into()))
+        );
+    }
+
+    #[test]
+    fn les_arguments_suivent_et_le_chemin_est_ramene() {
+        let arbre = RepoTree::from_pairs([(
+            "docs/scripts/service/opencast.service",
+            "[Service]\nExecStart=/opt/opencast/bin/start-opencast server\n",
+        )]);
+        assert_eq!(
+            commande_d_unite_systemd(&arbre, "opencast").unwrap().0,
+            "./bin/start-opencast server"
+        );
+    }
+
+    #[test]
+    fn des_variables_definies_ailleurs_font_renoncer() {
+        // Cas de Suwayomi : $JAVA_ARGS vient d'un fichier de /etc.
+        let arbre = RepoTree::from_pairs([(
+            "suwayomi-server.service",
+            "[Service]\nExecStart=/usr/bin/suwayomi-server $JAVA_ARGS\n",
+        )]);
+        assert_eq!(commande_d_unite_systemd(&arbre, "Suwayomi-Server"), None);
+    }
+
+    #[test]
+    fn des_unites_auxiliaires_ne_designent_pas_l_application() {
+        // Cas de chatmail : deux unites, aucune n'est l'application.
+        let arbre = RepoTree::from_pairs([
+            (
+                "a/tls-cert-reload.service",
+                "[Service]\nExecStart=/usr/bin/reload\n",
+            ),
+            (
+                "b/mta-sts-daemon.service",
+                "[Service]\nExecStart=/usr/bin/mta\n",
+            ),
+        ]);
+        assert_eq!(commande_d_unite_systemd(&arbre, "chatmail"), None);
+    }
 }

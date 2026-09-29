@@ -220,6 +220,15 @@ fn une_application_php_passe_par_la_brique_fpm_plutot_qu_un_service() {
     let spec = ynp_spec::build(&facts).unwrap();
     assert!(spec.features.phpfpm);
     assert!(!spec.features.systemd);
+    // Pas de service, donc pas de commande de demarrage a demander : chaque
+    // application PHP sans Dockerfile posait pourtant la question.
+    assert!(
+        !spec
+            .arbitrages()
+            .iter()
+            .any(|a| a.champ == "runtime.execstart"),
+        "une application PHP ne doit pas faire demander sa commande de demarrage"
+    );
 }
 
 #[test]
