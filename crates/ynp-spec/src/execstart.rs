@@ -9,7 +9,7 @@
 //! ou la configuration est installee : c'est le mecanisme natif de YunoHost.
 
 use ynp_core::facts::{CommandeDeclaree, RepoFacts, Technology};
-use ynp_core::known::Known;
+use ynp_core::known::{Candidate, Known};
 
 /// Repertoires ou une image Docker range son application.
 const RACINES: &[&str] = &[
@@ -34,30 +34,54 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
     // Sans Dockerfile, le projet peut tout de meme avoir enonce sa commande :
     // un Procfile, un point d'entree declare. C'est une declaration, pas une
     // deduction, et elle vaut donc autant qu'un CMD.
-    let declaree = facts
-        .stack
-        .commande_declaree
-        .as_ref()
-        .and_then(|d| depuis_declaration(d, facts.stack.primary));
+    //
+    // Mais toutes les declarations ne se valent pas. Un Procfile (`web:`) et
+    // une unite systemd disent « voici le service ». Un point d'entree Python
+    // dit seulement « voici un executable » : celui de Sosse, `sosse-admin`,
+    // est l'outil d'administration, qui affiche son aide et rend la main. On
+    // le propose donc, sans le retenir.
+    let (declaree, proposee) = match &facts.stack.commande_declaree {
+        Some(d) if d.ou.starts_with("pyproject.toml") => (
+            None,
+            depuis_declaration(d, facts).map(|c| {
+                vec![Candidate::new(
+                    c,
+                    format!(
+                        "executable declare dans {} — a verifier : un point d'entree \
+                         n'est pas forcement le service",
+                        d.ou
+                    ),
+                )]
+            }),
+        ),
+        Some(d) => (depuis_declaration(d, facts), None),
+        None => (None, None),
+    };
+    let proposee = proposee.unwrap_or_default();
 
     let Some(build) = &facts.build else {
         return match declaree {
             Some(execstart) => Known::resolved(execstart),
-            None => Known::unresolved(
+            None => Known::unresolved_avec(
                 "aucun Dockerfile ni commande de demarrage declaree par le projet",
                 &[
                     "README.md",
                     "Procfile",
                     "la documentation du projet d'origine",
                 ],
+                proposee,
             ),
         };
     };
     let Some(commande) = build.start_command() else {
-        return Known::unresolved(
-            "le Dockerfile ne declare ni CMD ni ENTRYPOINT",
-            &[&build.dockerfile_path, "README.md", "Procfile"],
-        );
+        return match declaree {
+            Some(execstart) => Known::resolved(execstart),
+            None => Known::unresolved_avec(
+                "le Dockerfile ne declare ni CMD ni ENTRYPOINT",
+                &[&build.dockerfile_path, "README.md", "Procfile"],
+                proposee,
+            ),
+        };
     };
 
     // Un script d'entree ne se traduit pas — mais sa ligne `exec` nomme le
@@ -72,8 +96,18 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
             .trim_end_matches("\"$@\"")
             .trim_end_matches("$@")
             .trim();
+        // Les arguments du conteneur sont ce qui suit le script, pas ce qui
+        // suit le premier mot : `tini -- /entrypoint.sh bin/app start`.
         let args: Vec<&str> = if e.contains("$@") {
-            commande.split_whitespace().skip(1).collect()
+            let mots: Vec<&str> = commande.split_whitespace().collect();
+            let apres = mots
+                .iter()
+                .position(|m| {
+                    let b = m.to_lowercase();
+                    b.ends_with(".sh") || b.contains("entrypoint")
+                })
+                .map_or(1, |i| i + 1);
+            mots.get(apres..).unwrap_or(&[]).to_vec()
         } else {
             Vec::new()
         };
@@ -82,19 +116,20 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
 
     let depuis_le_script = apres_le_script
         .as_deref()
-        .and_then(|c| traduire(c, facts.stack.primary));
+        .and_then(|c| traduire_avec(c, facts));
 
-    match traduire(&commande, facts.stack.primary)
+    match traduire_avec(&commande, facts)
         .or(depuis_le_script)
         .or(declaree)
     {
         Some(execstart) => Known::resolved(execstart),
-        None => Known::unresolved(
+        None => Known::unresolved_avec(
             format!("commande « {commande} » non transposable automatiquement"),
             &[
                 &build.dockerfile_path,
                 "la documentation du projet d'origine",
             ],
+            proposee,
         ),
     }
 }
@@ -104,20 +139,179 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
 /// Un Procfile enonce une vraie ligne de commande : elle passe par la meme
 /// traduction que celle d'un Dockerfile. Un point d'entree Python n'est qu'un
 /// nom : il designe un executable de l'environnement virtuel.
-fn depuis_declaration(d: &CommandeDeclaree, tech: Technology) -> Option<String> {
+fn depuis_declaration(d: &CommandeDeclaree, facts: &RepoFacts) -> Option<String> {
     if d.ou.starts_with("pyproject.toml") {
         return Some(format!("__INSTALL_DIR__/venv/bin/{}", d.commande));
     }
-    traduire(&d.commande, tech)
+    traduire_avec(&d.commande, facts)
 }
 
-fn traduire(commande: &str, tech: Technology) -> Option<String> {
-    let mots = sans_enveloppe(&commande.split_whitespace().collect::<Vec<_>>());
+/// Traduit une commande apres l'avoir depliee.
+///
+/// Les commandes de conteneur sont souvent des enchainements :
+/// `npm run migrate && npm start`, `pm2 start … && tail -f /dev/null`. Les
+/// premieres etapes preparent, la derniere est le processus qui tourne — et
+/// les preparatifs ont leur place dans le script d'installation, pas dans le
+/// service. `npm start`, lui, ne s'ecrit pas dans un service, mais ce qu'il
+/// lance si : le `package.json` du projet le dit.
+fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
+    let c = developper(commande, facts);
+
+    // Un outil installe par npm s'appelle par son nom dans un script
+    // (`next start`) ; il vit dans `node_modules/.bin`, et s'execute avec
+    // l'interprete de la resource.
+    if facts.stack.primary == Technology::NodeJs {
+        let mots = sans_enveloppe(&mots_de(&c));
+        if let Some(outil) = mots.first() {
+            if facts.stack.dependances_npm.iter().any(|d| d == outil) {
+                let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
+                return Some(
+                    format!(
+                        "__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/{outil} {}",
+                        args.join(" ")
+                    )
+                    .trim()
+                    .to_string(),
+                );
+            }
+        }
+    }
+    let c = substituer_l_environnement(&c, facts);
+    let traduite = traduire(&c, facts.stack.primary, &facts.source.repo)?;
+    // Une variable que rien ne definit ferait demarrer le service avec une
+    // valeur vide a sa place. InvenTree en portait une, `$APP_HOME`, que son
+    // Dockerfile ne fixe pas.
+    if traduite.contains('$') {
+        return None;
+    }
+    Some(traduite)
+}
+
+/// Remplace les variables que le Dockerfile fixe par leur valeur.
+///
+/// `ENV APP_HOME=/app` puis `--chdir $APP_HOME/src` : la commande ne dit
+/// rien sans la valeur, et la valeur est la. Les chemins qu'elle introduit
+/// sont ensuite ramenes au repertoire d'installation comme les autres.
+fn substituer_l_environnement(commande: &str, facts: &RepoFacts) -> String {
+    let Some(build) = &facts.build else {
+        return commande.to_string();
+    };
+    let mut c = commande.to_string();
+    for (nom, valeur) in &build.env {
+        // Une valeur qui renvoie a une autre variable ne s'evalue pas ici.
+        if valeur.contains('$') || nom == "PORT" {
+            continue;
+        }
+        c = c.replace(&format!("${{{nom}}}"), valeur);
+        let mut out = String::with_capacity(c.len());
+        let mut reste = c.as_str();
+        let motif = format!("${nom}");
+        while let Some(i) = reste.find(&motif) {
+            let apres = &reste[i + motif.len()..];
+            let fin = !apres.starts_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_');
+            out.push_str(&reste[..i]);
+            out.push_str(if fin { valeur } else { &motif });
+            reste = apres;
+        }
+        out.push_str(reste);
+        c = out;
+    }
+    c
+}
+
+/// Les mots d'une commande, sans les guillemets qui les entourent.
+fn mots_de(commande: &str) -> Vec<&str> {
+    commande
+        .split_whitespace()
+        .map(|m| m.trim_matches(|c| c == '"' || c == '\''))
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
+/// Ce qu'une commande lance vraiment, une fois retires les preparatifs et
+/// deplies les scripts npm.
+fn developper(commande: &str, facts: &RepoFacts) -> String {
+    let mut c = derniere_etape(commande);
+    // Un script npm peut en appeler un autre (`start` -> `serve`) : deux
+    // niveaux suffisent, et bornent une boucle entre scripts.
+    for _ in 0..2 {
+        let Some(nom) = script_npm_appele(&c) else {
+            break;
+        };
+        let Some(corps) = facts.stack.scripts_npm.get(nom) else {
+            break;
+        };
+        c = derniere_etape(corps);
+    }
+    c
+}
+
+/// La derniere etape d'un enchainement, hors maintien artificiel en vie.
+///
+/// `tail -f /dev/null` et `sleep infinity` gardent un conteneur ouvert quand
+/// le vrai processus se detache : ce n'est pas lui qu'il faut lancer.
+fn derniere_etape(commande: &str) -> String {
+    const MAINTIEN: &[&str] = &["tail -f /dev/null", "sleep infinity"];
+    commande
+        .split("&&")
+        .flat_map(|s| s.split(';'))
+        .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+        .filter(|s| !s.is_empty() && !MAINTIEN.contains(s))
+        .last()
+        .unwrap_or_else(|| commande.trim())
+        .to_string()
+}
+
+/// Le script npm qu'une commande appelle, s'il y en a un.
+fn script_npm_appele(commande: &str) -> Option<&str> {
+    let mots: Vec<&str> = commande.split_whitespace().collect();
+    match mots.as_slice() {
+        ["npm" | "yarn" | "pnpm", "start", ..] => Some("start"),
+        ["npm" | "yarn" | "pnpm", "run" | "run-script", nom, ..] => Some(nom),
+        ["yarn" | "pnpm", nom, ..] => Some(nom),
+        _ => None,
+    }
+}
+
+fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
+    // `$PORT` d'abord : `-b 0.0.0.0:$PORT` doit devenir une adresse d'ecoute
+    // que la suite reconnait et ramene sur la boucle locale. Dans l'ordre
+    // inverse, InvenTree ecoutait sur `0.0.0.0:__PORT__` — toutes les
+    // interfaces, nginx et l'authentification de YunoHost contournes.
+    let commande = lier_le_port(commande);
+    let mots = sans_enveloppe(&mots_de(&commande));
     let premier = *mots.first()?;
+    // Le nom seul : `/usr/local/bin/python3` est un python3 comme un autre.
+    let nom = nom_de_fichier(premier);
 
     // Un script d'entree enveloppe le vrai demarrage : on ne sait pas ce qu'il
     // fait, et le deviner serait exactement ce que le projet refuse.
-    if premier.ends_with(".sh") || premier.contains("entrypoint") || premier == "/bin/sh" {
+    if premier.ends_with(".sh") || premier.contains("entrypoint") {
+        return None;
+    }
+    // Un orchestrateur demarre des conteneurs, pas l'application. Twenty
+    // lance `podman-compose up -d`, que l'outil ecrivait tel quel dans le
+    // service.
+    const ORCHESTRATEURS: &[&str] = &[
+        "docker",
+        "docker-compose",
+        "podman",
+        "podman-compose",
+        "nerdctl",
+        "kubectl",
+        "helm",
+        "supervisord",
+        "s6-svscan",
+        "init",
+    ];
+    if ORCHESTRATEURS.contains(&nom) {
+        return None;
+    }
+    // Un lanceur sans rien a lancer. Le Dockerfile de Dawarich a pour seul
+    // point d'entree `bundle exec`, le reste venant du compose : l'ecrire
+    // tel quel donnait un service qui ne demarre rien — alors que son
+    // Procfile, lui, dit `bundle exec puma -C config/puma.rb`.
+    if lanceur_tronque(&mots) {
         return None;
     }
 
@@ -129,11 +323,11 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
             .join(" ")
     };
 
-    match premier {
+    let traduite = match nom {
         // L'interprete vient de la resource du manifest, pas du systeme.
         "node" => Some(format!("__NODEJS_DIR__/node {}", reste(1))),
         "npm" | "yarn" | "pnpm" => None, // demarrer par un gestionnaire de paquets est deconseille
-        "ruby" | "bundle" => Some(format!("__RUBY_DIR__/{premier} {}", reste(1))),
+        "ruby" | "bundle" => Some(format!("__RUBY_DIR__/{nom} {}", reste(1))),
         "php" | "php-fpm" => None, // pris en charge par la brique phpfpm
         "python" | "python3" => {
             // Pas de resource Python cote YunoHost : l'interprete vient d'un
@@ -148,16 +342,32 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
         | "flask" | "granian"
             if tech == Technology::Python =>
         {
-            Some(format!("__INSTALL_DIR__/venv/bin/{premier} {}", reste(1)))
+            Some(format!("__INSTALL_DIR__/venv/bin/{nom} {}", reste(1)))
+        }
+        // Dans une image Python, `/usr/local/bin` est l'endroit ou pip pose
+        // les commandes d'un paquet. Chez YunoHost, c'est l'environnement
+        // virtuel : Spodcast etait envoye a la racine de l'installation, ou
+        // rien ne l'attend.
+        _ if tech == Technology::Python && premier.starts_with("/usr/local/bin/") => {
+            Some(format!("__INSTALL_DIR__/venv/bin/{nom} {}", reste(1)))
         }
         _ => {
             let binaire = chemin(premier);
+            // Sans meme connaitre le langage, rien ne dit qu'un binaire du
+            // conteneur est celui du projet — sauf s'il en porte le nom.
+            // Amara demarre par `/usr/local/bin/entry`, un script de
+            // l'image ; endlessh par `endlessh`, qui est bien le sien.
+            if tech == Technology::Unknown && !porte_le_nom_du_depot(nom, depot) {
+                return None;
+            }
             // Un binaire hors des racines connues n'est pas localisable.
             if !binaire.starts_with("__INSTALL_DIR__") {
-                if tech == Technology::Go || tech == Technology::Rust {
+                if (tech == Technology::Go || tech == Technology::Rust)
+                    && !est_un_outil_systeme(nom)
+                {
                     // Un executable compile nomme sans chemin se trouve dans
                     // le repertoire d'installation.
-                    return Some(format!("__INSTALL_DIR__/{}", nom_de_fichier(premier)));
+                    return Some(format!("__INSTALL_DIR__/{nom}"));
                 }
                 return None;
             }
@@ -167,7 +377,61 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
                 binaire
             })
         }
+    };
+    traduite.map(|c| c.trim().to_string())
+}
+
+/// Vrai si un nom de binaire rappelle celui du depot.
+fn porte_le_nom_du_depot(nom: &str, depot: &str) -> bool {
+    let simple = |s: &str| s.to_lowercase().replace(['-', '_', '.'], "");
+    let (binaire, projet) = (simple(nom), simple(depot));
+    if binaire.is_empty() || projet.is_empty() {
+        return false;
     }
+    binaire.contains(&projet) || projet.contains(&binaire)
+}
+
+/// Vrai quand un interprete ou un lanceur n'a rien derriere lui.
+fn lanceur_tronque(mots: &[&str]) -> bool {
+    let noms: Vec<&str> = mots.iter().map(|m| nom_de_fichier(m)).collect();
+    matches!(
+        noms.as_slice(),
+        ["bundle", "exec"]
+            | ["node" | "ruby" | "python" | "python3" | "java" | "bundle"]
+            | ["python" | "python3", "-m"]
+            | ["java", "-jar"]
+    )
+}
+
+/// Un outil du systeme, qu'aucun projet Go ou Rust ne livre sous ce nom.
+///
+/// La regle « un executable nomme sans chemin se trouve dans le repertoire
+/// d'installation » ecrivait `__INSTALL_DIR__/bash` pour Crowdsec.
+fn est_un_outil_systeme(nom: &str) -> bool {
+    const SYSTEME: &[&str] = &[
+        "bash", "sh", "curl", "wget", "cat", "echo", "sleep", "tail", "true", "su", "sudo", "cron",
+        "crond", "nginx", "caddy", "apache2", "httpd",
+    ];
+    SYSTEME.contains(&nom)
+}
+
+/// `$PORT` dans une commande designe le port de l'application : c'est celui
+/// que YunoHost reserve. Helpy demarre avec `unicorn_rails -p $PORT`, une
+/// variable que rien ne definissait. `$DB_PORT` et consorts ne sont pas
+/// touches : ce sont les ports d'autres services.
+fn lier_le_port(commande: &str) -> String {
+    let c = commande.replace("${PORT}", "__PORT__");
+    let mut out = String::with_capacity(c.len());
+    let mut reste = c.as_str();
+    while let Some(i) = reste.find("$PORT") {
+        let apres = &reste[i + 5..];
+        let fin_de_nom = !apres.starts_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_');
+        out.push_str(&reste[..i]);
+        out.push_str(if fin_de_nom { "__PORT__" } else { "$PORT" });
+        reste = apres;
+    }
+    out.push_str(reste);
+    out
 }
 
 /// Retire les enveloppes qui n'ont de sens que dans un conteneur.
@@ -178,7 +442,22 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
 /// que chercher un binaire dans le PATH. Les garder ferait echouer la
 /// traduction sur une commande qui, elle, se traduit tres bien.
 fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
-    const ENVELOPPES: &[&str] = &["tini", "dumb-init", "gosu", "su-exec", "env", "exec"];
+    // Les interpretes de commandes aussi : `sh -c node server.js` et
+    // `/bin/dash /entrypoint.sh` ne disent rien du processus, seulement de ce
+    // qui le lance.
+    const ENVELOPPES: &[&str] = &[
+        "tini",
+        "dumb-init",
+        "gosu",
+        "su-exec",
+        "env",
+        "exec",
+        "sh",
+        "bash",
+        "ash",
+        "dash",
+        "zsh",
+    ];
 
     let mut reste = mots;
     loop {
@@ -234,7 +513,8 @@ fn chemin(mot: &str) -> String {
 /// cosmetique.
 fn adresse_d_ecoute(mot: &str) -> Option<String> {
     let (hote, port) = mot.rsplit_once(':')?;
-    if port.is_empty() || !port.chars().all(|c| c.is_ascii_digit()) {
+    let numero = !port.is_empty() && port.chars().all(|c| c.is_ascii_digit());
+    if !numero && port != "__PORT__" {
         return None;
     }
     match hote {
@@ -357,6 +637,192 @@ mod tests {
         assert!(derive(&f, "x").value().is_none());
     }
 
+    fn facts_node(cmd: &str, scripts: &[(&str, &str)], deps: &[&str]) -> RepoFacts {
+        let mut f = facts_avec(
+            Some(cmd.split_whitespace().map(String::from).collect()),
+            Technology::NodeJs,
+        );
+        f.stack.scripts_npm = scripts
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        f.stack.dependances_npm = deps.iter().map(|d| d.to_string()).collect();
+        f
+    }
+
+    #[test]
+    fn les_preparatifs_d_un_enchainement_sont_ecartes() {
+        // Cas de Kutt : `npm run migrate && npm start`. La migration a sa
+        // place dans le script d'installation ; le service lance le reste.
+        let f = facts_node(
+            "npm run migrate && npm start",
+            &[
+                ("migrate", "knex migrate:latest"),
+                ("start", "node server/server.js"),
+            ],
+            &[],
+        );
+        assert_eq!(
+            derive(&f, "kutt").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node server/server.js")
+        );
+    }
+
+    #[test]
+    fn un_outil_npm_appele_par_son_nom_vit_dans_node_modules() {
+        let f = facts_node("npm start", &[("start", "next start")], &["next", "react"]);
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
+        );
+    }
+
+    #[test]
+    fn un_maintien_artificiel_en_vie_n_est_pas_le_processus() {
+        assert_eq!(
+            derniere_etape("node app.js && tail -f /dev/null"),
+            "node app.js"
+        );
+    }
+
+    #[test]
+    fn un_script_npm_absent_ne_fait_rien_inventer() {
+        // Pas de `start` dans le package.json : on ne devine pas ce qu'il
+        // lancerait, et npm lui-meme reste refuse.
+        let f = facts_node("npm start", &[], &[]);
+        assert!(derive(&f, "x").value().is_none());
+    }
+
+    #[test]
+    fn un_interprete_de_commandes_s_efface_devant_ce_qu_il_lance() {
+        let f = facts_avec(
+            Some(vec![
+                "sh".into(),
+                "-c".into(),
+                "\"node".into(),
+                "index.js\"".into(),
+            ]),
+            Technology::NodeJs,
+        );
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node index.js")
+        );
+    }
+
+    fn cmd(mots: &[&str], tech: Technology) -> RepoFacts {
+        facts_avec(Some(mots.iter().map(|m| m.to_string()).collect()), tech)
+    }
+
+    #[test]
+    fn sans_langage_connu_seul_le_binaire_du_projet_est_retenu() {
+        // Amara demarre par un script de l'image ; endlessh par son binaire.
+        let mut amara = cmd(&["/usr/local/bin/entry", "app"], Technology::Unknown);
+        amara.source.repo = "amara".into();
+        assert!(derive(&amara, "amara").value().is_none());
+
+        let mut endlessh = cmd(&["/usr/local/bin/endlessh", "-v"], Technology::Unknown);
+        endlessh.source.repo = "endlessh".into();
+        assert_eq!(
+            derive(&endlessh, "endlessh").value().map(String::as_str),
+            Some("__INSTALL_DIR__/endlessh -v")
+        );
+    }
+
+    #[test]
+    fn un_port_en_variable_n_ouvre_pas_toutes_les_interfaces() {
+        // Cas d'InvenTree : `-b 0.0.0.0:$PORT`. L'ordre des reecritures
+        // faisait ecouter l'application sur toutes les interfaces.
+        let f = cmd(
+            &["gunicorn", "app.wsgi", "-b", "0.0.0.0:$PORT"],
+            Technology::Python,
+        );
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/gunicorn app.wsgi -b 127.0.0.1:__PORT__")
+        );
+    }
+
+    #[test]
+    fn une_variable_fixee_par_le_dockerfile_est_remplacee() {
+        let mut f = cmd(
+            &["gunicorn", "--chdir", "$APP_HOME/src", "app.wsgi"],
+            Technology::Python,
+        );
+        f.build
+            .as_mut()
+            .unwrap()
+            .env
+            .insert("APP_HOME".into(), "/app".into());
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/gunicorn --chdir __INSTALL_DIR__/src app.wsgi")
+        );
+    }
+
+    #[test]
+    fn une_variable_que_rien_ne_fixe_fait_renoncer() {
+        let f = cmd(
+            &["gunicorn", "--chdir", "$APP_HOME/src", "app.wsgi"],
+            Technology::Python,
+        );
+        assert!(derive(&f, "x").value().is_none());
+    }
+
+    #[test]
+    fn un_orchestrateur_n_est_pas_l_application() {
+        // Cas de Twenty : `podman-compose -f podman-compose.yml up -d`.
+        let f = cmd(
+            &["podman-compose", "-f", "podman-compose.yml", "up", "-d"],
+            Technology::NodeJs,
+        );
+        assert!(derive(&f, "twenty").value().is_none());
+    }
+
+    #[test]
+    fn un_lanceur_tronque_laisse_parler_le_procfile() {
+        // Cas de Dawarich : ENTRYPOINT `bundle exec`, le reste dans le
+        // compose. Son Procfile dit la commande entiere.
+        let mut f = cmd(&["bundle", "exec"], Technology::Ruby);
+        f.stack.commande_declaree = Some(CommandeDeclaree {
+            commande: "bundle exec puma -C config/puma.rb".into(),
+            ou: "Procfile".into(),
+        });
+        assert_eq!(
+            derive(&f, "dawarich").value().map(String::as_str),
+            Some("__RUBY_DIR__/bundle exec puma -C config/puma.rb")
+        );
+    }
+
+    #[test]
+    fn une_commande_pip_d_une_image_python_vit_dans_le_venv() {
+        // Cas de Spodcast : `/usr/local/bin/spodcast`.
+        let f = cmd(&["/usr/local/bin/spodcast"], Technology::Python);
+        assert_eq!(
+            derive(&f, "spodcast").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/spodcast")
+        );
+    }
+
+    #[test]
+    fn la_variable_port_d_une_commande_devient_le_port_reserve() {
+        // Cas de Helpy : `unicorn_rails -p $PORT`.
+        assert_eq!(lier_le_port("x -p $PORT -c y"), "x -p __PORT__ -c y");
+        assert_eq!(lier_le_port("x --port=${PORT}"), "x --port=__PORT__");
+        // Le port d'un autre service n'est pas touche.
+        assert_eq!(
+            lier_le_port("x --db $DB_PORT $PORT_HTTPS"),
+            "x --db $DB_PORT $PORT_HTTPS"
+        );
+    }
+
+    #[test]
+    fn un_outil_systeme_n_est_pas_le_binaire_du_projet() {
+        // Cas de Crowdsec : `bash` devenait `__INSTALL_DIR__/bash`.
+        let f = cmd(&["curl", "http://x"], Technology::Go);
+        assert!(derive(&f, "x").value().is_none());
+    }
+
     #[test]
     fn les_enveloppes_de_conteneur_sont_retirees() {
         // Cas de Dashy : `/sbin/tini -- node server.js`. tini n'existe que
@@ -417,16 +883,20 @@ mod tests {
     }
 
     #[test]
-    fn un_point_d_entree_python_designe_un_executable_du_venv() {
+    fn un_point_d_entree_python_est_propose_sans_etre_retenu() {
+        // Cas de Sosse : son seul point d'entree, `sosse-admin`, est l'outil
+        // d'administration. Le retenir aurait ecrit un service qui affiche
+        // son aide et s'arrete. Il est propose, avec sa raison.
         let f = facts_declarant(
-            "mon-serveur",
+            "sosse-admin",
             "pyproject.toml, [project.scripts]",
             Technology::Python,
         );
-        assert_eq!(
-            derive(&f, "x").value().map(String::as_str),
-            Some("__INSTALL_DIR__/venv/bin/mon-serveur")
-        );
+        let r = derive(&f, "x");
+        assert!(r.value().is_none(), "{r:?}");
+        let c = &r.reason().unwrap().candidates;
+        assert_eq!(c[0].value, "__INSTALL_DIR__/venv/bin/sosse-admin");
+        assert!(c[0].why.contains("pas forcement le service"));
     }
 
     #[test]

@@ -370,6 +370,15 @@ pub struct StackFacts {
     /// commande directement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exec_du_point_d_entree: Option<String>,
+    /// Les scripts du `package.json` racine. `npm start` n'est pas une
+    /// commande qu'on puisse ecrire dans un service, mais ce qu'il lance l'est,
+    /// et c'est le projet qui le declare.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub scripts_npm: std::collections::BTreeMap<String, String>,
+    /// Les dependances du `package.json` racine, pour reconnaitre un outil
+    /// installe dans `node_modules/.bin` quand un script l'appelle par son nom.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependances_npm: Vec<String>,
     /// Le langage que le depot annonce a sa racine quand YunoHost ne sait pas
     /// le provisionner. Sa presence invalide les pistes ci-dessous : elles ne
     /// designeraient qu'un composant secondaire.

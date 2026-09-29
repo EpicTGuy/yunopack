@@ -523,7 +523,10 @@ fn est_une_variante_de_developpement(chemin: &str) -> bool {
     let variante = nom
         .strip_suffix(".dockerfile")
         .or_else(|| nom.strip_prefix("dockerfile."));
-    variante.is_some_and(|v| VARIANTES.contains(&v))
+    // La variante peut etre composee : `Dockerfile.radicale.dev` est la
+    // version de developpement d'un composant. Modoboa voyait ce fichier
+    // retenu comme recette de l'application entiere.
+    variante.is_some_and(|v| v.split('.').any(|morceau| VARIANTES.contains(&morceau)))
 }
 
 fn runtime_score(path: &str, recipe: &BuildRecipe) -> i32 {

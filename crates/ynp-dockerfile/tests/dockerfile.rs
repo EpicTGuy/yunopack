@@ -540,6 +540,12 @@ fn une_variante_de_developpement_n_est_pas_la_recette_de_production() {
         "FROM php:8.2-fpm\nEXPOSE 9000\nCMD [\"php-fpm\"]\n",
     )]);
     assert_eq!(choose_dockerfile(&tree), None);
+    // Variante composee : cas de Modoboa.
+    let tree = RepoTree::from_pairs([(
+        "docker/Dockerfile.radicale.dev",
+        "FROM python:3.12\nCMD [\"python3 -m radicale\"]\n",
+    )]);
+    assert_eq!(choose_dockerfile(&tree), None);
 }
 
 #[test]

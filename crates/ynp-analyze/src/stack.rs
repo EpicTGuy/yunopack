@@ -34,6 +34,19 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     facts.has_lockfile = from_files.has_lockfile;
     facts.build_script = from_files.build_script;
     facts.native_deps = native_deps(tree);
+    if let Some(pkg) = json(tree, "package.json") {
+        if let Some(Value::Object(scripts)) = pkg.get("scripts") {
+            facts.scripts_npm = scripts
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect();
+        }
+        for champ in ["dependencies", "devDependencies"] {
+            if let Some(Value::Object(d)) = pkg.get(champ) {
+                facts.dependances_npm.extend(d.keys().cloned());
+            }
+        }
+    }
 
     facts.commande_declaree =
         commande_declaree(tree).map(|(commande, ou)| CommandeDeclaree { commande, ou });

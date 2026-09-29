@@ -421,14 +421,36 @@ mod point_d_entree {
     }
 }
 
-/// Le premier mot d'une commande, quand c'est un script shell.
+/// Le script shell qu'une commande lance, une fois ecartes ce qui l'enveloppe.
 ///
 /// C'est le seul cas ou il vaut la peine d'aller ouvrir un fichier : une
-/// commande qui commence par un binaire se traduit deja.
-fn premier_mot_de_script(commande: &str) -> Option<String> {
-    let premier = commande.split_whitespace().next()?;
-    let bas = premier.to_lowercase();
-    (bas.ends_with(".sh") || bas.contains("entrypoint")).then(|| premier.to_string())
+/// commande qui commence par un binaire se traduit deja. Le script n'est pas
+/// toujours en tete — `sh /app/scripts/run.sh`, `tini -- /bin/dash
+/// /entrypoint.sh` — et ce qui le precede ne fait que le lancer.
+pub fn premier_mot_de_script(commande: &str) -> Option<String> {
+    const ENVELOPPES: &[&str] = &[
+        "tini",
+        "dumb-init",
+        "gosu",
+        "su-exec",
+        "env",
+        "exec",
+        "sh",
+        "bash",
+        "ash",
+        "dash",
+        "zsh",
+    ];
+    for mot in commande.split_whitespace() {
+        let mot = mot.trim_matches(|c| c == '"' || c == '\'');
+        let nom = mot.rsplit('/').next().unwrap_or(mot);
+        if mot.starts_with('-') || ENVELOPPES.contains(&nom) {
+            continue;
+        }
+        let bas = mot.to_lowercase();
+        return (bas.ends_with(".sh") || bas.contains("entrypoint")).then(|| mot.to_string());
+    }
+    None
 }
 
 /// La commande d'une unite systemd que le projet livre lui-meme.
@@ -551,5 +573,25 @@ mod unite_systemd {
             ),
         ]);
         assert_eq!(commande_d_unite_systemd(&arbre, "chatmail"), None);
+    }
+}
+
+#[cfg(test)]
+mod script_enveloppe {
+    use super::*;
+
+    #[test]
+    fn le_script_est_trouve_derriere_ce_qui_le_lance() {
+        assert_eq!(
+            premier_mot_de_script("sh /app/apps/server/scripts/run/run.sh").as_deref(),
+            Some("/app/apps/server/scripts/run/run.sh")
+        );
+        assert_eq!(
+            premier_mot_de_script("tini -- /bin/dash /entrypoint.sh bin/teslamate start")
+                .as_deref(),
+            Some("/entrypoint.sh")
+        );
+        // Un binaire en tete : rien a ouvrir.
+        assert_eq!(premier_mot_de_script("node server.js"), None);
     }
 }
