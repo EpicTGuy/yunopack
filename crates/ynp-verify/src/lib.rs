@@ -13,6 +13,7 @@
 
 pub mod audit;
 pub mod correctif;
+mod ecoute;
 pub mod placeholders;
 pub mod scripts;
 
@@ -44,6 +45,7 @@ pub fn verify(racine: &Path, spec: &AppSpec) -> Result<Vec<Finding>, VerifyError
     out.extend(tous_les_scripts(racine)?);
     out.extend(jetons(racine, spec)?);
     out.extend(marqueurs_restants(racine)?);
+    out.extend(ecoute::controler(racine));
 
     out.sort_by(|a, b| a.severity.cmp(&b.severity).then_with(|| a.id.cmp(&b.id)));
     Ok(out)

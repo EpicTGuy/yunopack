@@ -116,3 +116,9 @@ es.remede = "Encuentra el equivalente en Debian a mano, o comprueba si la depend
 [NPM001-info]
 en.titre = "npm modules with native compilation"
 es.titre = "Módulos npm con compilación nativa"
+
+[RUN002-blocker]
+en.titre = "{langage}: a language YunoHost cannot provide"
+en.remede = "Check whether the project publishes a standalone binary for Debian: it would make installing {langage} unnecessary. Otherwise the application is out of scope until the catalogue offers a resource for this language."
+es.titre = "{langage}: un lenguaje que YunoHost no puede proporcionar"
+es.remede = "Comprueba si el proyecto publica un binario autónomo para Debian: evitaría instalar {langage}. Si no, la aplicación queda fuera del alcance mientras el catálogo no ofrezca un recurso para este lenguaje."

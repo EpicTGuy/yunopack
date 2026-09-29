@@ -251,6 +251,7 @@ impl Rule for LangageNonProvisionnable {
                 Severity::Blocker,
                 format!("{langage} : langage non provisionnable par YunoHost"),
             )
+            .arg("langage", langage.as_str())
             .detail(format!(
                 "Le depot annonce a sa racine un projet {langage}. YunoHost fournit des \
                  resources pour Node.js, Go, Ruby, PHP et Composer, et un environnement \
