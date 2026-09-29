@@ -74,11 +74,31 @@ impl Client {
         }
     }
 
+    /// Telecharge, en retentant sur une erreur passagere.
+    ///
+    /// Une coupure au milieu d'une archive faisait echouer toute l'analyse :
+    /// sur un echantillon de 86 depots de la liste de souhaits, 13 tombaient
+    /// ainsi, et tous passaient quand on les relancait seuls. Une connexion
+    /// domestique, un serveur charge, un proxy capricieux produisent la meme
+    /// chose. Deux nouvelles tentatives, espacees, suffisent a l'absorber ;
+    /// une erreur qui dit quelque chose du depot — introuvable, quota — n'est
+    /// pas retentee, elle se reproduirait a l'identique.
     pub async fn download(&self, url: &str) -> Result<Vec<u8>, ForgeError> {
-        match self {
-            Client::GitHub(c) => c.download(url).await,
-            Client::Gitea(c) => c.download(url).await,
-            Client::GitLab(c) => c.download(url).await,
+        let mut essai = 0;
+        loop {
+            let resultat = match self {
+                Client::GitHub(c) => c.download(url).await,
+                Client::Gitea(c) => c.download(url).await,
+                Client::GitLab(c) => c.download(url).await,
+            };
+            match resultat {
+                Err(ForgeError::Http(e)) if essai < 2 && est_passagere(&e) => {
+                    essai += 1;
+                    tracing::warn!("{url} : {e} — nouvelle tentative ({essai}/2)");
+                    tokio::time::sleep(std::time::Duration::from_secs(3 * essai)).await;
+                }
+                autre => return autre,
+            }
         }
     }
 
@@ -89,6 +109,15 @@ impl Client {
             Client::GitLab(c) => crate::gitlab::archive_url(c.hote(), source, reference),
         }
     }
+}
+
+/// Vrai pour une erreur de transport, qui a des chances de ne pas se repeter.
+///
+/// Un statut HTTP, lui, vient du serveur et dit quelque chose de la demande :
+/// le retenter ne changerait rien.
+fn est_passagere(e: &reqwest::Error) -> bool {
+    e.status().is_none()
+        && (e.is_timeout() || e.is_connect() || e.is_body() || e.is_decode() || e.is_request())
 }
 
 /// L'hote d'une URL, sans schema ni chemin.
