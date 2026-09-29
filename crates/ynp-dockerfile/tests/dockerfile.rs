@@ -527,3 +527,36 @@ fn les_variantes_legitimes_restent_reconnues() {
         assert!(!est_un_dockerfile(nom), "{nom} ne devrait pas l'etre");
     }
 }
+
+#[test]
+fn une_variante_de_developpement_n_est_pas_la_recette_de_production() {
+    use ynp_core::tree::RepoTree;
+    use ynp_dockerfile::choose_dockerfile;
+    // Cas d'AnonAddy : son seul Dockerfile monte un poste de travail. Le
+    // prendre pour la recette de production faisait echouer la traduction de
+    // la commande de demarrage sur un paquet qui, sans lui, sortait complet.
+    let tree = RepoTree::from_pairs([(
+        "dev.Dockerfile",
+        "FROM php:8.2-fpm\nEXPOSE 9000\nCMD [\"php-fpm\"]\n",
+    )]);
+    assert_eq!(choose_dockerfile(&tree), None);
+}
+
+#[test]
+fn une_variante_nommee_par_sa_base_reste_une_recette() {
+    use ynp_core::tree::RepoTree;
+    use ynp_dockerfile::choose_dockerfile;
+    // Cas de Linkding : `default.Dockerfile` et `alpine.Dockerfile` decrivent
+    // bien l'application, sous deux bases differentes.
+    let tree = RepoTree::from_pairs([
+        (
+            "docker/default.Dockerfile",
+            "FROM python:3.12\nEXPOSE 9090\nCMD [\"./bootstrap.sh\"]\n",
+        ),
+        (
+            "docker/alpine.Dockerfile",
+            "FROM python:3.12-alpine\nEXPOSE 9090\nCMD [\"./bootstrap.sh\"]\n",
+        ),
+    ]);
+    assert!(choose_dockerfile(&tree).is_some());
+}

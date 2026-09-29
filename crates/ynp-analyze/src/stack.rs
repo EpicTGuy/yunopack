@@ -42,7 +42,13 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     // — et c'est lui qu'il faut nommer — soit on regarde plus bas, pour
     // proposer plutot que de demander les mains vides.
     if facts.primary == Technology::Unknown {
-        facts.langage_hors_perimetre = langage_hors_perimetre(tree).map(str::to_string);
+        facts.langage_hors_perimetre = langage_hors_perimetre(tree)
+            .or_else(|| {
+                build
+                    .and_then(|b| b.runtime_stage())
+                    .and_then(|s| langage_hors_perimetre_de_l_image(&s.image))
+            })
+            .map(str::to_string);
         if facts.langage_hors_perimetre.is_none() {
             facts.pistes = pistes_de_technologie(tree)
                 .into_iter()
@@ -163,22 +169,51 @@ pub fn langage_hors_perimetre(tree: &RepoTree) -> Option<&'static str> {
         ("dune-project", "OCaml"),
         ("shard.yml", "Crystal"),
         ("rebar.config", "Erlang"),
+        ("CMakeLists.txt", "C/C++"),
+        ("meson.build", "C/C++"),
     ];
     for (fichier, langage) in ANNONCES {
         if tree.has(fichier) {
             return Some(langage);
         }
     }
-    // Les projets .NET nomment leur fichier d'apres la solution : c'est
+    // Les projets .NET et Lua nomment leur fichier d'apres le projet : c'est
     // l'extension qui les identifie, pas un nom fixe.
-    if tree
-        .paths()
-        .iter()
-        .any(|p| !p.contains('/') && (p.ends_with(".csproj") || p.ends_with(".sln")))
-    {
-        return Some(".NET");
+    for (extension, langage) in [(".csproj", ".NET"), (".sln", ".NET"), (".rockspec", "Lua")] {
+        if tree
+            .paths()
+            .iter()
+            .any(|p| !p.contains('/') && p.ends_with(extension))
+        {
+            return Some(langage);
+        }
     }
     None
+}
+
+/// Le langage qu'une image de base Docker designe, quand YunoHost ne sait pas
+/// le provisionner.
+///
+/// Certains projets ne declarent leur monde nulle part ailleurs : le serveur
+/// de synchronisation de KOReader n'a a sa racine qu'un `Dockerfile` et un
+/// `Makefile`, et c'est son `FROM openresty/openresty` qui dit qu'il tourne
+/// en Lua. Sans cela, l'analyse conclut « aucun fichier de projet reconnu »
+/// et demande un langage sans rien proposer.
+pub fn langage_hors_perimetre_de_l_image(image: &str) -> Option<&'static str> {
+    let court = image.rsplit('/').next().unwrap_or(image).to_lowercase();
+    Some(match court.as_str() {
+        "openresty" | "lua" => "Lua",
+        "elixir" => "Elixir",
+        "erlang" => "Erlang",
+        "haskell" => "Haskell",
+        "swift" => "Swift",
+        "dart" => "Dart",
+        "mono" | "dotnet" | "aspnet" | "sdk" => ".NET",
+        "perl" => "Perl",
+        "ocaml" => "OCaml",
+        "crystal" => "Crystal",
+        _ => return None,
+    })
 }
 
 /// La commande de demarrage que le projet declare lui-meme, et d'ou elle sort.
@@ -467,6 +502,38 @@ fn python_version(tree: &RepoTree) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_image_de_base_peut_nommer_le_langage_a_elle_seule() {
+        // Cas du serveur de synchronisation de KOReader : rien a sa racine
+        // qu'un Dockerfile et un Makefile ; c'est le `FROM openresty` qui dit
+        // qu'il tourne en Lua.
+        for (image, attendu) in [
+            ("openresty/openresty", "Lua"),
+            ("elixir", "Elixir"),
+            ("mcr.microsoft.com/dotnet/aspnet", ".NET"),
+        ] {
+            assert_eq!(
+                langage_hors_perimetre_de_l_image(image),
+                Some(attendu),
+                "{image}"
+            );
+        }
+        for image in ["node", "python", "golang", "debian"] {
+            assert_eq!(langage_hors_perimetre_de_l_image(image), None, "{image}");
+        }
+    }
+
+    #[test]
+    fn un_projet_c_est_nomme_par_son_systeme_de_construction() {
+        // Cas de ZoneMinder : un CMakeLists.txt a la racine, et un
+        // `web/api/composer.json` qui le faisait proposer comme du PHP.
+        let arbre = RepoTree::from_pairs([
+            ("CMakeLists.txt", "project(zm)"),
+            ("web/api/composer.json", "{}"),
+        ]);
+        assert_eq!(langage_hors_perimetre(&arbre), Some("C/C++"));
+    }
 
     #[test]
     fn un_pipeline_d_assets_ne_fait_pas_le_langage_de_l_application() {

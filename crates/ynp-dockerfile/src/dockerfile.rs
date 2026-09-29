@@ -476,7 +476,11 @@ pub fn find_dockerfile(tree: &[String]) -> Option<String> {
 /// il expose un port, part d'une image de langage, et demarre l'application
 /// plutot qu'un script de construction.
 pub fn choose(tree: &ynp_core::tree::RepoTree) -> Option<String> {
-    let candidates = tree.find_by_name(est_un_dockerfile);
+    let candidates: Vec<String> = tree
+        .find_by_name(est_un_dockerfile)
+        .into_iter()
+        .filter(|p| !est_une_variante_de_developpement(p))
+        .collect();
     if candidates.is_empty() {
         return None;
     }
@@ -493,6 +497,33 @@ pub fn choose(tree: &ynp_core::tree::RepoTree) -> Option<String> {
         // choix doit etre reproductible d'une execution a l'autre.
         .max_by_key(|(score, path)| (*score, -(path.matches('/').count() as i32), path.clone()))
         .map(|(_, path)| path)
+}
+
+/// Vrai pour un Dockerfile qui monte un poste de travail, pas l'application.
+///
+/// `dev.Dockerfile` et `Dockerfile.dev` decrivent l'environnement du
+/// developpeur : outils de debogage, sources montees en volume, serveur de
+/// rechargement a chaud. AnonAddy n'en a pas d'autre, et le prendre pour la
+/// recette de production faisait echouer la traduction de sa commande de
+/// demarrage sur un paquet qui, sans lui, sortait complet. Mieux vaut n'avoir
+/// aucune recette que la mauvaise : l'outil le dit alors franchement.
+fn est_une_variante_de_developpement(chemin: &str) -> bool {
+    const VARIANTES: &[&str] = &[
+        "dev",
+        "develop",
+        "development",
+        "test",
+        "tests",
+        "ci",
+        "local",
+        "debug",
+    ];
+    let bas = chemin.to_lowercase();
+    let nom = bas.rsplit('/').next().unwrap_or(&bas);
+    let variante = nom
+        .strip_suffix(".dockerfile")
+        .or_else(|| nom.strip_prefix("dockerfile."));
+    variante.is_some_and(|v| VARIANTES.contains(&v))
 }
 
 fn runtime_score(path: &str, recipe: &BuildRecipe) -> i32 {

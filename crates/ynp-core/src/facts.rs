@@ -356,6 +356,11 @@ pub struct StackFacts {
     /// Dependances npm/pip exigeant des paquets `-dev` cote systeme.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub native_deps: Vec<String>,
+    /// La ligne `exec` du script d'entree de l'image, telle qu'elle y figure.
+    /// `"$@"` y signifie « lance le CMD » ; toute autre valeur nomme la
+    /// commande directement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec_du_point_d_entree: Option<String>,
     /// Le langage que le depot annonce a sa racine quand YunoHost ne sait pas
     /// le provisionner. Sa presence invalide les pistes ci-dessous : elles ne
     /// designeraient qu'un composant secondaire.

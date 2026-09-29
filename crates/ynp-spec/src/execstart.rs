@@ -60,7 +60,34 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
         );
     };
 
-    match traduire(&commande, facts.stack.primary).or(declaree) {
+    // Un script d'entree ne se traduit pas — mais sa ligne `exec` nomme le
+    // vrai processus, et elle, si. `exec "$@"` renvoie au CMD : on repart
+    // alors de la commande d'origine privee du script.
+    let apres_le_script = facts.stack.exec_du_point_d_entree.as_deref().map(|e| {
+        // `"$@"` repasse les arguments du conteneur, c'est-a-dire le `CMD` :
+        // on les remet a leur place. `exec "$@"` seul revient donc au `CMD`
+        // entier, et `uwsgi "$@"` a `uwsgi` suivi du `CMD`.
+        let tete = e
+            .trim()
+            .trim_end_matches("\"$@\"")
+            .trim_end_matches("$@")
+            .trim();
+        let args: Vec<&str> = if e.contains("$@") {
+            commande.split_whitespace().skip(1).collect()
+        } else {
+            Vec::new()
+        };
+        format!("{tete} {}", args.join(" ")).trim().to_string()
+    });
+
+    let depuis_le_script = apres_le_script
+        .as_deref()
+        .and_then(|c| traduire(c, facts.stack.primary));
+
+    match traduire(&commande, facts.stack.primary)
+        .or(depuis_le_script)
+        .or(declaree)
+    {
         Some(execstart) => Known::resolved(execstart),
         None => Known::unresolved(
             format!("commande « {commande} » non transposable automatiquement"),
@@ -117,7 +144,8 @@ fn traduire(commande: &str, tech: Technology) -> Option<String> {
         // environnement virtuel, et s'y trouvent donc au meme endroit. Ce
         // n'est pas une supposition : c'est le script d'installation que
         // yunopack ecrit lui-meme qui les y met.
-        "gunicorn" | "uvicorn" | "hypercorn" | "waitress-serve" | "daphne" | "celery"
+        "gunicorn" | "uvicorn" | "hypercorn" | "waitress-serve" | "daphne" | "celery" | "uwsgi"
+        | "flask" | "granian"
             if tech == Technology::Python =>
         {
             Some(format!("__INSTALL_DIR__/venv/bin/{premier} {}", reste(1)))
@@ -253,6 +281,80 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+
+    fn facts_avec_script(cmd: Vec<&str>, exec: &str, tech: Technology) -> RepoFacts {
+        let mut f = facts_avec(Some(cmd.into_iter().map(String::from).collect()), tech);
+        f.stack.exec_du_point_d_entree = Some(exec.into());
+        f
+    }
+
+    #[test]
+    fn un_script_qui_passe_la_main_au_cmd_ne_bloque_plus() {
+        // Cas de zigbee2mqtt : `docker-entrypoint.sh /sbin/tini -- node index.js`
+        // ou le script se termine par `exec "$@"`.
+        let f = facts_avec_script(
+            vec![
+                "docker-entrypoint.sh",
+                "/sbin/tini",
+                "--",
+                "node",
+                "index.js",
+            ],
+            "\"$@\"",
+            Technology::NodeJs,
+        );
+        assert_eq!(
+            derive(&f, "zigbee2mqtt").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node index.js")
+        );
+    }
+
+    #[test]
+    fn un_script_qui_nomme_sa_commande_la_livre() {
+        // Cas de Taiga : le script prepare le terrain puis `exec gosu taiga
+        // gunicorn … --bind 0.0.0.0:8000`.
+        let f = facts_avec_script(
+            vec!["./docker/entrypoint.sh"],
+            "gosu taiga gunicorn taiga.wsgi:application --bind 0.0.0.0:8000 --workers 3 \"$@\"",
+            Technology::Python,
+        );
+        assert_eq!(
+            derive(&f, "taiga").value().map(String::as_str),
+            Some(
+                "__INSTALL_DIR__/venv/bin/gunicorn taiga.wsgi:application \
+                 --bind 127.0.0.1:__PORT__ --workers 3"
+            )
+        );
+    }
+
+    #[test]
+    fn une_derniere_ligne_qui_repasse_les_arguments_reprend_le_cmd() {
+        // Cas de Kitchenowl : le script prepare la base puis finit par
+        // `uwsgi "$@"`, sans `exec`. Les vrais arguments sont dans le CMD.
+        let f = facts_avec_script(
+            vec![
+                "./entrypoint.sh",
+                "--ini",
+                "wsgi.ini:web",
+                "--gevent",
+                "200",
+            ],
+            "uwsgi \"$@\"",
+            Technology::Python,
+        );
+        assert_eq!(
+            derive(&f, "kitchenowl").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/uwsgi --ini wsgi.ini:web --gevent 200")
+        );
+    }
+
+    #[test]
+    fn un_script_illisible_laisse_l_outil_demander() {
+        // Sans ligne `exec`, rien n'a change : on ne devine pas ce que fait
+        // le script.
+        let f = facts_avec(Some(vec!["./entrypoint.sh".into()]), Technology::Python);
+        assert!(derive(&f, "x").value().is_none());
     }
 
     #[test]

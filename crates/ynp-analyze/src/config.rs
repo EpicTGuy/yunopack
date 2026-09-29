@@ -10,7 +10,7 @@
 //! proposition faite a l'humain vaut surtout par sa provenance.
 
 use crate::knowledge;
-use ynp_core::facts::{BuildRecipe, ComposeFacts, ConfigFacts, ConfigVar};
+use ynp_core::facts::{BuildRecipe, ComposeFacts, ConfigFacts, ConfigRole, ConfigVar};
 use ynp_core::tree::RepoTree;
 
 /// Fichiers d'exemple reconnus par leur chemin exact, par ordre de preference.
@@ -77,7 +77,127 @@ pub fn detect_avec_build(
         }
     }
 
+    // Dernier recours : les blocs de code du README. C'est la que la plupart
+    // des projets montrent comment on lance leur application, et donc sous
+    // quel nom elle attend son port ou sa base — quand ils n'ont ni fichier
+    // d'exemple, ni compose, ni `ENV` dans leur Dockerfile.
+    if let Some((chemin, texte)) = tree.first_text(&["README.md", "readme.md", "README"]) {
+        let provenance = format!("{chemin}, bloc de code");
+        let mut trouvees = variables_des_blocs_de_code(texte);
+        trouvees.extend(variables_des_tableaux(texte));
+        for (nom, valeur) in trouvees {
+            // Un bloc de code est une source faible : on n'en retient que ce
+            // dont on connait deja le sens. Le reste irait grossir la
+            // configuration du paquet de variables sans role — `VERSION`,
+            // `PWD`, le nom d'une image — au lieu de l'eclairer.
+            if knowledge::get().role_of(&nom) == ConfigRole::Other {
+                continue;
+            }
+            ajouter(&mut facts, &nom, valeur, &provenance);
+        }
+    }
+
     facts
+}
+
+/// Les affectations de variables que portent les blocs de code d'un document.
+///
+/// Un README est de la prose, que l'outil s'interdit d'interpreter. Ses blocs
+/// de code, eux, ne le sont pas : `docker run -e PORT=8191 …` enonce un nom de
+/// variable aussi nettement qu'un `.env.example`. C'est le champ qui bloquait
+/// le plus souvent — le nom sous lequel une application attend son port ou sa
+/// base — et beaucoup de projets ne le declarent nulle part ailleurs.
+///
+/// Trois formes, toutes issues de ce qu'on colle dans un terminal ou dans un
+/// compose : `-e NOM=valeur`, `NOM=valeur` en debut de ligne, et `- NOM=valeur`
+/// des listes d'environnement.
+pub fn variables_des_blocs_de_code(texte: &str) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    let mut dans_un_bloc = false;
+
+    for ligne in texte.lines() {
+        let l = ligne.trim();
+        if l.starts_with("```") || l.starts_with("~~~") {
+            dans_un_bloc = !dans_un_bloc;
+            continue;
+        }
+        if !dans_un_bloc {
+            continue;
+        }
+
+        let mut mots = l.split_whitespace().peekable();
+        while let Some(mot) = mots.next() {
+            // `-e NOM=valeur` et `--env NOM=valeur` : le nom peut suivre le
+            // drapeau ou lui etre accole.
+            let brut = match mot {
+                "-e" | "--env" => match mots.next() {
+                    Some(suivant) => suivant,
+                    None => break,
+                },
+                _ => mot.trim_start_matches('-').trim_start_matches("export "),
+            };
+            let Some((nom, valeur)) = brut.split_once('=') else {
+                continue;
+            };
+            if !is_env_name(nom) {
+                continue;
+            }
+            if out.iter().any(|(n, _)| n == nom) {
+                continue;
+            }
+            out.push((nom.to_string(), non_empty(valeur)));
+        }
+    }
+    out
+}
+
+/// Les variables qu'un tableau de documentation declare.
+///
+/// C'est la forme la plus repandue des sections « variables d'environnement »
+/// d'un README : une ligne par reglage, son nom, sa valeur par defaut, et ce
+/// qu'il fait. FlareSolverr y annonce son `PORT`, que rien d'autre dans son
+/// depot ne nomme — ni fichier d'exemple, ni compose, ni `ENV` de Dockerfile.
+///
+/// Un tableau n'est pas de la prose : ses cellules sont delimitees, et la
+/// premiere porte le nom. On ne retient d'ailleurs, plus loin, que les noms
+/// dont on connait deja le sens, ce qui ecarte les tableaux qui listent tout
+/// autre chose.
+pub fn variables_des_tableaux(texte: &str) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    let mut dans_un_bloc = false;
+
+    for ligne in texte.lines() {
+        let l = ligne.trim();
+        if l.starts_with("```") || l.starts_with("~~~") {
+            dans_un_bloc = !dans_un_bloc;
+            continue;
+        }
+        // Un tableau dessine dans un bloc de code est un exemple d'affichage,
+        // pas une declaration.
+        if dans_un_bloc || !l.starts_with('|') {
+            continue;
+        }
+
+        let cellules: Vec<&str> = l.trim_matches('|').split('|').map(str::trim).collect();
+        let Some(nom) = cellules.first() else {
+            continue;
+        };
+        // Les noms sont parfois mis en valeur : `| `PORT` |`, `| **PORT** |`.
+        let nom = nom.trim_matches('`').trim_matches('*').trim();
+        if !is_env_name(nom) || out.iter().any(|(n, _): &(String, _)| n == nom) {
+            continue;
+        }
+
+        // La deuxieme cellule porte la valeur par defaut quand elle en est
+        // une : un mot, pas une phrase d'explication.
+        let defaut = cellules
+            .get(1)
+            .map(|c| c.trim_matches('`').trim_matches('*').trim())
+            .filter(|c| !c.is_empty() && !c.contains(' ') && c.len() <= 40)
+            .and_then(non_empty);
+        out.push((nom.to_string(), defaut));
+    }
+    out
 }
 
 /// Le fichier d'exemple : chemin connu d'abord, puis terminaison reconnue.
@@ -181,6 +301,67 @@ fn is_env_name(s: &str) -> bool {
 mod tests {
     use super::*;
     use ynp_core::facts::ConfigRole;
+
+    #[test]
+    fn un_tableau_de_documentation_nomme_les_variables() {
+        // Cas de FlareSolverr : son PORT n'est declare nulle part ailleurs
+        // que dans le tableau des variables d'environnement du README.
+        let md = "## Environment variables\n\n                  | Name | Default | Description |\n                  |------|---------|-------------|\n                  | `LOG_LEVEL` | info | Verbosity of the logs. |\n                  | PORT | 8191 | Listening port. You don't need to change this. |\n";
+        let v = variables_des_tableaux(md);
+        assert_eq!(
+            v.iter().find(|(n, _)| n == "PORT").unwrap().1.as_deref(),
+            Some("8191")
+        );
+        assert!(v.iter().any(|(n, _)| n == "LOG_LEVEL"), "{v:?}");
+    }
+
+    #[test]
+    fn une_phrase_en_deuxieme_cellule_n_est_pas_une_valeur_par_defaut() {
+        let md = "| PORT | none, the app picks one | ... |\n";
+        assert_eq!(variables_des_tableaux(md)[0].1, None);
+    }
+
+    #[test]
+    fn un_tableau_dessine_dans_un_bloc_de_code_est_un_affichage() {
+        let md = "```\n| PORT | 8191 |\n```\n";
+        assert!(variables_des_tableaux(md).is_empty());
+    }
+
+    #[test]
+    fn un_docker_run_de_readme_nomme_les_variables() {
+        // Cas de FlareSolverr : ni .env.example, ni ENV dans le Dockerfile.
+        // Son README montre pourtant la commande de lancement.
+        let md = "Lancez-le ainsi :\n\n                  ```bash\n                  docker run -d --name flaresolverr -e LOG_LEVEL=info \\\n                    -e PORT=8191 -p 8191:8191 flaresolverr:latest\n                  ```\n";
+        let v = variables_des_blocs_de_code(md);
+        assert_eq!(
+            v.iter().find(|(n, _)| n == "PORT").unwrap().1.as_deref(),
+            Some("8191")
+        );
+        assert!(v.iter().any(|(n, _)| n == "LOG_LEVEL"));
+    }
+
+    #[test]
+    fn une_liste_d_environnement_de_compose_est_lue() {
+        let md = "```yaml\nservices:\n  app:\n    environment:\n                        - DATABASE_URL=postgres://u:p@db/app\n      - PORT=3000\n```\n";
+        let v = variables_des_blocs_de_code(md);
+        assert!(v.iter().any(|(n, _)| n == "DATABASE_URL"), "{v:?}");
+        assert!(v.iter().any(|(n, _)| n == "PORT"), "{v:?}");
+    }
+
+    #[test]
+    fn la_prose_hors_bloc_est_ignoree() {
+        // Tout l'interet de se limiter aux blocs : la phrase dit la meme
+        // chose, mais l'interpreter serait deviner.
+        let md = "Definissez PORT=8191 dans votre environnement.\n";
+        assert!(variables_des_blocs_de_code(md).is_empty());
+    }
+
+    #[test]
+    fn un_bloc_referme_arrete_la_lecture() {
+        let md = "```\nPORT=1\n```\n\nPuis OTHER_VAR=2 en prose.\n";
+        let v = variables_des_blocs_de_code(md);
+        assert_eq!(v.len(), 1, "{v:?}");
+    }
 
     const ENV: &str = r#"
 # Configuration de l'application

@@ -86,6 +86,18 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     }
 
     facts.stack = stack::detect(tree, facts.build.as_ref());
+
+    // Apres `detect`, qui remplace la structure entiere : le script d'entree,
+    // s'il y en a un. Sa ligne `exec` nomme le vrai processus, et c'est le
+    // premier motif de blocage de l'outil.
+    if let Some(script) = facts
+        .build
+        .as_ref()
+        .and_then(|b| b.start_command())
+        .and_then(|c| premier_mot_de_script(&c))
+    {
+        facts.stack.exec_du_point_d_entree = ligne_exec_du_point_d_entree(tree, &script);
+    }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     facts.services = services::detect(
         tree,
@@ -300,4 +312,113 @@ mod readme {
         let arbre = RepoTree::from_pairs([("README.md", "# Projet\n\n- a\n- b\n")]);
         assert_eq!(resume_du_readme(&arbre), None);
     }
+}
+
+/// La commande que lance un script d'entree, lue sur sa ligne `exec`.
+///
+/// Une image Docker passe souvent par un script avant de lancer son
+/// application : il prepare le terrain, puis cede la place avec `exec`. Cette
+/// derniere ligne nomme le vrai processus, et c'est du texte structure, pas
+/// de la prose — `exec "$@"` veut dire « lance les arguments », c'est-a-dire
+/// le `CMD`, et `exec gunicorn …` nomme la commande directement.
+///
+/// C'etait le premier motif de blocage de l'outil : sept depots sur les
+/// treize qui s'arretaient sur la commande de demarrage le faisaient sur un
+/// script d'entree que personne n'avait ouvert.
+pub fn ligne_exec_du_point_d_entree(tree: &RepoTree, script: &str) -> Option<String> {
+    let texte = texte_du_script(tree, script)?;
+
+    // Les commandes longues se poursuivent d'une ligne a l'autre.
+    let recolle = texte.replace("\\\n", " ");
+
+    let mut exec = None;
+    let mut derniere = None;
+    for ligne in recolle.lines() {
+        let l = ligne.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        if let Some(reste) = l.strip_prefix("exec ") {
+            let reste = reste.trim();
+            if !reste.is_empty() {
+                exec = Some(reste.to_string());
+            }
+        }
+        derniere = Some(l.to_string());
+    }
+    if exec.is_some() {
+        return exec;
+    }
+
+    // Sans `exec`, la derniere ligne fait foi — mais seulement si elle
+    // repasse les arguments du conteneur. `uwsgi "$@"` termine le script de
+    // Kitchenowl : c'est bien le processus qui tient l'application. Une
+    // derniere ligne quelconque, elle, peut etre un nettoyage.
+    derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@"))
+}
+
+/// Retrouve un script dans l'arbre a partir du chemin qu'il a dans l'image.
+///
+/// Le Dockerfile le designe par son emplacement une fois copie — `/app/bin/
+/// entrypoint.sh` — qui n'est pas celui du depot. On se rabat donc sur le nom
+/// du fichier, et on prend le chemin le plus court quand il y en a plusieurs.
+fn texte_du_script<'a>(tree: &'a RepoTree, script: &str) -> Option<&'a str> {
+    if let Some(t) = tree.text(script.trim_start_matches("./")) {
+        return Some(t);
+    }
+    let nom = script.rsplit('/').next()?;
+    let mut trouves = tree.find_by_name(|n| n == nom);
+    trouves.sort_by_key(|p| (p.matches('/').count(), p.len(), p.clone()));
+    tree.text(trouves.first()?)
+}
+
+#[cfg(test)]
+mod point_d_entree {
+    use super::*;
+
+    #[test]
+    fn exec_avec_les_arguments_renvoie_au_cmd() {
+        // Cas de zigbee2mqtt : le script fixe un repertoire de donnees, puis
+        // cede la place a ce que le Dockerfile a mis en CMD.
+        let arbre = RepoTree::from_pairs([(
+            "docker/docker-entrypoint.sh",
+            "#!/bin/sh\nset -e\n\necho \"Using $DATA\"\n\nexec \"$@\"\n",
+        )]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "/app/docker-entrypoint.sh").as_deref(),
+            Some("\"$@\"")
+        );
+    }
+
+    #[test]
+    fn une_commande_sur_plusieurs_lignes_est_recollee() {
+        // Cas de Taiga : la commande s'etale sur huit lignes.
+        let arbre = RepoTree::from_pairs([(
+            "docker/entrypoint.sh",
+            "chown -R taiga:taiga /taiga-back\n\nexec gosu taiga gunicorn taiga.wsgi:application \\\n\
+             --bind 0.0.0.0:8000 \\\n    --workers 3\n",
+        )]);
+        let c = ligne_exec_du_point_d_entree(&arbre, "./docker/entrypoint.sh").unwrap();
+        assert!(
+            c.starts_with("gosu taiga gunicorn taiga.wsgi:application"),
+            "{c}"
+        );
+        assert!(c.contains("--bind 0.0.0.0:8000"), "{c}");
+    }
+
+    #[test]
+    fn un_script_absent_de_l_arbre_ne_conclut_rien() {
+        let arbre = RepoTree::from_pairs([("README.md", "x")]);
+        assert_eq!(ligne_exec_du_point_d_entree(&arbre, "entrypoint.sh"), None);
+    }
+}
+
+/// Le premier mot d'une commande, quand c'est un script shell.
+///
+/// C'est le seul cas ou il vaut la peine d'aller ouvrir un fichier : une
+/// commande qui commence par un binaire se traduit deja.
+fn premier_mot_de_script(commande: &str) -> Option<String> {
+    let premier = commande.split_whitespace().next()?;
+    let bas = premier.to_lowercase();
+    (bas.ends_with(".sh") || bas.contains("entrypoint")).then(|| premier.to_string())
 }

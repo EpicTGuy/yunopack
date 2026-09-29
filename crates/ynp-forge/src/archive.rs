@@ -120,6 +120,10 @@ fn is_interesting(path: &str) -> bool {
     EXACT.contains(&lower.as_str())
         || est_un_fichier_de_paquet(&path.to_lowercase())
         || ynp_core::noms::est_un_dockerfile(&lower)
+        // Le script d'entree d'une image finit presque toujours par `exec`,
+        // qui nomme le vrai processus a lancer. Sans son contenu, l'outil ne
+        // pouvait que refuser de traduire la commande de demarrage.
+        || (lower.ends_with(".sh") && lower.contains("entrypoint"))
         || lower.starts_with("docker-compose.")
         || lower.starts_with("compose.")
         || lower.starts_with(".env")
