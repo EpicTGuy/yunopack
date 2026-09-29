@@ -250,10 +250,25 @@ mod tests {
     }
 
     #[test]
-    fn un_suffixe_rattrape_les_variantes_de_port() {
+    fn le_port_d_un_autre_service_n_est_pas_celui_de_l_application() {
+        // Ce test exigeait l'inverse : que `METRICS_PORT` soit le port de
+        // l'application. Le premier trouve l'emportant, `DB_PORT` liste avant
+        // `PORT` aurait recu le port reserve par YunoHost. Les variables
+        // prefixees du nom du depot (`GRIST_PORT`) sont reconnues a part,
+        // la ou le nom du depot est connu.
         let k = get();
-        assert_eq!(k.role_of("GRIST_PORT"), ConfigRole::Port);
-        assert_eq!(k.role_of("METRICS_PORT"), ConfigRole::Port);
+        for autre in [
+            "DB_PORT",
+            "SMTP_PORT",
+            "REDIS_PORT",
+            "METRICS_PORT",
+            "PROMETHEUS_PORT",
+        ] {
+            assert_ne!(k.role_of(autre), ConfigRole::Port, "{autre}");
+        }
+        for app in ["PORT", "HTTP_PORT", "API_PORT", "SERVER_PORT"] {
+            assert_eq!(k.role_of(app), ConfigRole::Port, "{app}");
+        }
     }
 
     #[test]

@@ -100,6 +100,45 @@ pub fn detect_avec_build(
     facts
 }
 
+/// Reconnait le port d'une application dans une variable prefixee de son nom.
+///
+/// Beaucoup d'applications rangent leurs reglages sous leur propre prefixe :
+/// `TIMETAGGER_BIND`, `GITEA_HTTP_PORT`. La table des noms connus ne peut pas
+/// les contenir tous, et la simple terminaison `_PORT` ne suffit pas :
+/// `DB_PORT`, `SMTP_PORT`, `REDIS_PORT` designent le port d'un autre service.
+/// Le prefixe du depot, lui, leve l'ambiguite — c'est l'application qui parle
+/// de son propre port.
+///
+/// On n'intervient que si aucune variable n'a deja le role : une declaration
+/// explicite l'emporte toujours.
+pub fn reconnaitre_le_port_prefixe(facts: &mut ConfigFacts, depot: &str) {
+    if facts.get(ConfigRole::Port).is_some() {
+        return;
+    }
+    let prefixe = depot.to_uppercase().replace(['-', '.'], "_");
+    const SUFFIXES: &[&str] = &[
+        "_PORT",
+        "_HTTP_PORT",
+        "_LISTEN_PORT",
+        "_SERVER_PORT",
+        "_BIND",
+        "_BIND_ADDRESS",
+        "_LISTEN",
+        "_LISTEN_ADDR",
+        "_LISTEN_ADDRESS",
+        "_ADDR",
+    ];
+    for v in facts.variables.iter_mut() {
+        let Some(reste) = v.name.strip_prefix(&prefixe) else {
+            continue;
+        };
+        if SUFFIXES.contains(&reste) {
+            v.role = ConfigRole::Port;
+            return;
+        }
+    }
+}
+
 /// Les affectations de variables que portent les blocs de code d'un document.
 ///
 /// Un README est de la prose, que l'outil s'interdit d'interpreter. Ses blocs
@@ -301,6 +340,34 @@ fn is_env_name(s: &str) -> bool {
 mod tests {
     use super::*;
     use ynp_core::facts::ConfigRole;
+
+    fn var(nom: &str, defaut: Option<&str>) -> ConfigVar {
+        make_var(nom, defaut.map(String::from), "test")
+    }
+
+    #[test]
+    fn le_prefixe_du_depot_designe_le_port_de_l_application() {
+        // Cas de timetagger : `TIMETAGGER_BIND=0.0.0.0:80`.
+        let mut f = ConfigFacts {
+            variables: vec![
+                var("TIMETAGGER_DATADIR", None),
+                var("TIMETAGGER_BIND", Some("0.0.0.0:80")),
+            ],
+            ..Default::default()
+        };
+        reconnaitre_le_port_prefixe(&mut f, "timetagger");
+        assert_eq!(f.get(ConfigRole::Port).unwrap().name, "TIMETAGGER_BIND");
+    }
+
+    #[test]
+    fn le_port_d_un_autre_service_n_est_pas_celui_de_l_application() {
+        let mut f = ConfigFacts {
+            variables: vec![var("DB_PORT", Some("5432")), var("SMTP_PORT", Some("25"))],
+            ..Default::default()
+        };
+        reconnaitre_le_port_prefixe(&mut f, "monappli");
+        assert!(f.get(ConfigRole::Port).is_none());
+    }
 
     #[test]
     fn un_tableau_de_documentation_nomme_les_variables() {

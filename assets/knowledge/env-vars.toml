@@ -46,13 +46,19 @@ exact = [
   "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "PGPASSWORD",
 ]
 
+# Pas de terminaison `_PORT` generique : elle attrapait `DB_PORT`, `SMTP_PORT`,
+# `REDIS_PORT`, `PROMETHEUS_PORT` — le port d'un autre service. Le premier
+# trouve l'emportant, un depot qui listait `DB_PORT` avant `PORT` aurait vu le
+# port reserve par YunoHost ecrit dans la connexion a sa base. Les variables
+# prefixees du nom de l'application (`GITEA_HTTP_PORT`) sont reconnues a part,
+# par `config::reconnaitre_le_port_prefixe`, qui connait le nom du depot.
 [[rule]]
 role = "port"
 exact = [
   "PORT", "HTTP_PORT", "SERVER_PORT", "APP_PORT", "LISTEN_PORT", "WEB_PORT",
-  "BIND_PORT", "HTTP_LISTEN_PORT", "SERVICE_PORT",
+  "BIND_PORT", "HTTP_LISTEN_PORT", "SERVICE_PORT", "API_PORT", "BACKEND_PORT",
+  "WEBSERVER_PORT", "WEB_SERVER_PORT", "HTTP_SERVER_PORT", "APPLICATION_PORT",
 ]
-suffix = ["_PORT"]
 
 [[rule]]
 role = "base_url"

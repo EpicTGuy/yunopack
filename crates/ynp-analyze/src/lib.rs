@@ -106,6 +106,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         facts.stack.exec_du_point_d_entree = ligne_exec_du_point_d_entree(tree, &script);
     }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
+    config::reconnaitre_le_port_prefixe(&mut facts.config, &forge.source.repo);
     facts.services = services::detect(
         tree,
         facts.compose.as_ref(),

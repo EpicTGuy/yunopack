@@ -221,6 +221,14 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
     }
 
+    // PHP est servi par php-fpm et un site statique par nginx : aucun
+    // service a demarrer, donc aucune commande a demander. Chaque
+    // application PHP sans Dockerfile posait pourtant la question.
+    let execstart = match facts.stack.primary {
+        Technology::Php | Technology::Static => Known::resolved(String::new()),
+        _ => execstart::derive(facts, app_id),
+    };
+
     Runtime {
         technology: match facts.stack.primary {
             // Rien a la racine. Si le depot porte des fichiers de projet plus
@@ -269,15 +277,9 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .map(|b| b.build_steps.clone())
                 .unwrap_or_default()
         },
-        // PHP est servi par php-fpm et un site statique par nginx : aucun
-        // service a demarrer, donc aucune commande a demander. Chaque
-        // application PHP sans Dockerfile posait pourtant la question.
-        execstart: match facts.stack.primary {
-            Technology::Php | Technology::Static => Known::resolved(String::new()),
-            _ => execstart::derive(facts, app_id),
-        },
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
-        port_binding: liaison_port(facts),
+        port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
+        execstart,
         database_binding: liaison_base(facts),
         // Un fichier de configuration est necessaire des qu'il y a quelque
         // chose a transmettre a l'application, meme si l'amont n'en publie
@@ -292,11 +294,30 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
 }
 
 /// Ligne de configuration transmettant le port reserve par le coeur.
-fn liaison_port(facts: &RepoFacts) -> Known<String> {
-    if !a_besoin_d_un_port(facts) {
+///
+/// Rien a transmettre dans deux cas qui, jusqu'ici, posaient la question :
+///
+/// - la commande de demarrage porte deja le port. `gunicorn --bind
+///   127.0.0.1:__PORT__` le recoit en argument, pas par une variable : c'est
+///   la forme ordinaire des applications Python, et Taiga voyait sa commande
+///   resolue puis le port demande quand meme ;
+/// - PHP et les sites statiques sont servis par php-fpm et nginx. L'`EXPOSE`
+///   de leur conteneur est celui du serveur web qu'il embarque, pas celui de
+///   l'application.
+fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
+    if matches!(facts.stack.primary, Technology::Php | Technology::Static)
+        || execstart.is_some_and(|c| c.contains("__PORT__"))
+        || !a_besoin_d_un_port(facts)
+    {
         return Known::resolved(String::new());
     }
     match facts.config.get(ConfigRole::Port) {
+        // Une variable qui attend une adresse — `TIMETAGGER_BIND=0.0.0.0:80` —
+        // recoit une adresse : lui passer un numero seul l'empecherait de
+        // demarrer. La boucle locale, parce que nginx est devant.
+        Some(v) if v.default.as_deref().is_some_and(est_une_adresse) => {
+            Known::resolved(format!("{}=127.0.0.1:__PORT__", v.name))
+        }
         Some(v) => Known::resolved(format!("{}=__PORT__", v.name)),
         None => Known::unresolved_avec(
             "on ignore sous quel nom l'application attend son port d'ecoute ; la forme varie \

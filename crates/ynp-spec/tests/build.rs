@@ -347,3 +347,37 @@ fn un_site_statique_non_plus() {
 
     assert!(!ynp_spec::build(&facts).unwrap().resources.ports);
 }
+
+#[test]
+fn un_port_passe_en_argument_ne_fait_rien_demander() {
+    // Cas de Taiga : `gunicorn … --bind 127.0.0.1:__PORT__`. La commande
+    // recoit le port en argument ; la specification demandait pourtant sous
+    // quel nom le transmettre, et le generateur ignorait ensuite la reponse.
+    let mut facts = depot_go_avec_binaires();
+    facts.stack = StackFacts {
+        primary: Technology::Python,
+        commande_declaree: Some(ynp_core::facts::CommandeDeclaree {
+            commande: "gunicorn app:app --bind 0.0.0.0:8000".into(),
+            ou: "Procfile".into(),
+        }),
+        ..Default::default()
+    };
+    facts.build = None;
+    facts.selection.as_mut().unwrap().prebuilt.clear();
+    facts.config.variables.clear();
+
+    let spec = ynp_spec::build(&facts).unwrap();
+    assert!(
+        spec.runtime.execstart.value().unwrap().contains("__PORT__"),
+        "{:?}",
+        spec.runtime.execstart
+    );
+    assert!(spec.resources.ports, "le port reste reserve");
+    assert!(
+        !spec
+            .arbitrages()
+            .iter()
+            .any(|a| a.champ == "runtime.port_binding"),
+        "le port est deja lie par la commande"
+    );
+}
