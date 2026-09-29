@@ -162,6 +162,15 @@ pub struct ReleaseAsset {
     pub name: String,
     pub url: String,
     pub size: u64,
+    /// L'empreinte que la forge publie elle-meme, si elle le fait.
+    ///
+    /// GitHub la donne sur chaque actif de publication. La lire dispense de
+    /// telecharger le fichier pour la calculer — et ces fichiers pesent
+    /// souvent des centaines de megaoctets : FlareSolverr en publie un de
+    /// 263 Mo, que l'outil rapatriait en entier a chaque analyse, sans rien
+    /// afficher pendant ce temps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Ce qu'un Dockerfile dit du build, transpose en donnees.
@@ -617,6 +626,13 @@ pub struct ArchAsset {
     pub name: String,
     pub url: String,
     pub sha256: String,
+    /// L'empreinte telle que la forge la publie, quand elle le fait. La lire
+    /// evite de rapatrier le fichier pour retrouver ce qu'elle a deja dit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empreinte_publiee: Option<String>,
+    /// Taille annoncee, pour pouvoir dire ce qu'on telecharge.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub taille: u64,
     /// Motif reconnaissant cet asset d'une version a l'autre, pour
     /// `autoupdate.asset.<arch>`.
     pub pattern: String,
@@ -626,4 +642,9 @@ pub struct ArchAsset {
     /// avec `extract = false` et `rename`.
     #[serde(default)]
     pub extract: bool,
+}
+
+/// Pour ne pas ecrire une taille nulle dans les faits.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }

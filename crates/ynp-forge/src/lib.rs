@@ -5,6 +5,24 @@
 //! modele de langage — d'etre verifiable en lisant un seul crate.
 
 pub mod alternatives;
+/// Un client HTTP borne dans le temps.
+///
+/// Sans limite, un travail reste bloque sur « recuperation du depot… »
+/// indefiniment : la connexion ne rend jamais la main, personne ne signale
+/// rien, et l'utilisateur regarde une etape qui n'avancera plus. Constate sur
+/// deux travaux restes vingt minutes a 0,3 % de processeur.
+///
+/// Le delai porte sur l'attente entre deux octets, pas sur la duree totale :
+/// une archive de plusieurs centaines de megaoctets sur une ligne lente doit
+/// passer, une connexion morte non.
+pub fn client_http() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .user_agent(concat!("yunopack/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(60))
+        .build()
+}
+
 pub mod archive;
 pub mod catalogue;
 pub mod client;
@@ -83,6 +101,21 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     // gitlab-runner, dont les assets sont servis hors de la forge.
     let mut retenus = Vec::new();
     for mut asset in prebuilt {
+        // Quand la forge publie l'empreinte, la calculer soi-meme reviendrait
+        // a rapatrier le fichier pour retrouver ce qu'elle a deja dit.
+        // FlareSolverr en publie un de 263 Mo : plusieurs minutes de
+        // telechargement par analyse, sans rien afficher pendant ce temps.
+        if let Some(empreinte) = asset.empreinte_publiee.clone() {
+            asset.sha256 = empreinte;
+            retenus.push(asset);
+            continue;
+        }
+        tracing::info!(
+            "telechargement de {} ({:.0} Mo) pour en calculer l'empreinte, \
+             que la forge ne publie pas",
+            asset.name,
+            asset.taille as f64 / 1e6
+        );
         match client.download(&asset.url).await {
             Ok(bytes) => {
                 asset.sha256 = sources::sha256(&bytes);

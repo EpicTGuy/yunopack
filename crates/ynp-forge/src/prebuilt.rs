@@ -55,6 +55,8 @@ pub fn select(release: &Release) -> Vec<ArchAsset> {
                 name: asset.name.clone(),
                 url: asset.url.clone(),
                 sha256: String::new(),
+                empreinte_publiee: asset.sha256.clone(),
+                taille: asset.size,
                 extract: ARCHIVES
                     .iter()
                     .any(|e| asset.name.to_lowercase().ends_with(e)),
@@ -217,8 +219,25 @@ mod tests {
                 name: (*n).to_string(),
                 url: format!("https://x/{n}"),
                 size: 1024,
+                sha256: None,
             })
             .collect()
+    }
+
+    #[test]
+    fn l_empreinte_publiee_par_la_forge_suit_l_asset() {
+        // Cas de FlareSolverr : GitHub publie `sha256:…` sur chaque actif.
+        // La transporter jusqu'ici evite de rapatrier 263 Mo pour la
+        // recalculer.
+        let mut r = release(&["app-linux-amd64.tar.gz"]);
+        r.assets[0].sha256 = Some("ab".repeat(32));
+        r.assets[0].size = 263_000_000;
+        let choisis = select(&r);
+        assert_eq!(
+            choisis[0].empreinte_publiee.as_deref(),
+            Some("ab".repeat(32).as_str())
+        );
+        assert_eq!(choisis[0].taille, 263_000_000);
     }
 
     fn release(noms: &[&str]) -> Release {

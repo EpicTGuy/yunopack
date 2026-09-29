@@ -16,8 +16,6 @@ use ynp_core::facts::{Release, ReleaseAsset, RepoMeta, SourceRef};
 
 use crate::github::ForgeError;
 
-const UA: &str = concat!("yunopack/", env!("CARGO_PKG_VERSION"));
-
 pub struct Gitea {
     client: reqwest::Client,
     /// Racine de l'instance, ex. `https://codeberg.org`.
@@ -28,7 +26,7 @@ pub struct Gitea {
 impl Gitea {
     pub fn new(hote: &str) -> Result<Self, ForgeError> {
         Ok(Self {
-            client: reqwest::Client::builder().user_agent(UA).build()?,
+            client: crate::client_http()?,
             hote: format!("https://{}", hote.trim_start_matches("https://")),
             // Un jeton par instance serait plus juste, mais demanderait a
             // l'utilisateur d'en declarer un par forge. Une variable unique
@@ -117,6 +115,8 @@ impl Gitea {
                         name: a.name,
                         url: a.browser_download_url,
                         size: a.size,
+                        // Gitea ne publie pas d'empreinte.
+                        sha256: None,
                     })
                     .collect(),
             })

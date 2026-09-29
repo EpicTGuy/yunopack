@@ -8,8 +8,6 @@ use serde::Deserialize;
 use ynp_core::facts::{Release, ReleaseAsset, RepoMeta, SourceRef};
 
 const API: &str = "https://api.github.com";
-const UA: &str = concat!("yunopack/", env!("CARGO_PKG_VERSION"));
-
 #[derive(Debug, thiserror::Error)]
 pub enum ForgeError {
     #[error("depot introuvable : {0}")]
@@ -34,7 +32,7 @@ pub struct GitHub {
 impl GitHub {
     pub fn new() -> Result<Self, ForgeError> {
         Ok(Self {
-            client: reqwest::Client::builder().user_agent(UA).build()?,
+            client: crate::client_http()?,
             token: std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.is_empty()),
         })
     }
@@ -121,6 +119,12 @@ impl GitHub {
                         name: a.name,
                         url: a.browser_download_url,
                         size: a.size,
+                        // `sha256:abc…` : on ne garde que l'empreinte.
+                        sha256: a
+                            .digest
+                            .as_deref()
+                            .and_then(|d| d.strip_prefix("sha256:"))
+                            .map(str::to_string),
                     })
                     .collect(),
             })
@@ -237,6 +241,8 @@ struct RawAsset {
     browser_download_url: String,
     #[serde(default)]
     size: u64,
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 #[derive(Deserialize)]

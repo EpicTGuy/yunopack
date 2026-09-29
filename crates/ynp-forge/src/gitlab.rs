@@ -14,8 +14,6 @@ use ynp_core::facts::{Release, ReleaseAsset, RepoMeta, SourceRef};
 
 use crate::github::ForgeError;
 
-const UA: &str = concat!("yunopack/", env!("CARGO_PKG_VERSION"));
-
 pub struct GitLab {
     client: reqwest::Client,
     /// Racine de l'instance, ex. `https://framagit.org`.
@@ -26,7 +24,7 @@ pub struct GitLab {
 impl GitLab {
     pub fn new(hote: &str) -> Result<Self, ForgeError> {
         Ok(Self {
-            client: reqwest::Client::builder().user_agent(UA).build()?,
+            client: crate::client_http()?,
             hote: format!("https://{}", hote.trim_start_matches("https://")),
             jeton: std::env::var("GITLAB_TOKEN").ok().filter(|t| !t.is_empty()),
         })
@@ -114,8 +112,10 @@ impl GitLab {
                             .map(|l| ReleaseAsset {
                                 name: l.name,
                                 url: l.url,
-                                // GitLab ne publie pas la taille de ses liens.
+                                // GitLab ne publie ni la taille de ses liens
+                                // ni leur empreinte.
                                 size: 0,
+                                sha256: None,
                             })
                             .collect()
                     })

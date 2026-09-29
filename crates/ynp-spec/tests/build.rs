@@ -49,6 +49,8 @@ fn depot_go_avec_binaires() -> RepoFacts {
                 name: "miniflux-linux-amd64".into(),
                 url: "https://x/miniflux-linux-amd64".into(),
                 sha256: "cd".repeat(32),
+                empreinte_publiee: None,
+                taille: 0,
                 pattern: "^miniflux-linux-amd64$".into(),
                 extract: false,
             }],
