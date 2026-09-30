@@ -199,7 +199,9 @@ fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
         }
     }
     let c = substituer_l_environnement(&c, facts);
+    let c = ramener_les_volumes(&c, facts);
     let traduite = traduire(&c, facts.stack.primary, &facts.source.repo)?;
+    let traduite = lier_les_options_d_ecoute(&traduite, &crate::ports_exposes(facts));
     // Une variable que rien ne definit ferait demarrer le service avec une
     // valeur vide a sa place. InvenTree en portait une, `$APP_HOME`, que son
     // Dockerfile ne fixe pas.
@@ -207,6 +209,77 @@ fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
         return None;
     }
     Some(traduite)
+}
+
+/// Un chemin sous un `VOLUME` du Dockerfile va dans le repertoire de donnees.
+///
+/// Un volume est ce que le conteneur garde d'un redemarrage a l'autre : chez
+/// YunoHost, c'est le repertoire de donnees, que la specification declare
+/// justement quand le Dockerfile a des volumes. mautrix-googlechat demarrait
+/// avec `-c /data/config.yaml`, un chemin qui n'existe pas hors du conteneur.
+fn ramener_les_volumes(commande: &str, facts: &RepoFacts) -> String {
+    let Some(build) = &facts.build else {
+        return commande.to_string();
+    };
+    commande
+        .split(' ')
+        .map(|mot| {
+            for v in &build.volumes {
+                let v = v.trim_end_matches('/');
+                if v.is_empty() {
+                    continue;
+                }
+                if mot == v {
+                    return "__DATA_DIR__".to_string();
+                }
+                if let Some(reste) = mot.strip_prefix(&format!("{v}/")) {
+                    return format!("__DATA_DIR__/{reste}");
+                }
+            }
+            mot.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Les options d'ecoute d'une commande, ramenees a YunoHost.
+///
+/// `--host 0.0.0.0` ouvrirait l'application a tout le reseau : la boucle
+/// locale suffit, nginx est devant. `--port 3000`, quand 3000 est le port que
+/// l'image expose, doit devenir le port reserve — calrs le figeait. Un autre
+/// numero (`--metrics-port 9102`) n'est pas touche.
+fn lier_les_options_d_ecoute(commande: &str, exposes: &[u16]) -> String {
+    const HOTE: &[&str] = &["--host", "--bind", "--listen", "--address", "--addr", "-H"];
+    const PORT: &[&str] = &["--port", "--http-port", "--listen-port", "--server-port"];
+    const PARTOUT: &[&str] = &["0.0.0.0", "::", "[::]"];
+    let expose = |v: &str| v.parse::<u16>().is_ok_and(|p| exposes.contains(&p));
+    let mots: Vec<&str> = commande.split(' ').collect();
+    let mut out: Vec<String> = Vec::with_capacity(mots.len());
+    for (i, mot) in mots.iter().enumerate() {
+        let precedent = i.checked_sub(1).map(|j| mots[j]);
+        // Forme `--port=3000` et `--host=0.0.0.0`.
+        if let Some((option, valeur)) = mot.split_once('=') {
+            if HOTE.contains(&option) && PARTOUT.contains(&valeur) {
+                out.push(format!("{option}=127.0.0.1"));
+                continue;
+            }
+            if PORT.contains(&option) && expose(valeur) {
+                out.push(format!("{option}=__PORT__"));
+                continue;
+            }
+        }
+        // Forme `--port 3000`.
+        if precedent.is_some_and(|p| HOTE.contains(&p)) && PARTOUT.contains(mot) {
+            out.push("127.0.0.1".into());
+            continue;
+        }
+        if precedent.is_some_and(|p| PORT.contains(&p)) && expose(mot) {
+            out.push("__PORT__".into());
+            continue;
+        }
+        out.push((*mot).to_string());
+    }
+    out.join(" ")
 }
 
 /// Remplace les variables que le Dockerfile fixe par leur valeur.
@@ -389,7 +462,12 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
                 {
                     // Un executable compile nomme sans chemin se trouve dans
                     // le repertoire d'installation.
-                    return Some(format!("__INSTALL_DIR__/{nom}"));
+                    // Avec ses arguments : calrs demarrait sans son `serve`.
+                    return Some(
+                        format!("__INSTALL_DIR__/{nom} {}", reste(1))
+                            .trim()
+                            .to_string(),
+                    );
                 }
                 return None;
             }
@@ -823,6 +901,53 @@ mod tests {
     }
 
     #[test]
+    fn un_port_fige_sur_le_port_expose_devient_le_port_reserve() {
+        // Cas de calrs : `serve --host 0.0.0.0 --port 3000`, EXPOSE 3000.
+        let mut f = cmd(
+            &[
+                "calrs",
+                "serve",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "3000",
+                "--metrics-port",
+                "9102",
+            ],
+            Technology::Rust,
+        );
+        f.build.as_mut().unwrap().expose = vec![3000];
+        assert_eq!(
+            derive(&f, "calrs").value().map(String::as_str),
+            Some(
+                "__INSTALL_DIR__/calrs serve --host 127.0.0.1 --port __PORT__ --metrics-port 9102"
+            )
+        );
+    }
+
+    #[test]
+    fn un_chemin_de_volume_va_dans_le_repertoire_de_donnees() {
+        // Cas de mautrix-googlechat : `-c /data/config.yaml`, VOLUME /data.
+        let mut f = cmd(
+            &[
+                "python3",
+                "-m",
+                "mautrix_googlechat",
+                "-c",
+                "/data/config.yaml",
+            ],
+            Technology::Python,
+        );
+        f.build.as_mut().unwrap().volumes = vec!["/data".into()];
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some(
+                "__INSTALL_DIR__/venv/bin/python -m mautrix_googlechat -c __DATA_DIR__/config.yaml"
+            )
+        );
+    }
+
+    #[test]
     fn un_orchestrateur_n_est_pas_l_application() {
         // Cas de Twenty : `podman-compose -f podman-compose.yml up -d`.
         let f = cmd(
@@ -1084,9 +1209,11 @@ mod tests {
             Some(vec!["gotify-app".into(), "serve".into()]),
             Technology::Go,
         );
+        // Les arguments suivent : ce test les laissait tomber, et avec eux le
+        // `serve` sans lequel l'application ne demarre pas.
         assert_eq!(
             derive(&f, "gotify").value().unwrap(),
-            "__INSTALL_DIR__/gotify-app"
+            "__INSTALL_DIR__/gotify-app serve"
         );
     }
 

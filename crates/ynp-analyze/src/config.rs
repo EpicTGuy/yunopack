@@ -141,6 +141,7 @@ pub fn reconnaitre_le_port_prefixe(facts: &mut ConfigFacts, depot: &str) {
         "_LISTEN_PORT",
         "_SERVER_PORT",
         "_BIND",
+        "_BIND_ADDR",
         "_BIND_ADDRESS",
         "_LISTEN",
         "_LISTEN_ADDR",

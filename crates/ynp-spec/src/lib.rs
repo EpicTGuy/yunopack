@@ -322,6 +322,18 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
     {
         return Known::resolved(String::new());
     }
+    // Une variable dont la valeur d'exemple porte le port expose est celle
+    // du port de l'application, quel que soit son nom. Buzz : EXPOSE 3000,
+    // et `BUZZ_BIND_ADDR=0.0.0.0:3000` dans son .env.example.
+    if facts.config.get(ConfigRole::Port).is_none() {
+        if let Some(v) = variable_du_port_expose(facts) {
+            return Known::resolved(if v.default.as_deref().is_some_and(est_une_adresse) {
+                format!("{}=127.0.0.1:__PORT__", v.name)
+            } else {
+                format!("{}=__PORT__", v.name)
+            });
+        }
+    }
     match facts.config.get(ConfigRole::Port) {
         // Une variable qui attend une adresse — `TIMETAGGER_BIND=0.0.0.0:80` —
         // recoit une adresse : lui passer un numero seul l'empecherait de
@@ -342,6 +354,90 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
     }
 }
 
+/// Les ports que l'image declare ecouter.
+pub(crate) fn ports_exposes(facts: &RepoFacts) -> Vec<u16> {
+    let mut out: Vec<u16> = facts
+        .build
+        .as_ref()
+        .map(|b| b.expose.clone())
+        .unwrap_or_default();
+    if let Some(c) = &facts.compose {
+        for s in c.services.iter().filter(|s| s.is_app) {
+            out.extend(&s.ports);
+        }
+    }
+    out
+}
+
+/// La seule variable dont la valeur d'exemple est un port expose, ou une
+/// adresse sur un port expose. Deux candidates, et l'on ne tranche pas.
+fn variable_du_port_expose(facts: &RepoFacts) -> Option<&ynp_core::facts::ConfigVar> {
+    let exposes = ports_exposes(facts);
+    if exposes.is_empty() {
+        return None;
+    }
+    let port_de = |d: &str| -> Option<u16> {
+        if d.contains("://") {
+            return None;
+        }
+        d.rsplit_once(':').map_or(d, |(_, p)| p).trim().parse().ok()
+    };
+    let mut trouvees = facts.config.variables.iter().filter(|v| {
+        !est_le_port_d_un_autre_service(&v.name)
+            && v.default
+                .as_deref()
+                .and_then(port_de)
+                .is_some_and(|p| exposes.contains(&p))
+    });
+    let premiere = trouvees.next()?;
+    trouvees.next().is_none().then_some(premiere)
+}
+
+/// Les mots d'un nom de variable qui designent un autre service que
+/// l'application : `PGPORT`, `DB_PORT`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+/// `METRICS_PORT`, et un nom d'en-tete HTTP.
+fn est_le_port_d_un_autre_service(nom: &str) -> bool {
+    const AUTRES: &[&str] = &[
+        "PG",
+        "PGPORT",
+        "DB",
+        "DATABASE",
+        "POSTGRES",
+        "POSTGRESQL",
+        "MYSQL",
+        "MARIADB",
+        "REDIS",
+        "VALKEY",
+        "MEMCACHED",
+        "MONGO",
+        "MONGODB",
+        "SMTP",
+        "MAIL",
+        "IMAP",
+        "POP3",
+        "LDAP",
+        "OTEL",
+        "OTLP",
+        "METRICS",
+        "PROMETHEUS",
+        "HEALTH",
+        "MQTT",
+        "AMQP",
+        "RABBITMQ",
+        "S3",
+        "MINIO",
+        "ELASTIC",
+        "ELASTICSEARCH",
+        "HEADER",
+        "DEBUG",
+        "INSPECT",
+        "ADMIN",
+    ];
+    nom.to_ascii_uppercase()
+        .split('_')
+        .any(|m| AUTRES.contains(&m))
+}
+
 /// Formes plausibles de la liaison du port, la mieux fondee en premier.
 ///
 /// Les deux premieres sources sont des faits du depot ; les suivantes sont les
@@ -358,8 +454,15 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
     // Une variable dont le nom evoque le port sans avoir ete classee comme
     // telle : le depot la nomme, c'est le meilleur indice disponible.
     for v in &facts.config.variables {
+        // Par mots, pas par sous-chaine : `PORT` se trouve aussi dans
+        // `EXPORTER`, `REPORT` ou `SUPPORT`. Et le port d'un autre service
+        // n'est pas une proposition : Buzz se voyait proposer PGPORT en tete.
         let nom = v.name.to_ascii_uppercase();
-        if nom.contains("PORT") || nom.contains("LISTEN") || nom.contains("BIND") {
+        let mots: Vec<&str> = nom.split('_').collect();
+        let evoque = mots
+            .iter()
+            .any(|m| matches!(*m, "PORT" | "LISTEN" | "BIND" | "ADDR" | "ADDRESS"));
+        if evoque && !est_le_port_d_un_autre_service(&nom) {
             let source = if v.source.is_empty() {
                 "nommee dans la configuration du projet".to_string()
             } else {
@@ -461,6 +564,12 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
 
 /// Vrai pour une valeur de la forme `hote:port`, y compris `:8080`.
 fn est_une_adresse(v: &str) -> bool {
+    // Une URL n'est pas une adresse d'ecoute : `http://localhost:4317` est
+    // un point d'acces a joindre, et `TEEDY_URL=http://localhost:8080`
+    // l'adresse publique de l'application.
+    if v.contains("://") {
+        return false;
+    }
     match v.rsplit_once(':') {
         Some((_, port)) => !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()),
         None => false,
@@ -635,6 +744,63 @@ mod propositions {
             role: ConfigRole::Other,
             secret: false,
             source: source.into(),
+        }
+    }
+
+    fn buzz() -> RepoFacts {
+        // Extrait reel : .env.example et EXPOSE 3000 8080 9102.
+        faits(
+            vec![
+                var("PGPORT", Some("5432"), ".env.example"),
+                var("BUZZ_BIND_ADDR", Some("0.0.0.0:3000"), ".env.example"),
+                var(
+                    "OTEL_EXPORTER_OTLP_ENDPOINT",
+                    Some("http://localhost:4317"),
+                    ".env.example",
+                ),
+                var("BUZZ_MEDIA_UPLOAD_PORT_HEADER", None, "code"),
+            ],
+            vec![3000, 8080, 9102],
+        )
+    }
+
+    #[test]
+    fn la_variable_qui_porte_le_port_expose_est_celle_de_l_application() {
+        assert_eq!(
+            liaison_port(&buzz(), None).value().map(String::as_str),
+            Some("BUZZ_BIND_ADDR=127.0.0.1:__PORT__")
+        );
+    }
+
+    #[test]
+    fn une_url_n_est_ni_une_adresse_d_ecoute_ni_un_port() {
+        // Cas de Teedy : `TEEDY_URL=http://localhost:8080`, EXPOSE 8080.
+        let f = faits(
+            vec![var("TEEDY_URL", Some("http://localhost:8080"), ".env")],
+            vec![8080],
+        );
+        assert!(liaison_port(&f, None).value().is_none());
+        assert!(!est_une_adresse("http://localhost:4317"));
+        assert!(est_une_adresse("0.0.0.0:3000"));
+    }
+
+    #[test]
+    fn deux_variables_sur_des_ports_exposes_ne_se_departagent_pas() {
+        let mut f = buzz();
+        f.config
+            .variables
+            .push(var("WEB_ADDR", Some("0.0.0.0:8080"), ".env.example"));
+        assert!(liaison_port(&f, None).value().is_none());
+    }
+
+    #[test]
+    fn un_mot_ne_se_confond_pas_avec_une_sous_chaine_ni_un_autre_service() {
+        let c = candidats_port(&buzz());
+        for absent in ["PGPORT", "OTEL_EXPORTER", "PORT_HEADER"] {
+            assert!(
+                !c.iter().any(|x| x.value.contains(absent)),
+                "{absent} : {c:?}"
+            );
         }
     }
 

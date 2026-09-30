@@ -221,7 +221,23 @@ fn parse_from(args: &str, vars: &IndexMap<String, String>) -> StageAccu {
 /// cible : les dependances de build et de runtime finissent donc toutes dans
 /// `[resources.apt]`. La distinction builder/runtime n'a pas d'interet ici.
 fn collect_run(args: &str, recipe: &mut BuildRecipe) {
-    for cmd in split_commands(strip_run_flags(args)) {
+    let commande = strip_run_flags(args);
+    // Un bloc `if`, `case`, `for` ou `while` ne se decoupe pas : ses
+    // fragments ecartes, son corps devenait inconditionnel. Buzz copie un
+    // certificat seulement `if [ -n "${EXTRA_CA_CERTS}" ]` ; decoupee,
+    // l'etape copiait toujours un fichier qui n'existe pas. Gardee entiere,
+    // elle s'execute par `bash -c` avec son sens d'origine — ici, rien.
+    let fragments = split_commands(commande);
+    let a_un_bloc = fragments.iter().any(|f| {
+        tokenize(f)
+            .first()
+            .is_some_and(|t| matches!(t.as_str(), "if" | "case" | "for" | "while"))
+    });
+    if a_un_bloc {
+        recipe.build_steps.push(commande.trim().to_string());
+        return;
+    }
+    for cmd in fragments {
         let toks = tokenize(&cmd);
         if toks.is_empty() {
             continue;
@@ -267,6 +283,16 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     };
     let bin = bin.rsplit('/').next().unwrap_or(bin);
+
+    // `cargo chef` met en cache les couches d'une image Docker. Hors de
+    // Docker, il ne fait que couter une compilation de plus.
+    if bin == "cargo"
+        && (cmd.get(1).is_some_and(|s| s == "chef")
+            || (cmd.get(1).is_some_and(|s| s == "install")
+                && cmd.iter().any(|t| t == "cargo-chef")))
+    {
+        return RunKind::Noise;
+    }
 
     match bin {
         "apt-get" | "apt" | "aptitude" => match subcommand(cmd) {

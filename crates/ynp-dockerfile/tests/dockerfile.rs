@@ -320,14 +320,39 @@ FROM debian
 RUN case "$TAG" in dev) echo d ;; *) echo p ;; esac && npm run build
 "#;
     let r = parse_dockerfile("Dockerfile", df);
+    // Le bloc est garde entier : chaque etape est du shell valide, et
+    // l'etape de construction y figure toujours.
+    for etape in &r.build_steps {
+        let ok = std::process::Command::new("bash")
+            .args(["-n", "-c", etape])
+            .status()
+            .expect("bash")
+            .success();
+        assert!(ok, "etape syntaxiquement fausse : {etape}");
+    }
+    assert!(r.build_steps.iter().any(|s| s.contains("npm run build")));
+}
+
+#[test]
+fn le_corps_d_un_bloc_conditionnel_ne_devient_pas_inconditionnel() {
+    // Cas de Buzz : le certificat n'est copie que si EXTRA_CA_CERTS est
+    // defini. Decoupe, le `cp` s'executait toujours, sur un fichier absent.
+    let df = "FROM rust\nRUN if [ -n \"${EXTRA_CA_CERTS}\" ]; then \\\n                cp /tmp/extra-ca/src /usr/local/share/ca-certificates/x.crt \\\n                && update-ca-certificates; fi\n";
+    let r = parse_dockerfile("Dockerfile", df);
     assert!(
-        r.build_steps
-            .iter()
-            .all(|s| !s.starts_with("esac") && !s.starts_with("case")),
-        "fragments de syntaxe retenus : {:?}",
+        !r.build_steps.iter().any(|s| s.starts_with("cp ")),
+        "{:?}",
         r.build_steps
     );
-    assert!(r.build_steps.contains(&"npm run build".to_string()));
+}
+
+#[test]
+fn le_cache_de_cargo_chef_n_est_pas_une_etape() {
+    let df = "FROM rust\nRUN cargo install cargo-chef --locked\n\
+              RUN cargo chef cook --release --recipe-path recipe.json\n\
+              RUN cargo build --release\n";
+    let r = parse_dockerfile("Dockerfile", df);
+    assert_eq!(r.build_steps, vec!["cargo build --release".to_string()]);
 }
 
 #[test]
