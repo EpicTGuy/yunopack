@@ -3,7 +3,65 @@
 
 source _common.sh
 source /usr/share/yunohost/helpers
-{% if features.systemd %}
+{%- if runtime.construire_a_cote %}
+
+#=================================================
+# CONSTRUCTION, SERVICE EN MARCHE
+#=================================================
+# La compilation se fait a cote du repertoire de l'application, pendant que
+# l'ancienne version continue de servir : le service n'est arrete que le
+# temps d'echanger les deux repertoires.
+construction="$install_dir.construction"
+ynh_safe_rm "$construction"
+
+ynh_script_progression "Mise a jour des sources de $app..."
+ynh_setup_source --dest_dir="$construction"
+chown -R "$app:www-data" "$construction"
+
+ynh_script_progression "Construction de $app..."
+pushd "$construction"
+{%- if runtime.installer_rust %}
+    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
+    # construction, puis retiree.
+    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
+{%- endif %}
+{%- for etape in runtime.build_steps %}
+    ynh_exec_as_app bash -c {{ etape }}
+{%- endfor %}
+popd
+{%- if runtime.rust_toolchain %}
+
+# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
+# servent plus une fois les binaires en place.
+ynh_safe_rm "$construction/.cargo"
+ynh_safe_rm "$construction/.rustup"
+ynh_safe_rm "$construction/target"
+{%- endif %}
+
+#=================================================
+# BASCULE
+#=================================================
+ynh_script_progression "Bascule sur la nouvelle version de $app..."
+{%- if features.systemd %}
+
+ynh_systemctl --service="$app" --action="stop"
+{%- endif %}
+{%- if resources.s3 %}
+
+# Le stockage S3 embarque passe dans le nouveau repertoire.
+if [ -d "$install_dir/seaweedfs" ]; then
+    mv "$install_dir/seaweedfs" "$construction/seaweedfs"
+fi
+{%- endif %}
+
+ynh_safe_rm "$install_dir"
+mv "$construction" "$install_dir"
+# Les droits que la ressource install_dir pose a l'installation.
+chmod 750 "$install_dir"
+chown -R "$app:www-data" "$install_dir"
+{%- else %}
+{%- if features.systemd %}
+
 #=================================================
 # ARRET DU SERVICE
 #=================================================
@@ -51,9 +109,9 @@ ynh_safe_rm "$install_dir/.rustup"
 ynh_safe_rm "$install_dir/target"
 {%- endif %}
 {%- endif %}
-{%- if runtime.has_config %}
-
+{%- endif %}
 {%- if resources.s3 %}
+
 #=================================================
 # STOCKAGE S3
 #=================================================
@@ -61,7 +119,9 @@ ynh_script_progression "Mise a jour du stockage S3 de $app..."
 
 # Les cles et le compartiment viennent des reglages : ils ne changent pas.
 s3_installer
-{% endif %}
+{%- endif %}
+{%- if runtime.has_config %}
+
 #=================================================
 # CONFIGURATION
 #=================================================

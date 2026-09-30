@@ -129,6 +129,13 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
         },
         "seaweedfs": seaweedfs(),
         "runtime": {
+            // Une mise a jour qui compile le fait a cote du repertoire de
+            // l'application, pendant que l'ancienne version sert encore :
+            // compiler Buzz prend vingt minutes, service arrete jusque-la.
+            // Seulement pour les technologies dont le resultat se deplace
+            // sans casse ; un environnement Python retient son chemin.
+            "construire_a_cote": !spec.runtime.build_steps.is_empty()
+                && matches!(technologie.as_str(), "rust" | "go" | "nodejs"),
             "technology": technologie,
             // Chaque etape passe par `bash -c` : `ynh_exec_as_app` execute une
             // commande et ses arguments, pas une ligne de shell. Une etape de
