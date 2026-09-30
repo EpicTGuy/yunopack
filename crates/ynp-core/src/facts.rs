@@ -385,6 +385,10 @@ pub struct StackFacts {
     /// commande directement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exec_du_point_d_entree: Option<String>,
+    /// Les migrations que le script d'entree lance avant son `exec`, telles
+    /// qu'elles y figurent : `node build/index.js --migrate`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub migrations_du_point_d_entree: Vec<String>,
     /// La contrainte PHP de `composer.json`, telle quelle : `^7.4` n'admet
     /// que PHP 7, `>=7.4` admet aussi PHP 8. La version seule ne le dit pas.
     #[serde(default, skip_serializing_if = "Option::is_none")]

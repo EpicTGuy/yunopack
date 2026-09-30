@@ -437,6 +437,33 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         _ => avec_l_option_de_port(facts, execstart::derive(facts, app_id)),
     };
 
+    // Les migrations que le script d'entree lancait avant son `exec` se
+    // traduisent comme la commande. Une seule qui ne se traduit pas, et la
+    // commande redevient une question : demarrer sur une base jamais migree
+    // serait un paquet qui a l'air fini sans l'etre.
+    let mut migrations = Vec::new();
+    let mut intraduisible = None;
+    for m in &facts.stack.migrations_du_point_d_entree {
+        match execstart::traduire_avec(m, facts) {
+            Some(t) => migrations.push(t),
+            None => intraduisible = Some(m.clone()),
+        }
+    }
+    let execstart = match (intraduisible, execstart.value()) {
+        (Some(m), Some(_)) => Known::unresolved_avec(
+            format!(
+                "le script d'entree lance aussi la migration « {m} », non transposable \
+                 automatiquement"
+            ),
+            &[
+                "le script d'entree de l'image",
+                "la documentation du projet d'origine",
+            ],
+            Vec::new(),
+        ),
+        _ => execstart,
+    };
+
     Runtime {
         technology: match facts.stack.primary {
             // Rien a la racine. Si le depot porte des fichiers de projet plus
@@ -491,6 +518,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
         port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
         execstart,
+        migrations,
         database_binding: liaison_base(facts),
         // Un fichier de configuration est necessaire des qu'il y a quelque
         // chose a transmettre a l'application, meme si l'amont n'en publie
@@ -1210,6 +1238,32 @@ mod propositions {
         // projet sont souvent un stockage facultatif.
         let r = runtime(&faits(vars, vec![]), "x");
         assert_eq!(r.env.get("S3_BUCKET"), None);
+    }
+
+    #[test]
+    fn les_migrations_du_script_passent_avant_le_demarrage() {
+        // Cas de your_spotify : `node index.js --migrate`, puis `exec node
+        // index.js`.
+        let mut f = faits(vec![], vec![8080]);
+        f.stack.primary = Technology::NodeJs;
+        if let Some(b) = f.build.as_mut() {
+            b.entrypoint = Some(vec!["sh".into(), "/app/run.sh".into()]);
+        }
+        f.stack.exec_du_point_d_entree = Some("node /app/build/index.js".into());
+        f.stack.migrations_du_point_d_entree = vec!["node /app/build/index.js --migrate".into()];
+        let r = runtime(&f, "x");
+        assert_eq!(r.migrations.len(), 1, "{:?}", r.migrations);
+        assert!(
+            r.migrations[0].contains("index.js --migrate"),
+            "{:?}",
+            r.migrations
+        );
+        assert!(
+            r.migrations[0].starts_with("__NODEJS_DIR__/node"),
+            "{:?}",
+            r.migrations
+        );
+        assert!(r.execstart.value().is_some());
     }
 
     #[test]

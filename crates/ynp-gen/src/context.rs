@@ -164,6 +164,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 ))
             }),
             "execstart": execstart,
+            "migrations": spec.runtime.migrations,
             "port_env_var": spec.runtime.port_env_var,
             "port_binding": port_binding,
             "database_binding": database_binding,

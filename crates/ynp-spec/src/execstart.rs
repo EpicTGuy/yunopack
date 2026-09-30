@@ -159,7 +159,7 @@ fn depuis_declaration(d: &CommandeDeclaree, facts: &RepoFacts) -> Option<String>
 /// les preparatifs ont leur place dans le script d'installation, pas dans le
 /// service. `npm start`, lui, ne s'ecrit pas dans un service, mais ce qu'il
 /// lance si : le `package.json` du projet le dit.
-fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
+pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
     let c = developper(commande, facts);
 
     // Un executable que le `pyproject.toml` declare vit dans l'environnement

@@ -143,6 +143,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
             })
             .unwrap_or_default();
         facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
+        facts.stack.migrations_du_point_d_entree = migrations_du_script(tree, &script, &copies);
     }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     config::ajouter_les_lectures(&mut facts.config, tree, &forge.source.repo);
@@ -415,6 +416,52 @@ pub fn ligne_exec_suivant_les_copies(
     // Kitchenowl : c'est bien le processus qui tient l'application. Une
     // derniere ligne quelconque, elle, peut etre un nettoyage.
     derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@"))
+}
+
+/// Les migrations qu'un script d'entree lance avant de ceder la place.
+///
+/// your_spotify lance `node build/index.js --migrate` puis `exec node
+/// build/index.js` ; ne reprendre que l'`exec` demarrait l'application sur
+/// une base jamais migree. Seules les commandes simples sont retenues : une
+/// ligne de shell composee (`&&`, `if`, redirection) ne se transpose pas en
+/// l'etat.
+pub fn migrations_du_script(
+    tree: &RepoTree,
+    script: &str,
+    copies: &indexmap::IndexMap<String, String>,
+) -> Vec<String> {
+    use std::sync::OnceLock;
+    static MOTIF: OnceLock<regex::Regex> = OnceLock::new();
+    let motif = MOTIF.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)(?:\bmigrate\b|--migrate\b|\bmigration:run\b|\bdb:migrate\b|\bdb:prepare\b|\bmigrate:latest\b|\balembic\s+upgrade\b|\bmigrate\s+deploy\b|\bdb\s+upgrade\b)",
+        )
+        .expect("motif de migration invalide")
+    });
+    let Some(texte) = source_copiee(script, copies)
+        .and_then(|source| tree.text(&source))
+        .or_else(|| texte_du_script(tree, script))
+    else {
+        return Vec::new();
+    };
+    let recolle = texte.replace("\\\n", " ");
+    let mut out = Vec::new();
+    for ligne in recolle.lines() {
+        let l = ligne.trim();
+        if l.starts_with("exec ") {
+            break;
+        }
+        let compose = [
+            "&&", "||", ";", "|", ">", "<", "$(", "`", "if ", "then", "echo ",
+        ]
+        .iter()
+        .any(|m| l.contains(m));
+        if l.is_empty() || l.starts_with('#') || compose || !motif.is_match(l) {
+            continue;
+        }
+        out.push(l.to_string());
+    }
+    out
 }
 
 /// Le chemin dans le depot d'un fichier de l'image, d'apres les `COPY` : le
@@ -706,6 +753,23 @@ exec node /app/apps/server/build/index.js
             ligne_exec_suivant_les_copies(&arbre, "/app/apps/server/scripts/run/run.sh", &copies)
                 .as_deref(),
             Some("node /app/apps/server/build/index.js")
+        );
+    }
+
+    #[test]
+    fn les_migrations_d_avant_l_exec_sont_reprises() {
+        let arbre = RepoTree::from_pairs([(
+            "run.sh",
+            "#!/bin/sh\nset -e\nsource deprecated.sh\ncd apps/server\n\
+             node /app/apps/server/build/index.js --migrate\n\
+             echo \"migrate done\"\n\
+             python manage.py migrate --noinput && echo ok\n\
+             exec node /app/apps/server/build/index.js\n\
+             node after.js migrate\n",
+        )]);
+        assert_eq!(
+            migrations_du_script(&arbre, "run.sh", &indexmap::IndexMap::new()),
+            vec!["node /app/apps/server/build/index.js --migrate".to_string()]
         );
     }
 

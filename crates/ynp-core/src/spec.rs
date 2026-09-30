@@ -530,6 +530,10 @@ pub struct Runtime {
     pub rust_toolchain: Option<String>,
     /// Valeur de `ExecStart=` de l'unite systemd.
     pub execstart: Known<String>,
+    /// Migrations a lancer avant chaque demarrage (`ExecStartPre=`), comme le
+    /// script d'entree de l'image le faisait avant son `exec`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub migrations: Vec<String>,
     /// Variable par laquelle l'app apprend son port. Cable sur `$port`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port_env_var: Option<String>,

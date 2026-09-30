@@ -19,6 +19,16 @@ WorkingDirectory=__INSTALL_DIR__/
 # l'application demarre avec ses valeurs par defaut et echoue a joindre sa base.
 EnvironmentFile=__INSTALL_DIR__/{{ runtime.config_file }}
 {%- endif %}
+{%- for m in runtime.migrations %}
+# Migration lancee avant chaque demarrage, comme le faisait le script
+# d'entree de l'image.
+ExecStartPre={{ m }}
+{%- endfor %}
+{%- if runtime.migrations | length > 0 %}
+# systemd abandonne un demarrage au bout de 90 secondes, migrations
+# comprises ; une premiere migration peut durer bien davantage.
+TimeoutStartSec=15min
+{%- endif %}
 ExecStart={{ runtime.execstart }}
 {%- if resources.nodejs_version %}
 Environment="PATH=__PATH_WITH_NODEJS__"

@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+regex.workspace = true
 ynp-core.workspace = true
 ynp-dockerfile.workspace = true
 serde.workspace = true
