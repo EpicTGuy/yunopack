@@ -157,8 +157,26 @@ pub async fn run_g3(
     }
 
     // Desinstallation et controle des residus, quoi qu'il soit arrive avant.
-    let remove = hote.executer(&format!("yunohost app remove {app}")).await?;
-    etapes.push(chrono.etape("desinstallation", remove.ok(), remove.diagnostic()));
+    //
+    // Quand une installation echoue, YunoHost l'annule lui-meme : l'appli
+    // n'existe plus, et la desinstaller « echoue » faute d'objet. Le rapport
+    // de Buzz affichait ainsi deux echecs pour une seule cause, ce qui noie
+    // la vraie. On regarde donc d'abord si elle est la — par son repertoire,
+    // qui ne depend pas de la langue du serveur.
+    let presente = hote
+        .executer(&format!("test -d /etc/yunohost/apps/{app}"))
+        .await?
+        .ok();
+    if presente {
+        let remove = hote.executer(&format!("yunohost app remove {app}")).await?;
+        etapes.push(chrono.etape("desinstallation", remove.ok(), remove.diagnostic()));
+    } else {
+        etapes.push(chrono.etape(
+            "desinstallation",
+            true,
+            "rien a desinstaller : YunoHost a deja annule l'installation".to_string(),
+        ));
+    }
 
     let residus = chercher_les_residus(&hote, spec, &app).await?;
     etapes.push(chrono.etape(
