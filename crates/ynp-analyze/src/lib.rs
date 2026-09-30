@@ -113,10 +113,34 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         .and_then(|b| b.start_command())
         .and_then(|c| premier_mot_de_script(&c))
     {
-        let copies = facts
+        // Une destination relative se lit depuis le WORKDIR : `COPY
+        // apps/server/scripts apps/server/scripts` sous `WORKDIR /app` range
+        // le script dans `/app/apps/server/scripts`.
+        let workdir = facts
             .build
             .as_ref()
-            .map(|b| b.copies.clone())
+            .and_then(|b| b.workdir.clone())
+            .unwrap_or_else(|| "/".into());
+        let copies: indexmap::IndexMap<String, String> = facts
+            .build
+            .as_ref()
+            .map(|b| {
+                b.copies
+                    .iter()
+                    .map(|(vers, depuis)| {
+                        let absolu = if vers.starts_with('/') {
+                            vers.clone()
+                        } else {
+                            format!(
+                                "{}/{}",
+                                workdir.trim_end_matches('/'),
+                                vers.trim_start_matches("./")
+                            )
+                        };
+                        (absolu, depuis.clone())
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
     }
@@ -360,9 +384,8 @@ pub fn ligne_exec_suivant_les_copies(
     script: &str,
     copies: &indexmap::IndexMap<String, String>,
 ) -> Option<String> {
-    let texte = copies
-        .get(script)
-        .and_then(|source| tree.text(source))
+    let texte = source_copiee(script, copies)
+        .and_then(|source| tree.text(&source))
         .or_else(|| texte_du_script(tree, script))?;
 
     // Les commandes longues se poursuivent d'une ligne a l'autre.
@@ -392,6 +415,32 @@ pub fn ligne_exec_suivant_les_copies(
     // Kitchenowl : c'est bien le processus qui tient l'application. Une
     // derniere ligne quelconque, elle, peut etre un nettoyage.
     derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@"))
+}
+
+/// Le chemin dans le depot d'un fichier de l'image, d'apres les `COPY` : le
+/// fichier lui-meme, ou le repertoire copie le plus proche qui le contient.
+///
+/// your_spotify copie `apps/server/scripts` et lance
+/// `/app/apps/server/scripts/run/run.sh`. Faute de suivre la copie du
+/// repertoire, l'outil cherchait un `run.sh` par son nom et prenait celui du
+/// client, premier dans l'ordre alphabetique.
+fn source_copiee(script: &str, copies: &indexmap::IndexMap<String, String>) -> Option<String> {
+    if let Some(s) = copies.get(script) {
+        return Some(s.clone());
+    }
+    copies
+        .iter()
+        .filter(|(vers, _)| script.starts_with(&format!("{}/", vers.trim_end_matches('/'))))
+        .max_by_key(|(vers, _)| vers.len())
+        .map(|(vers, depuis)| {
+            let reste = &script[vers.trim_end_matches('/').len() + 1..];
+            let depuis = depuis.trim_end_matches('/');
+            if depuis == "." || depuis.is_empty() {
+                reste.to_string()
+            } else {
+                format!("{depuis}/{reste}")
+            }
+        })
 }
 
 /// Retrouve un script dans l'arbre a partir du chemin qu'il a dans l'image.
@@ -628,6 +677,37 @@ mod script_enveloppe {
 #[cfg(test)]
 mod copies_du_dockerfile {
     use super::*;
+
+    #[test]
+    fn le_script_d_un_repertoire_copie_est_celui_du_bon_repertoire() {
+        // Cas de your_spotify : deux run.sh, celui du client et celui du
+        // serveur ; l'image copie le repertoire du serveur.
+        let arbre = RepoTree::from_pairs([
+            (
+                "apps/client/scripts/run/run.sh",
+                "#!/bin/sh
+exec serve -s build
+",
+            ),
+            (
+                "apps/server/scripts/run/run.sh",
+                "#!/bin/sh
+node build/index.js --migrate
+exec node /app/apps/server/build/index.js
+",
+            ),
+        ]);
+        let mut copies = indexmap::IndexMap::new();
+        copies.insert(
+            "/app/apps/server/scripts".to_string(),
+            "apps/server/scripts".to_string(),
+        );
+        assert_eq!(
+            ligne_exec_suivant_les_copies(&arbre, "/app/apps/server/scripts/run/run.sh", &copies)
+                .as_deref(),
+            Some("node /app/apps/server/build/index.js")
+        );
+    }
 
     #[test]
     fn le_script_renomme_par_un_copy_est_retrouve() {
