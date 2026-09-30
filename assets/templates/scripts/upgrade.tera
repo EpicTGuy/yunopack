@@ -57,6 +57,15 @@ ynh_safe_rm "$install_dir/target"
 # CONFIGURATION
 #=================================================
 ynh_script_progression "Mise a jour de la configuration de $app..."
+{%- if resources.redis %}
+
+# La base Redis reservee a l'installation est dans les reglages ; un paquet
+# installe par une version qui n'en avait pas en recoit une.
+if [ -z "${redis_db:-}" ]; then
+    redis_db=$(ynh_redis_get_free_db)
+    ynh_app_setting_set --key=redis_db --value="$redis_db"
+fi
+{%- endif %}
 {%- if runtime.a_un_secret %}
 
 # Les reglages de l'application sont charges par YunoHost : le secret tire a

@@ -124,6 +124,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "ruby_version": spec.resources.ruby_version,
             "go_version": spec.resources.go_version,
             "composer_version": spec.resources.composer_version,
+            "redis": spec.resources.redis,
         },
         "runtime": {
             "technology": technologie,

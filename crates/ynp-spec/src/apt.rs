@@ -49,6 +49,11 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         }
     }
 
+    // 2 ter. Redis, que YunoHost ne fournit pas de lui-meme.
+    if facts.services.needs_redis {
+        ajouter("redis-server");
+    }
+
     // 2 bis. PHP. YunoHost ne definit `php_version` — sans lequel
     //    `ynh_config_add_phpfpm` refuse de continuer — que si le manifeste
     //    declare des paquets `phpX.Y-*`. Les paquets PHP produits par l'outil

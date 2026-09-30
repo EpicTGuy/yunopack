@@ -186,6 +186,10 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         system_user: true,
         install_dir: true,
         // Un volume declare signale des donnees a preserver a la desinstallation.
+        // Detecte depuis toujours, jamais provisionne : Buzz n'a trouve un
+        // Redis que parce qu'une autre application de l'hote de test en
+        // faisait tourner un.
+        redis: facts.services.needs_redis,
         data_dir: facts.build.as_ref().is_some_and(|b| !b.volumes.is_empty())
             || facts
                 .compose
@@ -366,6 +370,29 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
+        }
+    }
+
+    // Les variables que le projet nomme pour joindre Redis, cablees sur la
+    // base que le script d'installation lui reserve.
+    if facts.services.needs_redis {
+        for var in &facts.config.variables {
+            let nom = var.name.to_ascii_uppercase();
+            let valeur = match nom.as_str() {
+                n if n == "REDIS_URL"
+                    || n == "REDIS_URI"
+                    || n == "REDIS_DSN"
+                    || n.ends_with("_REDIS_URL") =>
+                {
+                    "redis://127.0.0.1:6379/__REDIS_DB__"
+                }
+                "REDIS_HOST" => "127.0.0.1",
+                "REDIS_PORT" => "6379",
+                "REDIS_DB" | "REDIS_DATABASE" => "__REDIS_DB__",
+                _ => continue,
+            };
+            env.entry(var.name.clone())
+                .or_insert_with(|| valeur.to_string());
         }
     }
 

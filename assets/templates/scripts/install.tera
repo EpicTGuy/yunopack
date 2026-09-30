@@ -47,6 +47,12 @@ ynh_safe_rm "$install_dir/target"
 # CONFIGURATION DE L'APPLICATION
 #=================================================
 ynh_script_progression "Ajout de la configuration de $app..."
+{%- if resources.redis %}
+
+# Une base Redis propre a l'application, sur le Redis du serveur.
+redis_db=$(ynh_redis_get_free_db)
+ynh_app_setting_set --key=redis_db --value="$redis_db"
+{%- endif %}
 {%- if runtime.a_un_secret %}
 
 # Le secret de l'application, tire une fois et garde dans ses reglages : il

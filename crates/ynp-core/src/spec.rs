@@ -451,6 +451,9 @@ pub struct Resources {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub apt_packages: Vec<String>,
     pub database: Database,
+    /// Une base Redis propre a l'application, prise sur le Redis du serveur.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub redis: bool,
     /// Versions de runtime a provisionner par le coeur (`[resources.nodejs]`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nodejs_version: Option<String>,
