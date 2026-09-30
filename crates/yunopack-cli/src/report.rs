@@ -495,9 +495,19 @@ pub fn verification(racine: &std::path::Path, constats: &[Finding]) -> String {
 pub fn campagne(r: &ynp_runner::Rapport) -> String {
     let mut out = format!("\n  {} sur {}\n  {}\n\n", r.app, r.hote, r.url);
 
+    let largeur = r
+        .etapes
+        .iter()
+        .map(|e| e.nom.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(28);
     for e in &r.etapes {
         let marque = if e.reussie { "ok" } else { "ECHEC" };
-        out.push_str(&format!("  {:<28} {marque:<6} {}s\n", e.nom, e.duree_s));
+        out.push_str(&format!(
+            "  {:<largeur$} {marque:<6} {}s\n",
+            e.nom, e.duree_s
+        ));
         if !e.reussie && !e.detail.is_empty() {
             for ligne in e.detail.lines().take(12) {
                 out.push_str(&format!("        {ligne}\n"));

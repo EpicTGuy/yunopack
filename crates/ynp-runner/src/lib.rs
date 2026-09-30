@@ -172,6 +172,7 @@ pub async fn run_g3(
         if install.ok() {
             etapes.extend(verifier_le_service(&hote, spec, &app, &url, &mut chrono).await?);
             if !cible.rapide {
+                etapes.extend(mise_a_jour(&hote, spec, &app, &distant, &url, &mut chrono).await?);
                 etapes.extend(sauvegarde_restauration(&hote, &app, &url, &mut chrono).await?);
             }
         }
@@ -218,6 +219,48 @@ pub async fn run_g3(
         url,
         etapes,
     })
+}
+
+/// Rejoue le paquet sur l'application installee, puis la reverifie.
+///
+/// C'est la mise a jour « depuis la meme version » de package_check : elle
+/// exerce le script `upgrade`, que l'installation seule ne touche jamais.
+/// Un script qui regenere un secret, oublie de garder un repertoire ou ne
+/// redemarre pas le service ne se voit qu'ici.
+async fn mise_a_jour(
+    hote: &Hote,
+    spec: &AppSpec,
+    app: &str,
+    distant: &str,
+    url: &str,
+    chrono: &mut Chrono,
+) -> Result<Vec<Etape>, SshError> {
+    let upgrade = hote
+        .executer(&format!(
+            "yunohost app upgrade {app} --file {distant} --force"
+        ))
+        .await?;
+    let diagnostic = if upgrade.ok() {
+        String::new()
+    } else {
+        cause_dans_le_journal(hote, &upgrade.diagnostic_complet())
+            .await
+            .map(|c| format!("{c}\n{}", upgrade.diagnostic()))
+            .unwrap_or_else(|| upgrade.diagnostic())
+    };
+    let mut etapes = vec![chrono.etape("mise a jour", upgrade.ok(), diagnostic)];
+    if upgrade.ok() {
+        etapes.extend(
+            verifier_le_service(hote, spec, app, url, chrono)
+                .await?
+                .into_iter()
+                .map(|mut e| {
+                    e.nom = format!("{} apres mise a jour", e.nom);
+                    e
+                }),
+        );
+    }
+    Ok(etapes)
 }
 
 async fn verifier_le_service(
