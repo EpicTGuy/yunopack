@@ -17,6 +17,9 @@ pub struct RepoTree {
     /// Variables d'environnement lues par le code, et le premier fichier qui
     /// les lit. Le contenu des sources n'est pas garde, seulement ceci.
     lectures: BTreeMap<String, String>,
+    /// Comment le code choisit son port d'ecoute, et le premier fichier qui
+    /// le montre. Meme principe : le contenu n'est pas garde.
+    ecoutes: BTreeMap<crate::ecoutes::Indice, String>,
 }
 
 impl RepoTree {
@@ -37,6 +40,9 @@ impl RepoTree {
         if !crate::lectures::est_un_source_de_production(path) {
             return;
         }
+        for i in crate::ecoutes::indices(contenu) {
+            self.ecoutes.entry(i).or_insert_with(|| path.to_string());
+        }
         // Prefiltre : la plupart des fichiers ne lisent aucune variable, et
         // les expressions regulieres n'ont pas a les parcourir.
         if !(contenu.contains("env") || contenu.contains("ENV")) {
@@ -45,6 +51,11 @@ impl RepoTree {
         for nom in crate::lectures::variables_lues(contenu) {
             self.lectures.entry(nom).or_insert_with(|| path.to_string());
         }
+    }
+
+    /// Indices d'ecoute releves dans le code, avec le fichier qui les montre.
+    pub fn ecoutes(&self) -> &BTreeMap<crate::ecoutes::Indice, String> {
+        &self.ecoutes
     }
 
     /// Variables lues par le code, avec le fichier qui les lit.

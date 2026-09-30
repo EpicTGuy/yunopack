@@ -119,6 +119,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "data_dir": spec.resources.data_dir,
             "main_permission_url": spec.resources.main_permission_url,
             "ports": spec.resources.ports,
+            "port_fixe": spec.resources.port_fixe,
             "apt": spec.resources.apt_packages,
             "database": spec.resources.database.manifest_type(),
             "nodejs_version": spec.resources.nodejs_version,

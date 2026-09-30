@@ -448,6 +448,10 @@ pub struct Resources {
     pub main_permission_url: Option<String>,
     /// Reserve un port pour le reverse-proxy interne nginx -> app.
     pub ports: bool,
+    /// Port que l'application ecoute sans qu'on puisse le lui choisir : il
+    /// est ecrit en dur dans son code. Le paquet le reserve tel quel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_fixe: Option<u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub apt_packages: Vec<String>,
     pub database: Database,

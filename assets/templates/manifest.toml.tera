@@ -149,6 +149,12 @@ ram.runtime = "{{ integration.ram_runtime }}"
 
     [resources.ports]
 {%- endif %}
+{%- if resources.port_fixe %}
+    # L'application ecoute sur ce port sans qu'on puisse le lui choisir : il
+    # est ecrit en dur dans son code.
+    main.default = {{ resources.port_fixe }}
+    main.fixed = true
+{%- endif %}
 {%- if resources.s3 %}
     # SeaweedFS embarque : chaque service a un port HTTP et un port gRPC.
     objets.default = 8333

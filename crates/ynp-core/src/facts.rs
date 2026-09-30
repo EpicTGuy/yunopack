@@ -30,6 +30,9 @@ pub struct RepoFacts {
     pub stack: StackFacts,
     pub services: ServiceFacts,
     pub config: ConfigFacts,
+    /// Comment le code choisit son port d'ecoute.
+    #[serde(default, skip_serializing_if = "EcouteFacts::est_vide")]
+    pub ecoute: EcouteFacts,
     /// Source retenue, renseignee par `ynp-forge` apres telechargement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<SourceSelection>,
@@ -707,4 +710,22 @@ pub struct ArchAsset {
 /// Pour ne pas ecrire une taille nulle dans les faits.
 fn is_zero(n: &u64) -> bool {
     *n == 0
+}
+
+/// Ce que le code dit de son port d'ecoute, faute de variable d'environnement.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EcouteFacts {
+    /// Options de ligne de commande qui fixent le port ou l'adresse
+    /// (`--port`, `--listen`), avec le fichier qui les definit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<(String, String)>,
+    /// Ports ecrits en dur dans un appel d'ecoute, avec le fichier.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports_en_dur: Vec<(u16, String)>,
+}
+
+impl EcouteFacts {
+    pub fn est_vide(&self) -> bool {
+        self.options.is_empty() && self.ports_en_dur.is_empty()
+    }
 }

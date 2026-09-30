@@ -1,0 +1,152 @@
+//! Comment le code d'une application choisit son port d'ecoute.
+//!
+//! Faute de variable d'environnement, les conventions (`PORT`, `HTTP_PORT`...)
+//! etaient proposees au hasard. Le code dit souvent mieux : une option de
+//! ligne de commande (`--port`, `--listen`), ou un port ecrit en dur. RSSPub
+//! ecoute sur `SocketAddr::from(([0, 0, 0, 0], 3000))`, sans aucun reglage :
+//! aucune variable ne pouvait fonctionner.
+
+use regex::Regex;
+use std::sync::OnceLock;
+
+/// Un indice releve dans le code.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Indice {
+    /// Option de ligne de commande, avec ses tirets : `--port`, `--listen`.
+    Option(String),
+    /// Port litteral passe a un appel d'ecoute.
+    PortEnDur(u16),
+}
+
+fn options() -> &'static [Regex] {
+    static M: OnceLock<Vec<Regex>> = OnceLock::new();
+    M.get_or_init(|| {
+        [
+            // Rust, clap : `#[arg(long = "port")]`.
+            r#"long\s*=\s*"(port|listen|bind|addr|address|http-port|listen-addr|listen-address|http-addr)""#,
+            // Rust, clap : `#[arg(short, long)] port: u16`.
+            r#"#\[(?:arg|clap)\([^\]]*\blong\b[^\]]*\)\]\s*(?:pub\s+)?(port|listen|bind|addr|address)\s*:"#,
+            // Go, paquet flag : `flag.Int("port", ...)`, `flag.StringVar(&a, "listen", ...)`.
+            r#"flag\.(?:String|Int|Uint|Int64)(?:Var)?\((?:&?[\w.]+\s*,\s*)?"(port|listen|addr|bind|http|listen-addr|http-addr|address)""#,
+            // Python, argparse et click.
+            r#"add_argument\([^)]*["']--(port|listen|bind|listen-address|http-port)["']"#,
+            r#"@click\.option\([^)]*["']--(port|listen|bind)["']"#,
+            // JavaScript, commander et yargs.
+            r#"\.option\(\s*["'][^"']*--(port|listen|bind)\b"#,
+        ]
+        .iter()
+        .map(|m| Regex::new(m).expect("motif d'option invalide"))
+        .collect()
+    })
+}
+
+fn ports_en_dur() -> &'static [Regex] {
+    static M: OnceLock<Vec<Regex>> = OnceLock::new();
+    M.get_or_init(|| {
+        [
+            // Rust : `SocketAddr::from(([0, 0, 0, 0], 3000))`.
+            r"\(\s*\[\s*(?:0\s*,\s*0\s*,\s*0\s*,\s*0|127\s*,\s*0\s*,\s*0\s*,\s*1)\s*\]\s*,\s*(\d{2,5})\s*\)",
+            // Go, Rust, Python : `ListenAndServe(":8080"`, `bind("0.0.0.0:8080")`.
+            r#"(?:ListenAndServe|ListenAndServeTLS|bind|Listen|listen)\(\s*(?:[\w:]+\s*,\s*)?["'](?:[\w.\[\]:-]*)?:(\d{2,5})["']"#,
+            // Node : `app.listen(3000)`.
+            r"\.listen\(\s*(\d{2,5})\s*[,)]",
+            // Python : `app.run(host=..., port=5000)`, `uvicorn.run(app, port=8000)`.
+            r"\.run\([^)]*\bport\s*=\s*(\d{2,5})\b",
+        ]
+        .iter()
+        .map(|m| Regex::new(m).expect("motif de port invalide"))
+        .collect()
+    })
+}
+
+/// Les indices d'ecoute d'un fichier source, dans l'ordre, sans doublon.
+pub fn indices(contenu: &str) -> Vec<Indice> {
+    let mut out = Vec::new();
+    // Prefiltre : la plupart des fichiers n'ecoutent rien.
+    if !(contenu.contains("port")
+        || contenu.contains("listen")
+        || contenu.contains("Listen")
+        || contenu.contains("bind")
+        || contenu.contains("addr"))
+    {
+        return out;
+    }
+    for m in options() {
+        for c in m.captures_iter(contenu) {
+            let i = Indice::Option(format!("--{}", &c[1]));
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+    }
+    for m in ports_en_dur() {
+        for c in m.captures_iter(contenu) {
+            if let Ok(p) = c[1].parse::<u16>() {
+                let i = Indice::PortEnDur(p);
+                if p >= 80 && !out.contains(&i) {
+                    out.push(i);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_port_ecrit_en_dur_se_releve() {
+        // Cas reel de RSSPub.
+        let rs = "let addr = SocketAddr::from(([0, 0, 0, 0], 3000));";
+        assert_eq!(indices(rs), vec![Indice::PortEnDur(3000)]);
+        assert_eq!(
+            indices(r#"log.Fatal(http.ListenAndServe(":8080", nil))"#),
+            vec![Indice::PortEnDur(8080)]
+        );
+        assert_eq!(
+            indices("app.listen(4000, () => {})"),
+            vec![Indice::PortEnDur(4000)]
+        );
+        assert_eq!(
+            indices("app.run(host='0.0.0.0', port=5000)"),
+            vec![Indice::PortEnDur(5000)]
+        );
+    }
+
+    #[test]
+    fn une_option_de_port_se_releve_dans_chaque_langage() {
+        let cas = [
+            (r#"#[arg(long = "listen")] listen: String"#, "--listen"),
+            (
+                "#[arg(short, long, default_value_t = 8080)]\n    port: u16,",
+                "--port",
+            ),
+            (r#"port := flag.Int("port", 8080, "port")"#, "--port"),
+            (
+                r#"flag.StringVar(&addr, "listen", ":8080", "")"#,
+                "--listen",
+            ),
+            (
+                r#"parser.add_argument("--port", type=int, default=8000)"#,
+                "--port",
+            ),
+            (r#"@click.option("--bind", default="0.0.0.0")"#, "--bind"),
+            (r#"program.option('-p, --port <n>', 'port')"#, "--port"),
+        ];
+        for (code, attendu) in cas {
+            assert_eq!(
+                indices(code),
+                vec![Indice::Option(attendu.into())],
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn ce_qui_n_ecoute_pas_ne_donne_rien() {
+        assert!(indices("let report = support.export();").is_empty());
+        assert!(indices(r#"client.connect("db:5432")"#).is_empty());
+    }
+}

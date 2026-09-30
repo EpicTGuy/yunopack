@@ -201,6 +201,7 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
                 .is_some_and(|c| c.services.iter().any(|s| s.is_app && !s.volumes.is_empty())),
         main_permission_url: Some("/".into()),
         ports: a_besoin_d_un_port(facts),
+        port_fixe: port_fixe_du_code(facts),
         apt_packages: apt::packages(facts),
         database: facts.services.database,
         nodejs_version: version_de_resource(facts, Technology::NodeJs),
@@ -433,7 +434,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // application PHP sans Dockerfile posait pourtant la question.
     let execstart = match facts.stack.primary {
         Technology::Php | Technology::Static => Known::resolved(String::new()),
-        _ => execstart::derive(facts, app_id),
+        _ => avec_l_option_de_port(facts, execstart::derive(facts, app_id)),
     };
 
     Runtime {
@@ -503,6 +504,63 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     }
 }
 
+/// Le port ne se transmet par aucune variable : le projet n'en lit ni n'en
+/// nomme. C'est la que le code lui-meme peut repondre.
+fn sans_variable_de_port(facts: &RepoFacts) -> bool {
+    !matches!(facts.stack.primary, Technology::Php | Technology::Static)
+        && a_besoin_d_un_port(facts)
+        && facts.config.get(ConfigRole::Port).is_none()
+        && variable_du_port_expose(facts).is_none()
+}
+
+/// Ajoute `--port __PORT__` a la commande quand le code definit cette option
+/// et que rien d'autre ne transmet le port.
+///
+/// Seule `--port` est sans ambiguite : c'est un numero. `--listen`, `--bind`
+/// ou `--addr` attendent selon les projets une adresse, un hote seul ou un
+/// port — le `--bind` d'une application click attend `0.0.0.0`. Ceux-la ne
+/// se devinent pas.
+fn avec_l_option_de_port(facts: &RepoFacts, execstart: Known<String>) -> Known<String> {
+    let Some(commande) = execstart.value() else {
+        return execstart;
+    };
+    let option = facts
+        .ecoute
+        .options
+        .iter()
+        .map(|(o, _)| o.as_str())
+        .find(|o| matches!(*o, "--port" | "--http-port"));
+    match option {
+        Some(o)
+            if sans_variable_de_port(facts)
+                && !commande.is_empty()
+                && !commande.contains("__PORT__")
+                && !commande.contains(o) =>
+        {
+            Known::resolved(format!("{commande} {o} __PORT__"))
+        }
+        _ => execstart,
+    }
+}
+
+/// Le port ecrit en dur dans le code, quand c'est la seule facon dont
+/// l'application le choisit : aucune variable, aucune option, un seul port
+/// litteral — celui que l'image expose, si elle en expose un. RSSPub ecoute
+/// ainsi sur 3000 sans aucun reglage ; le paquet doit reserver ce port-la.
+pub(crate) fn port_fixe_du_code(facts: &RepoFacts) -> Option<u16> {
+    if !sans_variable_de_port(facts) || !facts.ecoute.options.is_empty() {
+        return None;
+    }
+    let mut ports: Vec<u16> = facts.ecoute.ports_en_dur.iter().map(|(p, _)| *p).collect();
+    ports.sort_unstable();
+    ports.dedup();
+    let [p] = ports[..] else {
+        return None;
+    };
+    let exposes = ports_exposes(facts);
+    (exposes.is_empty() || exposes.contains(&p)).then_some(p)
+}
+
 /// Ligne de configuration transmettant le port reserve par le coeur.
 ///
 /// Rien a transmettre dans deux cas qui, jusqu'ici, posaient la question :
@@ -518,6 +576,7 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
     if matches!(facts.stack.primary, Technology::Php | Technology::Static)
         || execstart.is_some_and(|c| c.contains("__PORT__"))
         || !a_besoin_d_un_port(facts)
+        || port_fixe_du_code(facts).is_some()
     {
         return Known::resolved(String::new());
     }
@@ -1151,6 +1210,49 @@ mod propositions {
         // projet sont souvent un stockage facultatif.
         let r = runtime(&faits(vars, vec![]), "x");
         assert_eq!(r.env.get("S3_BUCKET"), None);
+    }
+
+    #[test]
+    fn un_port_ecrit_en_dur_se_reserve_tel_quel() {
+        // Cas de RSSPub : `SocketAddr::from(([0, 0, 0, 0], 3000))`, EXPOSE 3000.
+        let mut f = faits(vec![], vec![3000]);
+        f.stack.primary = Technology::Rust;
+        f.ecoute.ports_en_dur = vec![(3000, "src/main.rs".into())];
+        assert_eq!(port_fixe_du_code(&f), Some(3000));
+        assert_eq!(
+            liaison_port(&f, Some("__INSTALL_DIR__/rsspub"))
+                .value()
+                .map(String::as_str),
+            Some("")
+        );
+
+        // Un port en dur qui n'est pas celui de l'image : autre chose ecoute.
+        f.ecoute.ports_en_dur = vec![(9090, "src/metrics.rs".into())];
+        assert_eq!(port_fixe_du_code(&f), None);
+
+        // Une variable de port lue par le code l'emporte.
+        f.ecoute.ports_en_dur = vec![(3000, "src/main.rs".into())];
+        let mut port = var("PORT", Some("3000"), "src/main.rs");
+        port.role = ConfigRole::Port;
+        f.config.variables = vec![port];
+        assert_eq!(port_fixe_du_code(&f), None);
+    }
+
+    #[test]
+    fn l_option_port_du_code_s_ajoute_a_la_commande() {
+        let mut f = faits(vec![], vec![]);
+        f.stack.primary = Technology::Go;
+        f.ecoute.options = vec![("--port".into(), "main.go".into())];
+        let e = avec_l_option_de_port(&f, Known::resolved("__INSTALL_DIR__/app serve".into()));
+        assert_eq!(
+            e.value().map(String::as_str),
+            Some("__INSTALL_DIR__/app serve --port __PORT__")
+        );
+
+        // `--listen` ne dit pas s'il attend un port, un hote ou une adresse.
+        f.ecoute.options = vec![("--listen".into(), "main.go".into())];
+        let e = avec_l_option_de_port(&f, Known::resolved("__INSTALL_DIR__/app".into()));
+        assert_eq!(e.value().map(String::as_str), Some("__INSTALL_DIR__/app"));
     }
 
     #[test]

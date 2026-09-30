@@ -40,6 +40,16 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     facts.releases = forge.releases;
     facts.tags = forge.tags;
     facts.tree = tree.paths();
+    for (indice, fichier) in tree.ecoutes() {
+        match indice {
+            ynp_core::ecoutes::Indice::Option(o) => {
+                facts.ecoute.options.push((o.clone(), fichier.clone()))
+            }
+            ynp_core::ecoutes::Indice::PortEnDur(p) => {
+                facts.ecoute.ports_en_dur.push((*p, fichier.clone()))
+            }
+        }
+    }
 
     // `is_none_or` demanderait Rust 1.82 ; le projet en vise 1.79.
     if !facts
