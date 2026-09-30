@@ -412,10 +412,43 @@ pub fn ligne_exec_suivant_les_copies(
     }
 
     // Sans `exec`, la derniere ligne fait foi — mais seulement si elle
-    // repasse les arguments du conteneur. `uwsgi "$@"` termine le script de
-    // Kitchenowl : c'est bien le processus qui tient l'application. Une
-    // derniere ligne quelconque, elle, peut etre un nettoyage.
-    derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@"))
+    // repasse les arguments du conteneur, ou si elle lance manifestement
+    // l'application. `uwsgi "$@"` termine le script de Kitchenowl ; `node
+    // build/server.js` celui de Ferdium, apres ses migrations. Une derniere
+    // ligne quelconque, elle, peut etre un nettoyage.
+    derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@") || lance_une_application(l))
+}
+
+/// Une commande simple qui commence par un lanceur d'application.
+fn lance_une_application(ligne: &str) -> bool {
+    const LANCEURS: &[&str] = &[
+        "node",
+        "npm",
+        "pnpm",
+        "yarn",
+        "python",
+        "python3",
+        "gunicorn",
+        "uvicorn",
+        "daphne",
+        "hypercorn",
+        "uwsgi",
+        "java",
+        "ruby",
+        "bundle",
+        "puma",
+        "unicorn",
+        "rails",
+        "php",
+        "php-fpm",
+        "dotnet",
+    ];
+    let compose = ["&&", "||", ";", "|", ">", "<", "$(", "`", "&"]
+        .iter()
+        .any(|m| ligne.contains(m));
+    let premier = ligne.split_whitespace().next().unwrap_or("");
+    let nom = premier.rsplit('/').next().unwrap_or(premier);
+    !compose && LANCEURS.contains(&nom)
 }
 
 /// Les migrations qu'un script d'entree lance avant de ceder la place.
@@ -754,6 +787,26 @@ exec node /app/apps/server/build/index.js
                 .as_deref(),
             Some("node /app/apps/server/build/index.js")
         );
+    }
+
+    #[test]
+    fn sans_exec_une_derniere_ligne_qui_lance_l_application_fait_foi() {
+        // Cas de Ferdium : migrations, puis le serveur, sans exec.
+        let arbre = RepoTree::from_pairs([(
+            "docker/entrypoint.sh",
+            "#!/bin/sh\nnode ace migration:run --force\nnode build/server.js\n",
+        )]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh").as_deref(),
+            Some("node build/server.js")
+        );
+        // Une derniere ligne de nettoyage ne dit rien.
+        let arbre =
+            RepoTree::from_pairs([("entrypoint.sh", "#!/bin/sh\nnode a.js\nrm -rf /tmp/x\n")]);
+        assert_eq!(ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh"), None);
+        // Un lancement en arriere-plan non plus.
+        let arbre = RepoTree::from_pairs([("entrypoint.sh", "#!/bin/sh\nnode a.js &\n")]);
+        assert_eq!(ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh"), None);
     }
 
     #[test]
