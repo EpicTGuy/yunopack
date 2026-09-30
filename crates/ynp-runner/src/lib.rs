@@ -326,6 +326,23 @@ async fn repondre_sur_son_port(
         .await?;
     let chemin = chemin_interroge(chemin.texte());
 
+    // nginx transmet le domaine dans l'en-tete Host : l'application doit etre
+    // interrogee de meme. Buzz choisit sa communaute d'apres l'hote, et
+    // repond 404 a 127.0.0.1 ; Django et Rails refusent un hote non autorise.
+    let domaine = hote
+        .executer(&format!("yunohost app setting {app} domain"))
+        .await?;
+    let domaine = domaine.texte().to_string();
+    let en_tete_hote = if !domaine.is_empty()
+        && domaine
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        format!("-H 'Host: {domaine}' ")
+    } else {
+        String::new()
+    };
+
     // Une application peut mettre du temps a ouvrir son port apres le
     // demarrage de son service : migrations, controles de ses dependances.
     // Buzz verifie son stockage S3 pendant plusieurs secondes avant
@@ -334,7 +351,7 @@ async fn repondre_sur_son_port(
     let code = hote
         .executer(&format!(
             "for i in $(seq 1 30); do \
-               c=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 10 http://127.0.0.1:{port}{chemin}); \
+               c=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 10 {en_tete_hote}http://127.0.0.1:{port}{chemin}); \
                [ \"$c\" != 000 ] && break; sleep 2; \
              done; echo \"$c\""
         ))
