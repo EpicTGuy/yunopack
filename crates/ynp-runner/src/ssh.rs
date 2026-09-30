@@ -39,6 +39,11 @@ impl Sortie {
     }
 
     /// Les lignes vraiment utiles pour un rapport d'echec.
+    /// Toute la sortie, pour y chercher un identifiant de journal.
+    pub fn diagnostic_complet(&self) -> String {
+        format!("{}\n{}", self.stdout, self.stderr)
+    }
+
     pub fn diagnostic(&self) -> String {
         let source = if self.stderr.trim().is_empty() {
             &self.stdout

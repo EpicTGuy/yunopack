@@ -146,7 +146,15 @@ pub async fn run_g3(
                 "yunohost app install {distant} --force -a \"{args}\""
             ))
             .await?;
-        etapes.push(chrono.etape("installation", install.ok(), install.diagnostic()));
+        let diagnostic = if install.ok() {
+            String::new()
+        } else {
+            cause_dans_le_journal(&hote, &install.diagnostic_complet())
+                .await
+                .map(|c| format!("{c}\n{}", install.diagnostic()))
+                .unwrap_or_else(|| install.diagnostic())
+        };
+        etapes.push(chrono.etape("installation", install.ok(), diagnostic));
 
         if install.ok() {
             etapes.extend(verifier_le_service(&hote, spec, &app, &url, &mut chrono).await?);
@@ -428,6 +436,68 @@ async fn sauvegarde_restauration(
         .executer(&format!("yunohost backup delete {archive}"))
         .await;
     Ok(etapes)
+}
+
+/// La cause d'un echec, lue dans le journal de l'operation YunoHost.
+///
+/// La fin de la sortie d'une installation ratee montre le retour arriere —
+/// retrait des dependances, mise a jour de GRUB — et non ce qui a echoue.
+/// Pour Buzz, la vraie raison (« Variable $secret wasn't initialized ») n'y
+/// figurait pas. Le journal, lui, la porte sur ses lignes `ERROR`. Son
+/// identifiant se trouve dans la sortie, quelle que soit la langue du serveur.
+async fn cause_dans_le_journal(hote: &Hote, sortie: &str) -> Option<String> {
+    let id = identifiant_de_journal(sortie)?;
+    let journal = hote
+        .executer(&format!("yunohost log show {id} --output-as plain"))
+        .await
+        .ok()?;
+    let erreurs: Vec<&str> = journal
+        .stdout
+        .lines()
+        .filter_map(|l| l.split_once(": ERROR - ").map(|(_, m)| m.trim()))
+        .filter(|m| !m.is_empty())
+        .collect();
+    // La derniere erreur est souvent le recapitulatif generique ; les
+    // premieres disent ce qui s'est passe.
+    (!erreurs.is_empty()).then(|| {
+        erreurs
+            .iter()
+            .take(3)
+            .map(|e| format!("CAUSE {e}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
+/// L'identifiant d'un journal d'operation YunoHost cite dans une sortie :
+/// `20260930-052101-app_install-buzz`.
+fn identifiant_de_journal(sortie: &str) -> Option<String> {
+    sortie.split_whitespace().find_map(|mot| {
+        let mot = mot.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+        let ok = mot.len() > 16
+            && mot.as_bytes().get(8) == Some(&b'-')
+            && mot[..8].chars().all(|c| c.is_ascii_digit())
+            && mot.contains("-app_");
+        ok.then(|| mot.to_string())
+    })
+}
+
+#[cfg(test)]
+mod journal {
+    use super::identifiant_de_journal;
+
+    #[test]
+    fn l_identifiant_se_trouve_quelle_que_soit_la_langue() {
+        // Sortie reelle du Dell, en francais.
+        let fr = "ERROR L'opération 'Installer l'application 'buzz'' a échoué ! Pour obtenir de \
+                  l'aide, merci de partager le journal de l'opération en utilisant la commande \
+                  'yunohost log share 20260930-052101-app_install-buzz'";
+        assert_eq!(
+            identifiant_de_journal(fr).as_deref(),
+            Some("20260930-052101-app_install-buzz")
+        );
+        assert_eq!(identifiant_de_journal("rien ici"), None);
+    }
 }
 
 /// Ce qu'une desinstallation propre ne doit laisser derriere elle.
