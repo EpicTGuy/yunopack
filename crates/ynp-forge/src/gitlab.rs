@@ -35,15 +35,16 @@ impl GitLab {
     }
 
     async fn get(&self, chemin: &str) -> Result<String, ForgeError> {
-        let mut req = self.client.get(format!("{}/api/v4{chemin}", self.hote));
-        if let Some(t) = &self.jeton {
-            req = req.header("PRIVATE-TOKEN", t);
-        }
-        let resp = req.send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
+        let (status, body) = crate::obtenir(|| {
+            let req = self.client.get(format!("{}/api/v4{chemin}", self.hote));
+            match &self.jeton {
+                Some(t) => req.header("PRIVATE-TOKEN", t),
+                None => req,
+            }
+        })
+        .await?;
 
-        match status.as_u16() {
+        match status {
             200 => Ok(body),
             // GitLab rend 404 sur un projet prive comme sur un projet absent :
             // c'est voulu de sa part, et indistinguable de l'exterieur.

@@ -23,6 +23,37 @@ pub fn client_http() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
+/// Envoie une requete d'API et lit sa reponse, en retentant sur une erreur
+/// de transport ou une reponse 5xx.
+///
+/// Une coupure breve faisait echouer l'analyse entiere : pendant une
+/// connexion degradee, 77 depots sur 120 se sont arretes sur « error
+/// sending request » ou « error decoding response body », a la premiere
+/// requete. Trois essais, espaces de 2 puis 4 secondes ; les codes 4xx
+/// (absent, quota) sont des reponses, et ne se retentent pas.
+pub(crate) async fn obtenir(
+    requete: impl Fn() -> reqwest::RequestBuilder,
+) -> Result<(u16, String), reqwest::Error> {
+    let mut essai = 1;
+    loop {
+        let resultat = match requete().send().await {
+            Ok(r) => {
+                let statut = r.status().as_u16();
+                r.text().await.map(|corps| (statut, corps))
+            }
+            Err(e) => Err(e),
+        };
+        match resultat {
+            Ok((statut, _)) if statut >= 500 && essai < 3 => {}
+            Ok(r) => return Ok(r),
+            Err(e) if essai >= 3 => return Err(e),
+            Err(e) => tracing::warn!("{e} — nouvelle tentative ({essai}/2)"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2 * essai)).await;
+        essai += 1;
+    }
+}
+
 pub mod archive;
 pub mod catalogue;
 pub mod client;

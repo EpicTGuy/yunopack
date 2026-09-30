@@ -38,15 +38,16 @@ impl Gitea {
     }
 
     async fn get(&self, chemin: &str) -> Result<String, ForgeError> {
-        let mut req = self.client.get(format!("{}/api/v1{chemin}", self.hote));
-        if let Some(t) = &self.jeton {
-            req = req.header("Authorization", format!("token {t}"));
-        }
-        let resp = req.send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
+        let (status, body) = crate::obtenir(|| {
+            let req = self.client.get(format!("{}/api/v1{chemin}", self.hote));
+            match &self.jeton {
+                Some(t) => req.header("Authorization", format!("token {t}")),
+                None => req,
+            }
+        })
+        .await?;
 
-        match status.as_u16() {
+        match status {
             200 => Ok(body),
             404 => Err(ForgeError::NotFound(chemin.to_string())),
             403 | 429 => Err(ForgeError::RateLimited {

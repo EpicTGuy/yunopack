@@ -58,15 +58,16 @@ impl GitHub {
     }
 
     async fn get(&self, path: &str) -> Result<String, ForgeError> {
-        let mut req = self.client.get(format!("{API}{path}"));
-        if let Some(t) = &self.token {
-            req = req.bearer_auth(t);
-        }
-        let resp = req.send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
+        let (status, body) = crate::obtenir(|| {
+            let req = self.client.get(format!("{API}{path}"));
+            match &self.token {
+                Some(t) => req.bearer_auth(t),
+                None => req,
+            }
+        })
+        .await?;
 
-        match status.as_u16() {
+        match status {
             200 => Ok(body),
             404 => Err(ForgeError::NotFound(path.to_string())),
             // 403 sans jeton est presque toujours le quota ; le distinguer
