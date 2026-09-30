@@ -574,6 +574,40 @@ fn une_variante_de_developpement_n_est_pas_la_recette_de_production() {
 }
 
 #[test]
+fn une_variante_separee_par_un_tiret_ou_un_souligne_est_reconnue() {
+    use ynp_core::tree::RepoTree;
+    use ynp_dockerfile::choose_dockerfile;
+    // Cas d'ibis : `Dockerfile_ci` recopie un binaire construit par la
+    // chaine d'integration ; `Dockerfile` le construit.
+    let tree = RepoTree::from_pairs([
+        (
+            "docker/Dockerfile_ci",
+            "FROM debian:bookworm-slim\nCOPY ibis /usr/local/bin/ibis\nEXPOSE 3000\nCMD [\"ibis\"]\n",
+        ),
+        (
+            "docker/Dockerfile",
+            "FROM rust:1.80 AS build\nRUN cargo build --release\nFROM debian:bookworm-slim\nCOPY --from=build /target/release/ibis /usr/local/bin/ibis\nCMD [\"ibis\"]\n",
+        ),
+    ]);
+    assert_eq!(
+        choose_dockerfile(&tree).as_deref(),
+        Some("docker/Dockerfile")
+    );
+    // Cas de Mailtrain : `Dockerfile-Develop` lance `tail -f /dev/null`.
+    let tree = RepoTree::from_pairs([
+        (
+            "Dockerfile-Develop",
+            "FROM node:14\nCMD tail -f /dev/null\n",
+        ),
+        (
+            "Dockerfile",
+            "FROM node:14\nRUN npm ci\nEXPOSE 3000\nCMD [\"node\", \"index.js\"]\n",
+        ),
+    ]);
+    assert_eq!(choose_dockerfile(&tree).as_deref(), Some("Dockerfile"));
+}
+
+#[test]
 fn une_variante_nommee_par_sa_base_reste_une_recette() {
     use ynp_core::tree::RepoTree;
     use ynp_dockerfile::choose_dockerfile;

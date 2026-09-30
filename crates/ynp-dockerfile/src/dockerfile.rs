@@ -667,16 +667,31 @@ fn est_une_variante_de_developpement(chemin: &str) -> bool {
         "ci",
         "local",
         "debug",
+        "docs",
+        "doc",
     ];
+    const SEPARATEURS: &[char] = &['.', '_', '-'];
     let bas = chemin.to_lowercase();
     let nom = bas.rsplit('/').next().unwrap_or(&bas);
+    // Le separateur varie d'un projet a l'autre : `Dockerfile.dev`,
+    // `Dockerfile_ci` chez ibis, `Dockerfile-Develop` chez Mailtrain. Faute
+    // de reconnaitre les deux derniers, l'outil retenait le Dockerfile de la
+    // chaine d'integration, qui recopie un binaire construit ailleurs, ou un
+    // conteneur de developpement lance sur `tail -f /dev/null`.
     let variante = nom
-        .strip_suffix(".dockerfile")
-        .or_else(|| nom.strip_prefix("dockerfile."));
+        .strip_suffix("dockerfile")
+        .and_then(|v| v.strip_suffix(SEPARATEURS))
+        .or_else(|| {
+            nom.strip_prefix("dockerfile")
+                .and_then(|v| v.strip_prefix(SEPARATEURS))
+        });
     // La variante peut etre composee : `Dockerfile.radicale.dev` est la
     // version de developpement d'un composant. Modoboa voyait ce fichier
     // retenu comme recette de l'application entiere.
-    variante.is_some_and(|v| v.split('.').any(|morceau| VARIANTES.contains(&morceau)))
+    variante.is_some_and(|v| {
+        v.split(SEPARATEURS)
+            .any(|morceau| VARIANTES.contains(&morceau))
+    })
 }
 
 fn runtime_score(path: &str, recipe: &BuildRecipe) -> i32 {
