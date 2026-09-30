@@ -216,7 +216,26 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
 /// echoue. Appeler directement `corepack pnpm …` produit le meme effet sans
 /// rien ecrire hors de chez l'application, ou son cache est pose.
 fn sans_activation_de_corepack(etapes: Vec<String>) -> Vec<String> {
-    let active = |e: &String| e.trim().starts_with("corepack enable");
+    // `npm install -g pnpm` revient au meme, et echoue de meme : your_spotify
+    // installait ainsi pnpm dans le repertoire de Node, refuse a
+    // l'utilisateur de l'application.
+    let active = |e: &String| {
+        let e = e.trim();
+        if e.starts_with("corepack enable") {
+            return true;
+        }
+        let mots: Vec<&str> = e.split_whitespace().collect();
+        matches!(mots.first(), Some(&"npm"))
+            && mots.iter().any(|m| matches!(*m, "install" | "i" | "add"))
+            && mots.iter().any(|m| matches!(*m, "-g" | "--global"))
+            && mots
+                .iter()
+                .filter(|m| !m.starts_with('-') && !matches!(**m, "npm" | "install" | "i" | "add"))
+                .all(|m| {
+                    let nom = m.split('@').next().unwrap_or(m);
+                    matches!(nom, "pnpm" | "yarn" | "corepack")
+                })
+    };
     if !etapes.iter().any(active) {
         return etapes;
     }
@@ -224,13 +243,25 @@ fn sans_activation_de_corepack(etapes: Vec<String>) -> Vec<String> {
         .into_iter()
         .filter(|e| !active(e))
         .map(|e| {
-            let mut c = e.clone();
+            // Les affectations de tete (`CI=true pnpm install`) restent devant.
+            let mots: Vec<&str> = e.split_whitespace().collect();
+            let n = mots
+                .iter()
+                .take_while(|m| m.contains('=') && !m.starts_with('-'))
+                .count();
+            let (tete, reste) = (mots[..n].join(" "), mots[n..].join(" "));
+            let mut c = reste;
             for outil in ["pnpm", "yarn"] {
                 if c.starts_with(&format!("{outil} ")) {
                     c = format!("corepack {c}");
                 }
                 c = c.replace(&format!("&& {outil} "), &format!("&& corepack {outil} "));
             }
+            let c = if tete.is_empty() {
+                c
+            } else {
+                format!("{tete} {c}")
+            };
             if c.contains("corepack ") {
                 format!("export COREPACK_HOME=\"$PWD/.corepack\"; {c}")
             } else {
@@ -1505,6 +1536,21 @@ mod propositions {
             services: vec![app],
         });
         assert!(exige_un_stockage_s3(&f));
+    }
+
+    #[test]
+    fn installer_pnpm_pour_tout_le_systeme_passe_par_corepack() {
+        let e = sans_activation_de_corepack(vec![
+            "npm install -g pnpm".into(),
+            "CI=true pnpm install --frozen-lockfile".into(),
+            "pnpm build".into(),
+        ]);
+        assert_eq!(e.len(), 2, "{e:?}");
+        assert!(e[0].contains("CI=true corepack pnpm install"), "{e:?}");
+        assert!(e[1].contains("corepack pnpm build"), "{e:?}");
+        // Un autre outil installe globalement n'est pas concerne.
+        let e = sans_activation_de_corepack(vec!["npm install -g typescript".into()]);
+        assert_eq!(e, vec!["npm install -g typescript".to_string()]);
     }
 
     #[test]
