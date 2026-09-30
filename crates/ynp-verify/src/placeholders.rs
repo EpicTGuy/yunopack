@@ -34,6 +34,11 @@ const SELON_RESSOURCE: &[(&str, &str)] = &[
 /// Reglages definis par le script d'installation lui-meme.
 const DEFINIS_PAR_LE_SCRIPT: &[&str] = &["SECRET", "MAIL_PWD"];
 
+/// Vrai pour un reglage que le script d'installation doit definir lui-meme.
+pub fn est_defini_par_le_script(jeton: &str) -> bool {
+    DEFINIS_PAR_LE_SCRIPT.contains(&jeton)
+}
+
 /// Jetons presents dans un contenu, dans l'ordre d'apparition.
 pub fn extraire(contenu: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();

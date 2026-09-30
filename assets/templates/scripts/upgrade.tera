@@ -57,6 +57,16 @@ ynh_safe_rm "$install_dir/target"
 # CONFIGURATION
 #=================================================
 ynh_script_progression "Mise a jour de la configuration de $app..."
+{%- if runtime.a_un_secret %}
+
+# Les reglages de l'application sont charges par YunoHost : le secret tire a
+# l'installation est deja la. Un paquet installe par une version qui n'en
+# avait pas en recoit un.
+if [ -z "${secret:-}" ]; then
+    secret=$(ynh_string_random --length=64)
+    ynh_app_setting_set --key=secret --value="$secret"
+fi
+{%- endif %}
 
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 chmod 400 "$install_dir/{{ runtime.config_file }}"

@@ -298,7 +298,16 @@ fn tous_les_scripts(racine: &Path) -> Result<Vec<Finding>, VerifyError> {
 
 fn jetons(racine: &Path, spec: &AppSpec) -> Result<Vec<Finding>, VerifyError> {
     let mut out = Vec::new();
-    let fournis = placeholders::disponibles(spec);
+    let mut fournis = placeholders::disponibles(spec);
+    // Les reglages que le script d'installation doit definir lui-meme ne sont
+    // disponibles que s'il le fait. Le tenir pour acquis a laisse passer un
+    // paquet qui ecrivait __SECRET__ sans jamais definir `secret` : Buzz a
+    // echoue sur le Dell apres vingt-quatre minutes de compilation.
+    let install = std::fs::read_to_string(racine.join("scripts/install")).unwrap_or_default();
+    fournis.retain(|j| {
+        !placeholders::est_defini_par_le_script(j)
+            || install.contains(&format!("--key={}", j.to_lowercase()))
+    });
     let dossier = racine.join("conf");
     let Ok(entrees) = std::fs::read_dir(&dossier) else {
         return Ok(out);

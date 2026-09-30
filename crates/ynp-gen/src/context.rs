@@ -158,6 +158,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "config_file": spec.runtime.config_file,
             "has_config": spec.a_une_configuration(),
             "env": spec.runtime.env,
+            "a_un_secret": spec.runtime.env.values().any(|v| v.contains("__SECRET__")),
         },
         "features": {
             "nginx": spec.features.nginx,

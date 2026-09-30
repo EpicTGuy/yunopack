@@ -47,6 +47,14 @@ ynh_safe_rm "$install_dir/target"
 # CONFIGURATION DE L'APPLICATION
 #=================================================
 ynh_script_progression "Ajout de la configuration de $app..."
+{%- if runtime.a_un_secret %}
+
+# Le secret de l'application, tire une fois et garde dans ses reglages : il
+# doit survivre aux mises a jour, sans quoi les sessions et les donnees
+# chiffrees seraient perdues.
+secret=$(ynh_string_random --length=64)
+ynh_app_setting_set --key=secret --value="$secret"
+{%- endif %}
 {% if runtime.has_config %}
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 
