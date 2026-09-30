@@ -796,6 +796,79 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
     out
 }
 
+/// L'adresse de la base, sous le schema que l'application attend.
+///
+/// SQLAlchemy refuse `postgres://` depuis sa version 1.4 : Airflow veut
+/// `postgresql+psycopg2://`. Le schema de la valeur d'exemple du projet fait
+/// foi ; a defaut, une variable SQLAlchemy recoit `postgresql://`.
+fn avec_le_schema_attendu(adresse: &str, v: &ynp_core::facts::ConfigVar, base: Database) -> String {
+    let Some((_, reste)) = adresse.split_once("://") else {
+        return adresse.to_string();
+    };
+    let exemple = v
+        .default
+        .as_deref()
+        .and_then(|d| d.split_once("://"))
+        .map(|(schema, _)| schema.to_ascii_lowercase());
+    let compatible = |s: &str| match base {
+        Database::PostgreSql => s.starts_with("postgres"),
+        Database::MySql => s.starts_with("mysql") || s.starts_with("mariadb"),
+        _ => false,
+    };
+    let schema = match exemple {
+        Some(s) if compatible(&s) => s,
+        _ if base == Database::PostgreSql && {
+            let n = v.name.to_ascii_uppercase();
+            n.contains("SQLALCHEMY") || n.contains("SQL_ALCHEMY")
+        } =>
+        {
+            "postgresql".to_string()
+        }
+        _ => return adresse.to_string(),
+    };
+    format!("{schema}://{reste}")
+}
+
+/// Le nom du moteur dans le vocabulaire de l'application.
+///
+/// Laravel dit `pgsql`, Strapi, TypeORM, Sequelize ou Gitea `postgres`. Une
+/// valeur d'exemple deja dans la bonne famille (`postgresql`) fait foi.
+fn type_de_base(
+    v: &ynp_core::facts::ConfigVar,
+    base: Database,
+    cites: &std::collections::BTreeMap<String, usize>,
+) -> Option<String> {
+    let exemple = v.default.as_deref().map(str::to_ascii_lowercase);
+    let famille: &[&str] = match base {
+        Database::PostgreSql => &["pgsql", "postgres", "postgresql", "pg"],
+        Database::MySql => &["mysql", "mysql2", "mariadb"],
+        _ => return None,
+    };
+    if let Some(e) = exemple.filter(|e| famille.contains(&e.as_str())) {
+        return Some(e);
+    }
+    // Le nom que le code cite le plus, dans la bonne famille. Kutt n'accepte
+    // que `pg` pour DB_CLIENT, et Ferdium — AdonisJS, pas Laravel — `pg` pour
+    // DB_CONNECTION : deviner d'apres le nom de la variable les aurait
+    // empeches de demarrer.
+    if let Some((nom, _)) = cites
+        .iter()
+        .filter(|(n, _)| famille.contains(&n.as_str()))
+        .max_by_key(|(_, n)| **n)
+    {
+        return Some(nom.clone());
+    }
+    let laravel = v.name.eq_ignore_ascii_case("DB_CONNECTION");
+    Some(
+        match (base, laravel) {
+            (Database::PostgreSql, true) => "pgsql",
+            (Database::PostgreSql, false) => "postgres",
+            _ => "mysql",
+        }
+        .to_string(),
+    )
+}
+
 /// Ligne de configuration transmettant les identifiants de la base.
 ///
 /// La chaine de connexion se compose de facon deterministe a partir des
@@ -811,8 +884,43 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
         _ => return Known::resolved(String::new()),
     };
 
-    if let Some(v) = facts.config.get(ConfigRole::DatabaseUrl) {
-        return Known::resolved(format!("{}={adresse}", v.name));
+    // Le moteur, a donner en plus de l'adresse : Strapi recoit sinon
+    // DATABASE_URL, et reste sur SQLite, son defaut.
+    let moteur: Vec<String> = facts
+        .config
+        .variables
+        .iter()
+        .filter(|v| v.role == ConfigRole::DatabaseType)
+        .filter_map(|v| {
+            type_de_base(v, facts.services.database, &facts.config.moteurs_cites)
+                .map(|t| format!("{}={t}", v.name))
+        })
+        .collect();
+
+    // Toutes les variables qui portent l'adresse la recoivent : Airflow
+    // nomme AIRFLOW__CORE__SQL_ALCHEMY_CONN et AIRFLOW__DATABASE__..., et
+    // n'accepte plus que la seconde depuis sa version 3.
+    let adresses: Vec<String> = facts
+        .config
+        .variables
+        .iter()
+        .filter(|v| v.role == ConfigRole::DatabaseUrl)
+        .map(|v| {
+            format!(
+                "{}={}",
+                v.name,
+                avec_le_schema_attendu(adresse, v, facts.services.database)
+            )
+        })
+        .collect();
+    if !adresses.is_empty() {
+        return Known::resolved(
+            moteur
+                .into_iter()
+                .chain(adresses)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
     }
 
     // Certaines applications attendent les champs separement plutot qu'une URL.
@@ -832,7 +940,13 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
     .collect();
 
     if !champs.is_empty() {
-        return Known::resolved(champs.join("\n"));
+        return Known::resolved(
+            moteur
+                .into_iter()
+                .chain(champs)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
     }
 
     Known::unresolved_avec(
@@ -1128,6 +1242,7 @@ mod propositions {
         RepoFacts {
             config: ConfigFacts {
                 example_file: Some(".env.example".into()),
+                moteurs_cites: Default::default(),
                 variables,
             },
             build: Some(BuildRecipe {
@@ -1238,6 +1353,64 @@ mod propositions {
         // projet sont souvent un stockage facultatif.
         let r = runtime(&faits(vars, vec![]), "x");
         assert_eq!(r.env.get("S3_BUCKET"), None);
+    }
+
+    #[test]
+    fn le_moteur_de_base_est_donne_dans_le_vocabulaire_de_l_application() {
+        let mut laravel = var("DB_CONNECTION", Some("sqlite"), ".env.example");
+        laravel.role = ConfigRole::DatabaseType;
+        let rien = Default::default();
+        // Le code fait foi : Ferdium (AdonisJS) nomme DB_CONNECTION, et cite `pg`.
+        let ferdium: std::collections::BTreeMap<String, usize> =
+            [("pg".to_string(), 3), ("mysql".to_string(), 2)]
+                .into_iter()
+                .collect();
+        assert_eq!(
+            type_de_base(&laravel, Database::PostgreSql, &ferdium).as_deref(),
+            Some("pg")
+        );
+        assert_eq!(
+            type_de_base(&laravel, Database::PostgreSql, &rien).as_deref(),
+            Some("pgsql")
+        );
+        assert_eq!(
+            type_de_base(&laravel, Database::MySql, &rien).as_deref(),
+            Some("mysql")
+        );
+        let mut strapi = var("DATABASE_CLIENT", Some("sqlite"), "config/database.js");
+        strapi.role = ConfigRole::DatabaseType;
+        assert_eq!(
+            type_de_base(&strapi, Database::PostgreSql, &rien).as_deref(),
+            Some("postgres")
+        );
+        let mut autre = var("DB_TYPE", Some("postgresql"), ".env");
+        autre.role = ConfigRole::DatabaseType;
+        assert_eq!(
+            type_de_base(&autre, Database::PostgreSql, &rien).as_deref(),
+            Some("postgresql")
+        );
+    }
+
+    #[test]
+    fn l_adresse_de_la_base_suit_le_schema_de_l_application() {
+        let mut v = var(
+            "AIRFLOW__DATABASE__SQL_ALCHEMY_CONN",
+            Some("postgresql+psycopg2://airflow:airflow@postgres/airflow"),
+            ".env",
+        );
+        v.role = ConfigRole::DatabaseUrl;
+        let a = "postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable";
+        assert_eq!(
+            avec_le_schema_attendu(a, &v, Database::PostgreSql),
+            "postgresql+psycopg2://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable"
+        );
+        // Sans exemple, une variable SQLAlchemy recoit le schema qu'il accepte.
+        v.default = None;
+        assert!(avec_le_schema_attendu(a, &v, Database::PostgreSql).starts_with("postgresql://"));
+        // Ailleurs, rien ne change.
+        let mut d = var("DATABASE_URL", None, ".env");
+        d.role = ConfigRole::DatabaseUrl;
+        assert_eq!(avec_le_schema_attendu(a, &d, Database::PostgreSql), a);
     }
 
     #[test]

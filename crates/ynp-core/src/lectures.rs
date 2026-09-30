@@ -95,6 +95,12 @@ fn motifs() -> &'static [Regex] {
             r#"System\.getenv\(\s*"([A-Z][A-Z0-9_]*)"\s*\)"#,
             // Elixir
             r#"System\.(?:get_env|fetch_env!?)\(\s*"([A-Z][A-Z0-9_]*)""#,
+            // Aide `env('NOM')` : Laravel, Strapi (`env.int('NOM')`),
+            // django-environ. Strapi lit ainsi toute sa base dans
+            // config/database.js, et aucune de ses variables n'etait vue.
+            r#"\benv(?:\.\w+)?\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
+            // AdonisJS.
+            r#"\bEnv\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
         ]
         .iter()
         .map(|m| Regex::new(m).expect("motif de lecture invalide"))
@@ -116,9 +122,51 @@ pub fn variables_lues(contenu: &str) -> Vec<String> {
     out
 }
 
+/// Les noms de moteurs de base qu'un fichier source cite comme valeurs ou
+/// comme cles : `'pgsql' => [` chez Laravel, `pg: {` chez AdonisJS,
+/// `choices: ["pg", "mysql2"]` chez Kutt. Le meme reglage — le moteur a
+/// utiliser — s'ecrit `pgsql`, `pg` ou `postgres` selon le cadre, et seul le
+/// code dit lequel.
+pub fn moteurs_cites(contenu: &str) -> Vec<String> {
+    static M: OnceLock<Regex> = OnceLock::new();
+    let m = M.get_or_init(|| {
+        Regex::new(
+            r#"["'](pgsql|pg|postgres|postgresql|mysql|mysql2|mariadb)["']|\b(pgsql|pg|postgres|postgresql|mysql|mysql2|mariadb)\s*:\s*\{"#,
+        )
+        .expect("motif de moteur invalide")
+    });
+    if !(contenu.contains("pg") || contenu.contains("postgres") || contenu.contains("mysql")) {
+        return Vec::new();
+    }
+    m.captures_iter(contenu)
+        .filter_map(|c| {
+            c.get(1)
+                .or_else(|| c.get(2))
+                .map(|x| x.as_str().to_string())
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn les_moteurs_cites_donnent_le_vocabulaire_du_cadre() {
+        assert_eq!(
+            moteurs_cites("'pgsql' => [ 'driver' => 'pgsql',"),
+            vec!["pgsql", "pgsql"]
+        );
+        assert_eq!(
+            moteurs_cites("connections: { pg: {\n client: 'pg',"),
+            vec!["pg", "pg"]
+        );
+        assert_eq!(
+            moteurs_cites(r#"DB_CLIENT: str({ choices: ["pg", "mysql2", "better-sqlite3"] })"#),
+            vec!["pg", "mysql2"]
+        );
+        assert!(moteurs_cites("const page = 1;").is_empty());
+    }
 
     #[test]
     fn chaque_langage_livre_ses_lectures() {
@@ -126,6 +174,10 @@ mod tests {
             ("const p = process.env.PORT || 3000", "PORT"),
             ("const p = process.env['HTTP_PORT']", "HTTP_PORT"),
             ("addr := os.Getenv(\"LISTEN_ADDR\")", "LISTEN_ADDR"),
+            ("host: env('DATABASE_HOST', '127.0.0.1'),", "DATABASE_HOST"),
+            ("port: env.int('DATABASE_PORT', 5432),", "DATABASE_PORT"),
+            ("'host' => env('DB_HOST', '127.0.0.1'),", "DB_HOST"),
+            ("host: Env.get('DB_HOST')", "DB_HOST"),
             ("port = int(os.environ.get('PORT', 8000))", "PORT"),
             ("port = os.environ['APP_PORT']", "APP_PORT"),
             ("port ENV.fetch(\"PORT\") { 3000 }", "PORT"),

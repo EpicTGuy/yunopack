@@ -18,11 +18,24 @@ exact = [
   "DATABASE_URL", "DATABASE_URI", "DB_URL", "DB_URI", "DB_CONNECTION_STRING",
   "POSTGRES_URL", "POSTGRESQL_URL", "MYSQL_URL", "MONGO_URL", "MONGODB_URI",
   "SQLALCHEMY_DATABASE_URI", "DATABASE_CONNECTION",
+  "SQL_ALCHEMY_CONN",
 ]
 suffix = [
   "_DATABASE_URL", "_DATABASE_URI", "_DB_URL", "_DB_URI",
   "_DATABASE_CONNECTION", "_DATABASE_DSN", "_DB_DSN",
+  # Airflow : AIRFLOW__DATABASE__SQL_ALCHEMY_CONN.
+  "_SQL_ALCHEMY_CONN", "_SQLALCHEMY_DATABASE_URI",
 ]
+
+# Le moteur de base : sans lui, l'application retombe sur son defaut, souvent
+# SQLite. Strapi a DATABASE_CLIENT=sqlite, Laravel DB_CONNECTION=sqlite.
+[[rule]]
+role = "database_type"
+exact = [
+  "DB_CONNECTION", "DATABASE_CLIENT", "DB_CLIENT", "DB_TYPE", "DATABASE_TYPE",
+  "DB_DIALECT", "DATABASE_DIALECT", "DB_ENGINE", "DATABASE_ENGINE",
+]
+suffix = ["_DB_TYPE", "_DATABASE_TYPE", "_DB_CLIENT", "_DATABASE_CLIENT", "_DB_DIALECT"]
 
 [[rule]]
 role = "database_host"

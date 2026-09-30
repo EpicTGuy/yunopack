@@ -147,6 +147,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     config::ajouter_les_lectures(&mut facts.config, tree, &forge.source.repo);
+    facts.config.moteurs_cites = tree.moteurs_cites().clone();
     config::reconnaitre_le_port_prefixe(&mut facts.config, &forge.source.repo);
     facts.services = services::detect(
         tree,

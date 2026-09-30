@@ -179,6 +179,7 @@ mod tests {
     fn config_with(name: &str, role: ConfigRole, value: &str) -> ConfigFacts {
         ConfigFacts {
             example_file: Some(".env.example".into()),
+            moteurs_cites: Default::default(),
             variables: vec![ConfigVar {
                 name: name.into(),
                 role,

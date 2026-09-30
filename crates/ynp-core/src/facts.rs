@@ -506,6 +506,11 @@ pub struct ConfigFacts {
     pub example_file: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<ConfigVar>,
+    /// Noms de moteurs de base que le code cite, et combien de fois :
+    /// `pgsql` chez Laravel, `pg` chez AdonisJS ou Knex, `postgres` chez
+    /// Strapi. C'est ce qu'attend la variable qui choisit le moteur.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub moteurs_cites: std::collections::BTreeMap<String, usize>,
 }
 
 impl ConfigFacts {
@@ -547,6 +552,10 @@ pub enum ConfigRole {
     DatabaseName,
     DatabaseUser,
     DatabasePassword,
+    /// Le moteur de base que l'application doit utiliser : `DB_CONNECTION`
+    /// de Laravel, `DATABASE_CLIENT` de Strapi. Sans lui, l'application
+    /// retombe sur son moteur par defaut, souvent SQLite.
+    DatabaseType,
     BaseUrl,
     Secret,
     AdminEmail,

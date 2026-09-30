@@ -20,6 +20,9 @@ pub struct RepoTree {
     /// Comment le code choisit son port d'ecoute, et le premier fichier qui
     /// le montre. Meme principe : le contenu n'est pas garde.
     ecoutes: BTreeMap<crate::ecoutes::Indice, String>,
+    /// Noms de moteurs de base cites par le code (`'pgsql'`, `pg: {`), et
+    /// combien de fois : c'est le vocabulaire de l'application.
+    moteurs_cites: BTreeMap<String, usize>,
 }
 
 impl RepoTree {
@@ -43,6 +46,9 @@ impl RepoTree {
         for i in crate::ecoutes::indices(contenu) {
             self.ecoutes.entry(i).or_insert_with(|| path.to_string());
         }
+        for m in crate::lectures::moteurs_cites(contenu) {
+            *self.moteurs_cites.entry(m).or_default() += 1;
+        }
         // Prefiltre : la plupart des fichiers ne lisent aucune variable, et
         // les expressions regulieres n'ont pas a les parcourir.
         if !(contenu.contains("env") || contenu.contains("ENV")) {
@@ -51,6 +57,11 @@ impl RepoTree {
         for nom in crate::lectures::variables_lues(contenu) {
             self.lectures.entry(nom).or_insert_with(|| path.to_string());
         }
+    }
+
+    /// Noms de moteurs de base cites par le code, avec leur nombre.
+    pub fn moteurs_cites(&self) -> &BTreeMap<String, usize> {
+        &self.moteurs_cites
     }
 
     /// Indices d'ecoute releves dans le code, avec le fichier qui les montre.
