@@ -326,9 +326,17 @@ async fn repondre_sur_son_port(
         .await?;
     let chemin = chemin_interroge(chemin.texte());
 
+    // Une application peut mettre du temps a ouvrir son port apres le
+    // demarrage de son service : migrations, controles de ses dependances.
+    // Buzz verifie son stockage S3 pendant plusieurs secondes avant
+    // d'ecouter ; l'interroger une seule fois l'a dit muette a tort. On lui
+    // laisse une minute tant que rien n'ecoute ; toute autre reponse compte.
     let code = hote
         .executer(&format!(
-            "curl -s -o /dev/null -w '%{{http_code}}' --max-time 10 http://127.0.0.1:{port}{chemin}"
+            "for i in $(seq 1 30); do \
+               c=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 10 http://127.0.0.1:{port}{chemin}); \
+               [ \"$c\" != 000 ] && break; sleep 2; \
+             done; echo \"$c\""
         ))
         .await?;
     let c = code.texte().to_string();
