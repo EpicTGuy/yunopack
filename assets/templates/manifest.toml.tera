@@ -106,6 +106,10 @@ ram.runtime = "{{ integration.ram_runtime }}"
 {%- if sources.autoupdate %}
 
     autoupdate.strategy = "{{ sources.autoupdate }}"
+{%- if sources.version_regex %}
+    # Chaine litterale, comme le motif d'asset ci-dessous.
+    autoupdate.version_regex = '{{ sources.version_regex }}'
+{%- endif %}
 {%- for a in sources.per_arch %}
     # Chaine litterale : le motif est une expression reguliere, ses
     # contre-obliques ne doivent pas etre interpretees comme des echappements.

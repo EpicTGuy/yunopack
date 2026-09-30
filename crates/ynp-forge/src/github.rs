@@ -158,6 +158,29 @@ impl GitHub {
         Ok(raw.into_iter().map(|t| t.name).collect())
     }
 
+    /// Tous les tags qui commencent par `prefixe`.
+    pub async fn tags_du_prefixe(
+        &self,
+        source: &SourceRef,
+        prefixe: &str,
+    ) -> Result<Vec<String>, ForgeError> {
+        #[derive(serde::Deserialize)]
+        struct Ref {
+            #[serde(rename = "ref")]
+            nom: String,
+        }
+        let path = format!(
+            "/repos/{}/{}/git/matching-refs/tags/{prefixe}?per_page=100",
+            source.owner, source.repo
+        );
+        let body = self.get(&path).await?;
+        let refs: Vec<Ref> = serde_json::from_str(&body).unwrap_or_default();
+        Ok(refs
+            .into_iter()
+            .filter_map(|r| r.nom.strip_prefix("refs/tags/").map(str::to_string))
+            .collect())
+    }
+
     /// Le dernier commit d'une branche : son identifiant et sa date.
     pub async fn dernier_commit(
         &self,

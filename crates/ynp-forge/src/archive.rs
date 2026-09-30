@@ -127,6 +127,11 @@ fn is_interesting(path: &str) -> bool {
     ];
 
     EXACT.contains(&lower.as_str())
+        // Les workflows disent quelle famille de tags publie quoi : dans un
+        // depot qui heberge plusieurs logiciels, c'est la qu'on apprend lequel
+        // porte la version du serveur (voir `workflows`).
+        || path.starts_with(".github/workflows/")
+            && (lower.ends_with(".yml") || lower.ends_with(".yaml"))
         || est_un_fichier_de_paquet(&path.to_lowercase())
         || ynp_core::noms::est_un_dockerfile(&lower)
         // Le script d'entree d'une image finit presque toujours par `exec`,

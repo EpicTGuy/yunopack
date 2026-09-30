@@ -476,6 +476,9 @@ pub struct Sources {
     /// `latest_github_release`, `latest_github_tag`, `latest_github_commit`...
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autoupdate_strategy: Option<String>,
+    /// Extrait la version d'un tag prefixe (`^relay-v(.*)$`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autoupdate_version_regex: Option<String>,
     /// `false` quand l'archive n'a pas de repertoire intermediaire.
     #[serde(default = "default_true")]
     pub in_subdir: bool,

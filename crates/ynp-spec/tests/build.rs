@@ -40,6 +40,7 @@ fn depot_go_avec_binaires() -> RepoFacts {
         selection: Some(SourceSelection {
             reference: "2.3.3".into(),
             strategy: "latest_github_release".into(),
+            version_regex: None,
             version: Some("2.3.3".into()),
             kind: "release".into(),
             url: "https://github.com/miniflux/v2/archive/2.3.3.tar.gz".into(),

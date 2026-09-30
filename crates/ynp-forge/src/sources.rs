@@ -19,6 +19,10 @@ pub struct SourceChoice {
     /// ou la version devient la date.
     pub version: Option<String>,
     pub kind: SourceKind,
+    /// Valeur de `autoupdate.version_regex` quand la version est prefixee
+    /// (`rt-5.0.5`, `relay-v0.2.1`) : sans elle, l'autoupdater de YunoHost
+    /// ne reconnait aucune version dans ces tags.
+    pub version_regex: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +67,7 @@ pub fn choose_avec(
             reference: r.tag.clone(),
             strategy: format!("latest_{forge}_release"),
             kind: SourceKind::Release,
+            version_regex: None,
         };
     }
 
@@ -73,7 +78,17 @@ pub fn choose_avec(
             reference: tag,
             strategy: format!("latest_{forge}_tag"),
             kind: SourceKind::Tag,
+            version_regex: None,
         };
+    }
+
+    // Des versions publiees sous un prefixe : `rt-5.0.5` chez Request
+    // Tracker, `RackTables-0.22.0`. Sans cette regle, l'outil packageait le
+    // dernier commit de la branche de developpement, faute de tag reconnu.
+    if let Some(cle) = famille_dominante(tags) {
+        if let Some(c) = choisir_dans_la_famille(source, tags, &cle, &archive_url) {
+            return c;
+        }
     }
 
     let reference = source
@@ -86,7 +101,129 @@ pub fn choose_avec(
         strategy: format!("latest_{forge}_commit"),
         version: None,
         kind: SourceKind::Commit,
+        version_regex: None,
     }
+}
+
+/// Famille d'un tag et sa version : `relay-v0.2.1` → (`relay-v`, `0.2.1`),
+/// `server_release/1.4/1.4.7` → (`server_release/#.#/`, `1.4.7`). Les
+/// nombres du prefixe deviennent `#`, pour regrouper les branches d'une
+/// meme famille. Un tag de version ordinaire n'a pas de famille.
+pub fn famille(tag: &str) -> Option<(String, String)> {
+    const SEPARATEURS: &[char] = &['-', '_', '/', '@'];
+    for (i, _) in tag.char_indices() {
+        let (prefixe, reste) = tag.split_at(i);
+        if prefixe.is_empty() || !reste.starts_with(|c: char| c.is_ascii_digit()) {
+            continue;
+        }
+        let avant_v = prefixe.strip_suffix('v').unwrap_or(prefixe);
+        if !avant_v.ends_with(SEPARATEURS) {
+            continue;
+        }
+        if !is_version_like(reste) || !reste.contains('.') {
+            continue;
+        }
+        // Une famille de pre-versions n'est pas une source stable.
+        // Mot a mot : `src-` ou `arcade-` ne sont pas des pre-versions.
+        let l = prefixe.to_lowercase();
+        if l.split(|c: char| !c.is_ascii_alphabetic()).any(|m| {
+            matches!(
+                m,
+                "rc" | "beta"
+                    | "alpha"
+                    | "pre"
+                    | "preview"
+                    | "nightly"
+                    | "snapshot"
+                    | "dev"
+                    | "test"
+            )
+        }) {
+            return None;
+        }
+        let mut cle = String::new();
+        let mut dans_un_nombre = false;
+        for c in prefixe.chars() {
+            if c.is_ascii_digit() {
+                if !dans_un_nombre {
+                    cle.push('#');
+                }
+                dans_un_nombre = true;
+            } else {
+                cle.push(c);
+                dans_un_nombre = false;
+            }
+        }
+        return Some((cle, reste.to_string()));
+    }
+    None
+}
+
+/// La famille qui porte clairement les versions : au moins deux tags, et
+/// quatre sur cinq des tags des familles.
+///
+/// Plusieurs familles de tailles voisines designent plusieurs logiciels.
+/// LessPass versionne ainsi son extension, son site, son application mobile
+/// et sa ligne de commande : prendre la plus nombreuse donnait la version
+/// mobile. Sans autre indice, on ne devine pas.
+fn famille_dominante(tags: &[String]) -> Option<String> {
+    let mut compte: std::collections::BTreeMap<String, usize> = Default::default();
+    for t in tags {
+        if let Some((cle, _)) = famille(t) {
+            *compte.entry(cle).or_default() += 1;
+        }
+    }
+    // Un tag isole n'est pas une famille : il ne compte pas dans le total.
+    let total: usize = compte.values().filter(|n| **n >= 2).sum();
+    compte
+        .into_iter()
+        .filter(|(_, n)| *n >= 2 && *n * 5 >= total * 4)
+        .max_by_key(|(_, n)| *n)
+        .map(|(cle, _)| cle)
+}
+
+/// L'expression que l'autoupdater de YunoHost applique au tag : elle doit
+/// capturer la version seule.
+pub fn version_regex(cle: &str) -> String {
+    let mut out = String::from("^");
+    for c in cle.chars() {
+        match c {
+            '#' => out.push_str("[0-9]+"),
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '@') => out.push(c),
+            c => {
+                out.push('\\');
+                out.push(c);
+            }
+        }
+    }
+    out.push_str("(.*)$");
+    out
+}
+
+/// La version la plus recente d'une famille de tags.
+pub fn choisir_dans_la_famille(
+    source: &SourceRef,
+    tags: &[String],
+    cle: &str,
+    archive_url: impl Fn(&SourceRef, &str) -> String,
+) -> Option<SourceChoice> {
+    let (tag, version) = tags
+        .iter()
+        .filter_map(|t| {
+            famille(t)
+                .filter(|(c, _)| c == cle)
+                .map(|(_, v)| (t.clone(), v))
+        })
+        .max_by(|a, b| version_key(&a.1).cmp(&version_key(&b.1)))?;
+    let forge = source.forge.autoupdate_slug();
+    Some(SourceChoice {
+        url: archive_url(source, &tag),
+        version: Some(version),
+        reference: tag,
+        strategy: format!("latest_{forge}_tag"),
+        kind: SourceKind::Tag,
+        version_regex: Some(version_regex(cle)),
+    })
 }
 
 /// Un tag exploitable ressemble a `x.y.z` ou `vx.y.z`, sans marqueur de
@@ -162,6 +299,63 @@ mod tests {
             prerelease,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn une_famille_prefixee_se_reconnait_et_se_suit() {
+        assert_eq!(famille("rt-5.0.5"), Some(("rt-".into(), "5.0.5".into())));
+        assert_eq!(
+            famille("relay-v0.2.1"),
+            Some(("relay-v".into(), "0.2.1".into()))
+        );
+        assert_eq!(
+            famille("server_release/1.4/1.4.7"),
+            Some(("server_release/#.#/".into(), "1.4.7".into()))
+        );
+        assert_eq!(
+            famille("RackTables-0.22.0"),
+            Some(("RackTables-".into(), "0.22.0".into()))
+        );
+        assert_eq!(famille("v1.2.3"), None);
+        assert_eq!(famille("nightly-1.2.3"), None);
+        assert_eq!(famille("src-1.2.3"), Some(("src-".into(), "1.2.3".into())));
+        assert_eq!(version_regex("relay-v"), "^relay-v(.*)$");
+        assert_eq!(
+            version_regex("server_release/#.#/"),
+            "^server_release/[0-9]+\\.[0-9]+/(.*)$"
+        );
+    }
+
+    #[test]
+    fn sans_tag_ordinaire_la_famille_prefixee_evite_la_branche_de_developpement() {
+        // Cas de Request Tracker : 51 versions « rt-x.y.z », aucune release.
+        let tags: Vec<String> = ["rt-4.4.7", "rt-5.0.5", "rt-5.0.10", "tmp-1.0"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let c = choose(&source(), &[], &tags);
+        assert_eq!(c.reference, "rt-5.0.10");
+        assert_eq!(c.version.as_deref(), Some("5.0.10"));
+        assert_eq!(c.version_regex.as_deref(), Some("^rt-(.*)$"));
+        assert_eq!(c.strategy, "latest_github_tag");
+    }
+
+    #[test]
+    fn plusieurs_familles_voisines_ne_se_departagent_pas_au_nombre() {
+        // Cas de LessPass : extension, site, mobile, ligne de commande.
+        let tags: Vec<String> = [
+            "mobile-v9.8.7",
+            "mobile-v9.8.6",
+            "mobile-v9.8.5",
+            "cli-v9.1.0",
+            "cli-v9.0.9",
+            "web-extension-v9.2.0",
+            "web-extension-v9.1.9",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(choose(&source(), &[], &tags).kind, SourceKind::Commit);
     }
 
     #[test]

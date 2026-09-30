@@ -35,6 +35,7 @@ pub mod scorecard;
 pub mod sources;
 pub mod url;
 pub mod wishlist;
+pub mod workflows;
 
 use ynp_analyze::ForgeData;
 use ynp_core::tree::RepoTree;
@@ -102,8 +103,43 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     }
 
     let bytes = client.download(&choice.url).await?;
-    let sha256 = sources::sha256(&bytes);
-    let tree = archive::extract(&bytes).map_err(ForgeError::from)?;
+    let mut sha256 = sources::sha256(&bytes);
+    let mut tree = archive::extract(&bytes).map_err(ForgeError::from)?;
+
+    // Un depot qui heberge plusieurs logiciels les versionne separement. Le
+    // workflow qui construit l'image Docker se declenche sur la famille de
+    // tags du serveur — celui que le paquet transpose. Buzz publie ainsi son
+    // application de bureau sous `v*`, avec releases, et son serveur sous
+    // `relay-v*` : sans cette regle, le paquet prenait la version de bureau.
+    for prefixe in workflows::prefixes_de_l_image(&tree) {
+        let Some((cle, _)) = sources::famille(&format!("{prefixe}1.0")) else {
+            continue;
+        };
+        if choice.version_regex.as_deref() == Some(sources::version_regex(&cle).as_str()) {
+            break;
+        }
+        let de_la_famille = client
+            .tags_du_prefixe(&source, &prefixe)
+            .await
+            .unwrap_or_default();
+        let Some(autre) =
+            sources::choisir_dans_la_famille(&source, &de_la_famille, &cle, |s, r| {
+                client.archive_url(s, r)
+            })
+        else {
+            continue;
+        };
+        tracing::info!(
+            "le workflow Docker suit les tags « {prefixe}* » : source {} au lieu de {}",
+            autre.reference,
+            choice.reference
+        );
+        let bytes = client.download(&autre.url).await?;
+        sha256 = sources::sha256(&bytes);
+        tree = archive::extract(&bytes).map_err(ForgeError::from)?;
+        choice = autre;
+        break;
+    }
 
     source.commit = Some(choice.reference.clone());
 
@@ -167,6 +203,7 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     let selection = ynp_core::facts::SourceSelection {
         reference: choice.reference.clone(),
         strategy: choice.strategy.clone(),
+        version_regex: choice.version_regex.clone(),
         version: choice.version.clone(),
         kind: match choice.kind {
             SourceKind::Release => "release",

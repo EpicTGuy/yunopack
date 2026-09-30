@@ -648,6 +648,9 @@ pub struct SourceSelection {
     pub reference: String,
     /// Valeur de `autoupdate.strategy` dans le manifest.
     pub strategy: String,
+    /// Valeur de `autoupdate.version_regex`, pour des tags prefixes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_regex: Option<String>,
     pub version: Option<String>,
     /// `release`, `tag` ou `commit`.
     pub kind: String,

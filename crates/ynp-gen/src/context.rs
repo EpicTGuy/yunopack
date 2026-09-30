@@ -106,6 +106,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "url": spec.resources.sources.url.value(),
             "sha256": spec.resources.sources.sha256.value(),
             "autoupdate": spec.resources.sources.autoupdate_strategy,
+            "version_regex": spec.resources.sources.autoupdate_version_regex,
             "in_subdir": spec.resources.sources.in_subdir,
             "extract": spec.resources.sources.extract,
             "rename": spec.resources.sources.rename,

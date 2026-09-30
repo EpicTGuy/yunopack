@@ -162,6 +162,7 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
                 None => Known::unresolved("somme de controle non calculee", &[]),
             },
             autoupdate_strategy: sel.map(|s| s.strategy.clone()),
+            autoupdate_version_regex: sel.and_then(|s| s.version_regex.clone()),
             per_arch: sel.map(|s| s.prebuilt.clone()).unwrap_or_default(),
             // Un binaire nu ne s'extrait pas : il est depose sous le nom de
             // l'application.

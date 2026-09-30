@@ -86,6 +86,27 @@ impl Client {
         }
     }
 
+    /// Tous les tags qui commencent par `prefixe`.
+    ///
+    /// La liste generale s'arrete aux 50 premiers : Buzz en a des centaines,
+    /// et ses `relay-v*` n'y figuraient pas. GitHub sait filtrer par prefixe ;
+    /// ailleurs, on filtre ce que la liste generale donne.
+    pub async fn tags_du_prefixe(
+        &self,
+        source: &SourceRef,
+        prefixe: &str,
+    ) -> Result<Vec<String>, ForgeError> {
+        match self {
+            Client::GitHub(c) => c.tags_du_prefixe(source, prefixe).await,
+            _ => Ok(self
+                .tags(source)
+                .await?
+                .into_iter()
+                .filter(|t| t.starts_with(prefixe))
+                .collect()),
+        }
+    }
+
     /// Les premiers octets d'un fichier, par une requete partielle.
     ///
     /// Assez pour lire la forme d'une archive sans la rapatrier. Un serveur
