@@ -49,6 +49,16 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         }
     }
 
+    // 2 bis. PHP. YunoHost ne definit `php_version` — sans lequel
+    //    `ynh_config_add_phpfpm` refuse de continuer — que si le manifeste
+    //    declare des paquets `phpX.Y-*`. Les paquets PHP produits par l'outil
+    //    n'en declaraient aucun, et auraient tous echoue a l'installation.
+    if facts.stack.primary == ynp_core::facts::Technology::Php {
+        for p in paquets_php(facts) {
+            ajouter(&p);
+        }
+    }
+
     // 3. Les dependances cachees des modules npm a compilation native, qui
     //    n'apparaissent dans aucun Dockerfile ni package.json.
     if !facts
@@ -122,6 +132,134 @@ fn sert_a_construire(paquet: &str) -> bool {
         "cargo",
     ];
     OUTILS.contains(&paquet) || paquet.ends_with("-dev")
+}
+
+/// La version de PHP a installer : celle qu'exige `composer.json`, jamais
+/// en dessous de celle de Debian bookworm, sauf pour un projet reste en
+/// PHP 7, que YunoHost sait encore fournir.
+fn version_php(facts: &RepoFacts) -> String {
+    let exigee = facts.stack.runtime_version.as_deref().unwrap_or("");
+    let mut morceaux = exigee.split('.').filter_map(|m| m.parse::<u32>().ok());
+    // PHP 7 seulement si la contrainte l'impose (`^7.4`, `~7.3`, `7.4.*`) ;
+    // `>=7.4` admet PHP 8, et PHP 7 n'est plus maintenu.
+    let seulement_7 = facts
+        .stack
+        .contrainte_php
+        .as_deref()
+        .is_some_and(|c| !c.contains('>') && !c.contains("|| ^8") && !c.contains("|8"));
+    match (morceaux.next(), morceaux.next()) {
+        (Some(7), _) if seulement_7 => "7.4".to_string(),
+        (Some(8), Some(mineure)) if mineure > 2 => format!("8.{mineure}"),
+        _ => "8.2".to_string(),
+    }
+}
+
+/// Les paquets PHP d'une application : le moteur, le socle que tout
+/// framework emploie, le pilote de sa base, et ses extensions declarees.
+fn paquets_php(facts: &RepoFacts) -> Vec<String> {
+    let v = version_php(facts);
+    let mut exts: Vec<String> = ["fpm", "mbstring", "xml", "curl", "zip"]
+        .iter()
+        .map(|e| e.to_string())
+        .collect();
+    match facts.services.database {
+        ynp_core::facts::Database::MySql => exts.push("mysql".into()),
+        ynp_core::facts::Database::PostgreSql => exts.push("pgsql".into()),
+        _ => {}
+    }
+    for e in &facts.stack.extensions_php {
+        if let Some(paquet) = extension_php_en_paquet(e) {
+            exts.push(paquet.to_string());
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    for e in exts {
+        let p = format!("php{v}-{e}");
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Le paquet Debian qui fournit une extension PHP ; rien pour une extension
+/// comprise dans le moteur (`json`, `pdo`, `ctype`…) ou inconnue.
+fn extension_php_en_paquet(ext: &str) -> Option<&'static str> {
+    Some(match ext {
+        "pdo_mysql" | "mysqli" | "mysqlnd" => "mysql",
+        "pdo_pgsql" | "pgsql" => "pgsql",
+        "pdo_sqlite" | "sqlite3" => "sqlite3",
+        "dom" | "simplexml" | "xmlreader" | "xmlwriter" | "libxml" | "xml" => "xml",
+        "gd" => "gd",
+        "intl" => "intl",
+        "mbstring" => "mbstring",
+        "curl" => "curl",
+        "zip" => "zip",
+        "bcmath" => "bcmath",
+        "gmp" => "gmp",
+        "ldap" => "ldap",
+        "imagick" => "imagick",
+        "redis" => "redis",
+        "memcached" => "memcached",
+        "apcu" => "apcu",
+        "soap" => "soap",
+        "bz2" => "bz2",
+        "imap" => "imap",
+        "opcache" => "opcache",
+        "xsl" => "xsl",
+        "tidy" => "tidy",
+        "igbinary" => "igbinary",
+        "msgpack" => "msgpack",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod php {
+    use super::*;
+    use ynp_core::facts::{Database, StackFacts, Technology};
+
+    fn php(version: Option<&str>, exts: &[&str], base: Database) -> RepoFacts {
+        let mut f = RepoFacts {
+            stack: StackFacts {
+                primary: Technology::Php,
+                runtime_version: version.map(String::from),
+                extensions_php: exts.iter().map(|e| e.to_string()).collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        f.services.database = base;
+        f
+    }
+
+    #[test]
+    fn une_application_php_declare_de_quoi_definir_sa_version() {
+        // Sans paquet phpX.Y-*, YunoHost ne definit pas php_version et
+        // ynh_config_add_phpfpm refuse de continuer.
+        let p = packages(&php(
+            Some("8.3"),
+            &["gd", "pdo_mysql", "json"],
+            Database::MySql,
+        ));
+        for attendu in ["php8.3-fpm", "php8.3-gd", "php8.3-mysql", "php8.3-mbstring"] {
+            assert!(p.contains(&attendu.to_string()), "{attendu} : {p:?}");
+        }
+        assert!(!p.iter().any(|x| x.ends_with("-json")));
+    }
+
+    #[test]
+    fn la_version_n_est_jamais_sous_celle_de_bookworm_sauf_php_7() {
+        assert_eq!(version_php(&php(Some("8.1"), &[], Database::None)), "8.2");
+        assert_eq!(version_php(&php(None, &[], Database::None)), "8.2");
+        let mut ancienne = php(Some("7.3"), &[], Database::None);
+        ancienne.stack.contrainte_php = Some("^7.3".into());
+        assert_eq!(version_php(&ancienne), "7.4");
+        // `>=7.3` admet PHP 8 : on ne descend pas sur une version abandonnee.
+        ancienne.stack.contrainte_php = Some(">=7.3".into());
+        assert_eq!(version_php(&ancienne), "8.2");
+        assert_eq!(version_php(&php(Some("8.4"), &[], Database::None)), "8.4");
+    }
 }
 
 #[cfg(test)]

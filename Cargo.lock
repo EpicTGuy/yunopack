@@ -2501,6 +2501,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "toml",
  "ynp-core",
 ]
 

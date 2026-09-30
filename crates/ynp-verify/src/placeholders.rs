@@ -39,6 +39,43 @@ pub fn est_defini_par_le_script(jeton: &str) -> bool {
     DEFINIS_PAR_LE_SCRIPT.contains(&jeton)
 }
 
+/// Les variables qu'un script definit, en jetons : `redis_db=$(…)` et
+/// `ynh_app_setting_set --key=redis_db` rendent __REDIS_DB__ disponible.
+///
+/// C'est la regle meme de YunoHost : un jeton est remplace par la variable du
+/// meme nom visible dans le script. Sans elle, `verify` refusait tout paquet
+/// retouche a la main — celui de Buzz, qui tire ses cles a l'installation.
+pub fn definis_par_les_scripts(scripts: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for ligne in scripts.lines() {
+        let l = ligne.trim();
+        if l.starts_with('#') {
+            continue;
+        }
+        for (i, _) in l.match_indices("--key=") {
+            let nom: String = l[i + 6..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if !nom.is_empty() {
+                out.insert(nom.to_ascii_uppercase());
+            }
+        }
+        let l = l.strip_prefix("local ").unwrap_or(l);
+        if let Some((nom, _)) = l.split_once('=') {
+            let valide = !nom.is_empty()
+                && nom.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+                && nom
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            if valide {
+                out.insert(nom.to_ascii_uppercase());
+            }
+        }
+    }
+    out
+}
+
 /// Jetons presents dans un contenu, dans l'ordre d'apparition.
 pub fn extraire(contenu: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -109,6 +146,14 @@ pub fn disponibles_depuis_manifest(manifest: &toml::Value) -> BTreeSet<String> {
     for (jeton, ressource) in SELON_RESSOURCE {
         if actif(ressource) {
             out.insert((*jeton).to_string());
+        }
+    }
+
+    // Un port nomme devient `port_<nom>` : `health` donne __PORT_HEALTH__.
+    if let Some(toml::Value::Table(ports)) = manifest.get("resources").and_then(|r| r.get("ports"))
+    {
+        for nom in ports.keys().filter(|n| *n != "main") {
+            out.insert(format!("PORT_{}", nom.to_ascii_uppercase()));
         }
     }
 

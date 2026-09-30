@@ -34,6 +34,32 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     facts.has_lockfile = from_files.has_lockfile;
     facts.build_script = from_files.build_script;
     facts.native_deps = native_deps(tree);
+    facts.contrainte_php = json(tree, "composer.json")
+        .and_then(|c| c.get("require")?.get("php")?.as_str().map(str::to_string));
+    if let Some(Value::Object(requis)) =
+        json(tree, "composer.json").and_then(|c| c.get("require").cloned())
+    {
+        facts.extensions_php = requis
+            .keys()
+            .filter_map(|k| k.strip_prefix("ext-"))
+            .map(|e| e.to_lowercase())
+            .collect();
+    }
+    if let Some(b) = build {
+        for etape in &b.build_steps {
+            if let Some((_, reste)) = etape.split_once("docker-php-ext-install") {
+                for mot in reste
+                    .split_whitespace()
+                    .take_while(|m| *m != "&&" && *m != ";")
+                {
+                    let mot = mot.to_lowercase();
+                    if !mot.starts_with('-') && !facts.extensions_php.contains(&mot) {
+                        facts.extensions_php.push(mot);
+                    }
+                }
+            }
+        }
+    }
     if let Some(texte) = tree.text("pyproject.toml") {
         for section in ["[project.scripts]", "[tool.poetry.scripts]"] {
             facts.scripts_python.extend(cles_de_section(texte, section));

@@ -382,6 +382,14 @@ pub struct StackFacts {
     /// commande directement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exec_du_point_d_entree: Option<String>,
+    /// La contrainte PHP de `composer.json`, telle quelle : `^7.4` n'admet
+    /// que PHP 7, `>=7.4` admet aussi PHP 8. La version seule ne le dit pas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contrainte_php: Option<String>,
+    /// Extensions PHP que le projet declare : exigences `ext-*` de son
+    /// `composer.json` et `docker-php-ext-install` de son Dockerfile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions_php: Vec<String>,
     /// Les executables que le `pyproject.toml` declare. Un script d'entree
     /// qui finit par `exec mealie` lance l'un d'eux : il vit dans
     /// l'environnement virtuel.

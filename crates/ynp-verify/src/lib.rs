@@ -298,16 +298,27 @@ fn tous_les_scripts(racine: &Path) -> Result<Vec<Finding>, VerifyError> {
 
 fn jetons(racine: &Path, spec: &AppSpec) -> Result<Vec<Finding>, VerifyError> {
     let mut out = Vec::new();
-    let mut fournis = placeholders::disponibles(spec);
-    // Les reglages que le script d'installation doit definir lui-meme ne sont
-    // disponibles que s'il le fait. Le tenir pour acquis a laisse passer un
-    // paquet qui ecrivait __SECRET__ sans jamais definir `secret` : Buzz a
-    // echoue sur le Dell apres vingt-quatre minutes de compilation.
-    let install = std::fs::read_to_string(racine.join("scripts/install")).unwrap_or_default();
-    fournis.retain(|j| {
-        !placeholders::est_defini_par_le_script(j)
-            || install.contains(&format!("--key={}", j.to_lowercase()))
-    });
+    // Ce que le paquet declare vraiment : son manifeste, s'il en a un, fait
+    // foi plutot que la specification qui l'a produit — un paquet retouche a
+    // la main ou deja publie n'a pas de specification a jour.
+    let mut fournis = std::fs::read_to_string(racine.join("manifest.toml"))
+        .ok()
+        .and_then(|t| t.parse::<toml::Value>().ok())
+        .map(|m| placeholders::disponibles_depuis_manifest(&m))
+        .unwrap_or_else(|| placeholders::disponibles(spec));
+
+    // Les reglages que le script doit definir lui-meme ne sont disponibles que
+    // s'il le fait. Le tenir pour acquis a laisse passer un paquet qui ecrivait
+    // __SECRET__ sans jamais definir `secret` : Buzz a echoue sur l'hote de
+    // test apres vingt-quatre minutes de compilation.
+    let scripts = ["scripts/install", "scripts/_common.sh"]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(racine.join(f)).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let definis = placeholders::definis_par_les_scripts(&scripts);
+    fournis.retain(|j| !placeholders::est_defini_par_le_script(j) || definis.contains(j));
+    fournis.extend(definis);
     let dossier = racine.join("conf");
     let Ok(entrees) = std::fs::read_dir(&dossier) else {
         return Ok(out);

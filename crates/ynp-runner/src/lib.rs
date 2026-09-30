@@ -117,10 +117,19 @@ pub async fn run_g3(
                 .ok_or(RunnerError::SansDomaine)?
         }
     };
-    let chemin = if cible.chemin.is_empty() {
+    // Un paquet qui ne pose pas de question de chemin occupe la racine du
+    // domaine : c'est le cas des relais et des applications qui servent leur
+    // interface depuis `/`. Lui en imposer un faisait echouer l'installation,
+    // ou tester une adresse qui ne sert rien.
+    let a_une_question_de_chemin = std::fs::read_to_string(paquet.join("manifest.toml"))
+        .map(|m| a_une_question_de_chemin(&m))
+        .unwrap_or(true);
+    let chemin = if !cible.chemin.is_empty() {
+        cible.chemin.clone()
+    } else if a_une_question_de_chemin {
         format!("/{app}")
     } else {
-        cible.chemin.clone()
+        String::new()
     };
     let url = format!("https://{domaine}{chemin}/");
 
@@ -137,10 +146,14 @@ pub async fn run_g3(
     etapes.push(chrono.etape("transfert du paquet", envoi.ok(), envoi.diagnostic()));
 
     if envoi.ok() {
-        let args = format!(
-            "domain={domaine}&path={chemin}&init_main_permission={}",
-            cible.permission
-        );
+        let args = if a_une_question_de_chemin {
+            format!(
+                "domain={domaine}&path={chemin}&init_main_permission={}",
+                cible.permission
+            )
+        } else {
+            format!("domain={domaine}&init_main_permission={}", cible.permission)
+        };
         let install = hote
             .executer(&format!(
                 "yunohost app install {distant} --force -a \"{args}\""
@@ -467,6 +480,29 @@ async fn cause_dans_le_journal(hote: &Hote, sortie: &str) -> Option<String> {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// Vrai si le manifeste demande un chemin d'installation.
+fn a_une_question_de_chemin(manifeste: &str) -> bool {
+    manifeste
+        .parse::<toml::Table>()
+        .ok()
+        .and_then(|t| t.get("install")?.get("path").cloned())
+        .is_some()
+}
+
+#[cfg(test)]
+mod chemin_d_installation {
+    use super::a_une_question_de_chemin;
+
+    #[test]
+    fn un_paquet_sans_question_de_chemin_occupe_la_racine() {
+        let avec =
+            "[install]\n[install.domain]\ntype = \"domain\"\n[install.path]\ntype = \"path\"\n";
+        let sans = "[install]\n[install.domain]\ntype = \"domain\"\n";
+        assert!(a_une_question_de_chemin(avec));
+        assert!(!a_une_question_de_chemin(sans));
+    }
 }
 
 /// L'identifiant d'un journal d'operation YunoHost cite dans une sortie :

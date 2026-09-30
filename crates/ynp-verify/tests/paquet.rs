@@ -169,6 +169,14 @@ fn un_jeton_sans_reglage_est_bloquant_meme_en_commentaire() {
 #[test]
 fn un_jeton_dont_la_ressource_est_declaree_passe() {
     let racine = paquet_sain("jeton-ok");
+    // Declaree dans le manifeste, que YunoHost lit — et non seulement dans la
+    // specification qui l'a produit.
+    let m = fs::read_to_string(racine.join("manifest.toml")).unwrap();
+    fs::write(
+        racine.join("manifest.toml"),
+        format!("{m}\n    [resources.ports]\n"),
+    )
+    .unwrap();
     fs::write(racine.join("conf/app.env"), "PORT=__PORT__\nAPP=__APP__\n").unwrap();
     assert!(!ids(&racine, &spec()).contains(&"CONF001".to_string()));
 }
@@ -333,4 +341,31 @@ fn un_depot_git_dans_le_paquet_n_interrompt_pas_la_verification() {
 
     let constats = ynp_verify::verify(&racine, &spec()).unwrap();
     assert!(constats.is_empty(), "{constats:#?}");
+}
+
+#[test]
+fn un_jeton_declare_dans_la_seule_specification_est_signale() {
+    // La specification croit au port, le manifeste ne le declare pas :
+    // YunoHost, qui lit le manifeste, ne remplacerait pas __PORT__.
+    let racine = paquet_sain("jeton-spec-seule");
+    fs::write(racine.join("conf/app.env"), "PORT=__PORT__\n").unwrap();
+    assert!(ids(&racine, &spec()).contains(&"CONF001".to_string()));
+}
+
+#[test]
+fn une_variable_definie_par_le_script_est_disponible() {
+    let racine = paquet_sain("jeton-script");
+    fs::write(
+        racine.join("scripts/install"),
+        "#!/bin/bash\nsource /usr/share/yunohost/helpers\nredis_db=$(ynh_redis_get_free_db)\n\
+         ynh_app_setting_set --key=relay_key --value=x\nynh_config_add_nginx\n",
+    )
+    .unwrap();
+    executable(&racine.join("scripts/install"));
+    fs::write(
+        racine.join("conf/app.env"),
+        "R=__REDIS_DB__\nK=__RELAY_KEY__\n",
+    )
+    .unwrap();
+    assert!(!ids(&racine, &spec()).contains(&"CONF001".to_string()));
 }
