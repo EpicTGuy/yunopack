@@ -33,6 +33,9 @@ ynh_backup "/etc/nginx/conf.d/$domain.d/$app.conf"
 {%- if features.systemd %}
 ynh_backup "/etc/systemd/system/$app.service"
 {%- endif %}
+{%- if resources.s3 %}
+ynh_backup "/etc/systemd/system/$app-seaweedfs.service"
+{%- endif %}
 {%- if features.logrotate %}
 ynh_backup "/etc/logrotate.d/$app"
 ynh_backup "/var/log/$app/"

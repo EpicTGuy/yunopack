@@ -125,7 +125,9 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "go_version": spec.resources.go_version,
             "composer_version": spec.resources.composer_version,
             "redis": spec.resources.redis,
+            "s3": spec.resources.s3,
         },
+        "seaweedfs": seaweedfs(),
         "runtime": {
             "technology": technologie,
             // Chaque etape passe par `bash -c` : `ynh_exec_as_app` execute une
@@ -307,4 +309,12 @@ mod citation {
             .expect("bash");
         assert_eq!(String::from_utf8_lossy(&sortie.stdout), origine);
     }
+}
+
+/// Le SeaweedFS qu'embarquent les paquets dont l'application exige un
+/// stockage S3 : version et empreintes, tenues dans une table de connaissance.
+fn seaweedfs() -> Value {
+    const TABLE: &str = include_str!("../../../assets/knowledge/stockage-objet.toml");
+    let table: toml::Value = toml::from_str(TABLE).expect("stockage-objet.toml invalide");
+    serde_json::to_value(&table["seaweedfs"]).expect("table convertible en JSON")
 }

@@ -47,6 +47,11 @@ ynh_restore "/etc/nginx/conf.d/$domain.d/$app.conf"
 ynh_restore "/etc/systemd/system/$app.service"
 systemctl enable "$app.service" --quiet
 {%- endif %}
+{%- if resources.s3 %}
+ynh_restore "/etc/systemd/system/$app-seaweedfs.service"
+systemctl enable "$app-seaweedfs.service" --quiet
+yunohost service add "$app-seaweedfs" --description="Stockage S3 de $app" --log="/var/log/$app/seaweedfs.log"
+{%- endif %}
 {%- if features.service_integration %}
 yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/$app.log"
 {%- endif %}
@@ -69,7 +74,11 @@ ynh_restore "/etc/cron.d/$app"
 # RECHARGEMENT DES SERVICES
 #=================================================
 ynh_script_progression "Rechargement de NGINX et du service de $app..."
-{% if features.systemd %}
+{% if resources.s3 %}
+mkdir -p "/var/log/$app"
+ynh_systemctl --service="$app-seaweedfs" --action="start"
+{%- endif %}
+{%- if features.systemd %}
 ynh_systemctl --service="$app" --action="start"
 {%- endif %}
 {%- if features.phpfpm %}

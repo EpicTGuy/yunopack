@@ -4,6 +4,10 @@ After=network.target
 {%- if resources.database %}
 After=postgresql.service mysql.service
 {%- endif %}
+{%- if resources.s3 %}
+After=__APP__-seaweedfs.service
+Wants=__APP__-seaweedfs.service
+{%- endif %}
 
 [Service]
 Type=simple

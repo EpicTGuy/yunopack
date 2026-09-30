@@ -13,3 +13,141 @@
 # echouait sur « Variable $path_with_nodejs wasn't initialized ». La
 # construction, elle, prenait le Node du systeme s'il y en avait un — donc
 # une autre version que celle demandee.
+{%- if resources.s3 %}
+
+#=================================================
+# STOCKAGE S3 EMBARQUE
+#=================================================
+
+# L'application exige un stockage objet S3 : le paquet fait tourner un
+# SeaweedFS qui lui est propre, sur la boucle locale, avec un compartiment
+# au nom de l'application et une cle qui n'ouvre que celui-ci.
+#
+# SeaweedFS plutot que Garage : parmi des ecritures conditionnelles
+# simultanees sur un meme objet, SeaweedFS n'en laisse reussir qu'une,
+# Garage toutes. Une application qui s'en sert comme verrou se corromprait.
+
+# Requete signee avec la cle de l'application. L'en-tete
+# x-amz-content-sha256 est exige par S3 ; le curl de Debian 12 ne l'ajoute
+# pas lui-meme.
+_s3_curl() {
+    curl -s --aws-sigv4 "aws:amz:us-east-1:s3" --user "$s3_access_key:$s3_secret_key" \
+         -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" "$@"
+}
+
+# Code HTTP d'une requete signee, sur une ligne.
+_s3_code() {
+    _s3_curl -o /dev/null -w "%{http_code}\n" "$@"
+}
+
+# N ecritures simultanees portant la meme condition ; affiche le nombre de
+# gagnantes.
+_s3_course() {
+    local objet="$1" condition="$2" n=32 i resultats
+    local -a ecrivains=()
+    resultats=$(mktemp -d)
+    for i in $(seq 1 "$n"); do
+        _s3_code -H "$condition" -X PUT --data-binary "ecrivain-$i" "$objet" > "$resultats/$i" &
+        ecrivains+=("$!")
+    done
+    wait "${ecrivains[@]}"
+    cat "$resultats"/* | grep -c '^200$' || true
+    ynh_safe_rm "$resultats"
+}
+
+# Le stockage verifie pour de vrai : ecrire et effacer ; ne rien laisser
+# lire sans cle ; une seule gagnante parmi 32 creations « If-None-Match »
+# puis parmi 32 remplacements « If-Match ». Echoue avec la raison sur la
+# sortie d'erreur.
+s3_verifier() {
+    local base="$s3_endpoint/$app/.yunohost-sonde-$(ynh_string_random --length=8)"
+    local etag gagnantes
+
+    [ "$(_s3_code -X PUT --data-binary "ok" "$base-ecriture")" = 200 ] \
+        || { echo "le stockage refuse d'ecrire" >&2; return 1; }
+    if [ "$(curl -s -o /dev/null -w "%{http_code}" "$base-ecriture")" = 200 ]; then
+        _s3_code -X DELETE "$base-ecriture" >/dev/null
+        echo "le stockage laisse lire sans cle" >&2
+        return 1
+    fi
+    _s3_code -X DELETE "$base-ecriture" >/dev/null
+
+    gagnantes=$(_s3_course "$base-creation" "If-None-Match: *")
+    _s3_code -X DELETE "$base-creation" >/dev/null
+    [ "$gagnantes" = 1 ] \
+        || { echo "$gagnantes creations simultanees sur 32 ont reussi, au lieu d'une" >&2; return 1; }
+
+    etag=$(_s3_curl -D - -o /dev/null -X PUT --data-binary "depart" "$base-course" \
+           | tr -d '\r' | awk -F': ' 'tolower($1)=="etag" {print $2}')
+    gagnantes=$(_s3_course "$base-course" "If-Match: $etag")
+    _s3_code -X DELETE "$base-course" >/dev/null
+    [ "$gagnantes" = 1 ] \
+        || { echo "$gagnantes remplacements simultanes sur 32 ont reussi, au lieu d'un" >&2; return 1; }
+}
+
+# Pose le binaire, les cles et la configuration, puis demarre le service.
+# Les cles, tirees a la premiere installation, sont gardees ensuite.
+s3_installer() {
+    mkdir -p "$install_dir/seaweedfs" "$data_dir/seaweedfs" "/var/log/$app"
+    ynh_setup_source --dest_dir="$install_dir/seaweedfs" --source_id="seaweedfs"
+
+    if [ -z "${s3_access_key:-}" ]; then
+        s3_access_key=$(ynh_string_random --length=20)
+        s3_secret_key=$(ynh_string_random --length=40)
+        ynh_app_setting_set --key=s3_access_key --value="$s3_access_key"
+        ynh_app_setting_set --key=s3_secret_key --value="$s3_secret_key"
+    fi
+    # Cles qui ferment les services internes de SeaweedFS (voir
+    # seaweedfs-security.toml).
+    if [ -z "${sw_jwt_ecriture:-}" ]; then
+        sw_jwt_ecriture=$(openssl rand -hex 32)
+        sw_jwt_lecture=$(openssl rand -hex 32)
+        sw_jwt_filer_ecriture=$(openssl rand -hex 32)
+        sw_jwt_filer_lecture=$(openssl rand -hex 32)
+        ynh_app_setting_set --key=sw_jwt_ecriture --value="$sw_jwt_ecriture"
+        ynh_app_setting_set --key=sw_jwt_lecture --value="$sw_jwt_lecture"
+        ynh_app_setting_set --key=sw_jwt_filer_ecriture --value="$sw_jwt_filer_ecriture"
+        ynh_app_setting_set --key=sw_jwt_filer_lecture --value="$sw_jwt_filer_lecture"
+    fi
+    ynh_config_add --template="seaweedfs.json" --destination="$install_dir/seaweedfs/seaweedfs.json"
+    ynh_config_add --template="seaweedfs-security.toml" --destination="$install_dir/seaweedfs/security.toml"
+    chmod 400 "$install_dir/seaweedfs/seaweedfs.json" "$install_dir/seaweedfs/security.toml"
+    chown -R "$app:$app" "$install_dir/seaweedfs" "$data_dir/seaweedfs"
+    chown "$app:www-data" "/var/log/$app"
+
+    ynh_config_add_systemd --service="$app-seaweedfs" --template="seaweedfs.service"
+    yunohost service add "$app-seaweedfs" --description="Stockage S3 de $app" \
+        --log="/var/log/$app/seaweedfs.log"
+    ynh_systemctl --service="$app-seaweedfs" --action="restart"
+}
+
+# Cree le compartiment de l'application et verifie le stockage. La cle de
+# l'application a le droit de creer son propre compartiment, et aucun
+# autre. Le serveur met quelques secondes a elire son maitre.
+s3_initialiser() {
+    s3_endpoint="http://127.0.0.1:$port_objets"
+    local i raison
+    for i in $(seq 1 60); do
+        [ "$(_s3_code -I "$s3_endpoint/$app")" = 200 ] && break
+        _s3_code -X PUT "$s3_endpoint/$app" >/dev/null || true
+        sleep 2
+    done
+    [ "$(_s3_code -I "$s3_endpoint/$app")" = 200 ] \
+        || ynh_die "Impossible de creer le compartiment S3 de $app."
+    raison=$(s3_verifier 2>&1) \
+        || ynh_die "Le stockage S3 embarque ne convient pas : $raison"
+}
+
+# Arrete et retire le service, quel que soit le moment ou une installation
+# a echoue : un processus orphelin garde l'utilisateur de l'application
+# occupe, et YunoHost ne peut plus le supprimer. Les objets restent dans le
+# repertoire de donnees, que YunoHost ne supprime qu'avec --purge.
+s3_retirer() {
+    if ynh_hide_warnings yunohost service status "$app-seaweedfs" >/dev/null; then
+        yunohost service remove "$app-seaweedfs"
+    fi
+    if [ -e "/etc/systemd/system/$app-seaweedfs.service" ]; then
+        ynh_config_remove_systemd "$app-seaweedfs"
+    fi
+}
+{%- endif %}

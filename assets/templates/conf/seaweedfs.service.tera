@@ -1,0 +1,33 @@
+[Unit]
+Description=Stockage S3 de __APP__ (SeaweedFS)
+After=network.target
+
+[Service]
+Type=simple
+User=__APP__
+Group=__APP__
+WorkingDirectory=__INSTALL_DIR__/seaweedfs/
+# Un seul noeud sur la boucle locale ; chaque port est fixe, y compris les
+# ports gRPC que SeaweedFS placerait sinon a +10000. Aucune identite anonyme :
+# seule la cle de l'application, limitee a son compartiment, y a acces. Les
+# statistiques d'usage envoyees par defaut aux auteurs sont coupees.
+ExecStart=__INSTALL_DIR__/seaweedfs/weed server -ip=127.0.0.1 -ip.bind=127.0.0.1 -dir=__DATA_DIR__/seaweedfs -master.telemetry=false -master.port=__PORT_SW_MASTER__ -master.port.grpc=__PORT_SW_MASTER_GRPC__ -master.volumeSizeLimitMB=1024 -volume.max=0 -volume.port=__PORT_SW_VOLUME__ -volume.port.grpc=__PORT_SW_VOLUME_GRPC__ -filer.port=__PORT_SW_FILER__ -filer.port.grpc=__PORT_SW_FILER_GRPC__ -s3 -s3.port=__PORT_OBJETS__ -s3.port.grpc=__PORT_OBJETS_GRPC__ -s3.port.iceberg=0 -s3.port.lance=0 -s3.config=__INSTALL_DIR__/seaweedfs/seaweedfs.json
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/__APP__/seaweedfs.log
+StandardError=inherit
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

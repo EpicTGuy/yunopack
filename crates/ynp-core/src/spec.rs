@@ -454,6 +454,10 @@ pub struct Resources {
     /// Une base Redis propre a l'application, prise sur le Redis du serveur.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub redis: bool,
+    /// Un stockage objet S3 embarque (SeaweedFS), avec un compartiment et une
+    /// cle propres a l'application.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub s3: bool,
     /// Versions de runtime a provisionner par le coeur (`[resources.nodejs]`...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nodejs_version: Option<String>,

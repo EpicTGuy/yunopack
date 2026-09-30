@@ -481,6 +481,10 @@ pub struct ServiceFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_evidence: Option<String>,
     pub needs_redis: bool,
+    /// Le projet fait tourner un stockage objet S3 (minio, SeaweedFS,
+    /// Garage) a cote de l'application : le paquet en embarque un.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_s3: bool,
     /// Services detectes sans equivalent YunoHost. Alimente la regle DB002.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported: Vec<String>,

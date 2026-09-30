@@ -185,12 +185,15 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         },
         system_user: true,
         install_dir: true,
-        // Un volume declare signale des donnees a preserver a la desinstallation.
         // Detecte depuis toujours, jamais provisionne : Buzz n'a trouve un
         // Redis que parce qu'une autre application de l'hote de test en
         // faisait tourner un.
         redis: facts.services.needs_redis,
-        data_dir: facts.build.as_ref().is_some_and(|b| !b.volumes.is_empty())
+        s3: exige_un_stockage_s3(facts),
+        // Un volume declare signale des donnees a preserver a la desinstallation.
+        // Le stockage S3 embarque range aussi ses objets dans ce repertoire.
+        data_dir: exige_un_stockage_s3(facts)
+            || facts.build.as_ref().is_some_and(|b| !b.volumes.is_empty())
             || facts
                 .compose
                 .as_ref()
@@ -393,6 +396,18 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             };
             env.entry(var.name.clone())
                 .or_insert_with(|| valeur.to_string());
+        }
+    }
+
+    // Les variables que le projet nomme pour joindre son stockage S3, cablees
+    // sur celui que le paquet embarque. Elles l'emportent sur un role plus
+    // general : `AWS_SECRET_ACCESS_KEY` ressemble a un secret de
+    // l'application, et une valeur tiree au hasard n'ouvrirait rien.
+    if exige_un_stockage_s3(facts) {
+        for var in &facts.config.variables {
+            if let Some(valeur) = valeur_s3(&var.name) {
+                env.insert(var.name.clone(), valeur.to_string());
+            }
         }
     }
 
@@ -797,6 +812,121 @@ fn candidats_base(facts: &RepoFacts, adresse: &str) -> Vec<Candidate> {
     out
 }
 
+/// L'application ne fonctionne pas sans stockage S3.
+///
+/// Un stockage objet dans le compose de deploiement suffit a le dire. Dans un
+/// compose de developpement, il peut ne servir qu'a essayer une option :
+/// chibisafe range ses fichiers sur le disque, et lance minio dans son
+/// `docker-compose.dev.yml` pour tester son stockage S3 facultatif. Il faut
+/// alors que la configuration nomme ou joindre le stockage — Buzz exige
+/// `BUZZ_S3_ENDPOINT` et refuse de demarrer sans.
+fn exige_un_stockage_s3(facts: &RepoFacts) -> bool {
+    if !facts.services.needs_s3 {
+        return false;
+    }
+    let de_deploiement = facts.compose.as_ref().is_some_and(|c| {
+        let nom = c
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&c.path)
+            .to_ascii_lowercase();
+        let marque = nom
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|m| matches!(m, "dev" | "development" | "test" | "local" | "ci" | "e2e"));
+        !marque && c.services.iter().any(|s| s.is_app)
+    });
+    de_deploiement
+        || facts.config.variables.iter().any(|v| {
+            matches!(
+                valeur_s3(&v.name),
+                Some("http://127.0.0.1:__PORT_OBJETS__") | Some("__APP__")
+            )
+        })
+}
+
+/// Valeur d'une variable de stockage S3, d'apres son nom.
+///
+/// Le compartiment porte le nom de l'application ; la region est celle que
+/// les clients S3 supposent par defaut, SeaweedFS n'en tenant pas compte.
+/// Un prefixe propre au projet (`BUZZ_S3_BUCKET`) ne change rien au role.
+fn valeur_s3(nom: &str) -> Option<&'static str> {
+    let n = nom.to_ascii_uppercase();
+    let est = |noms: &[&str], suffixes: &[&str]| {
+        noms.contains(&n.as_str()) || suffixes.iter().any(|s| n.ends_with(s))
+    };
+    Some(
+        if est(
+            &[
+                "S3_ENDPOINT",
+                "S3_ENDPOINT_URL",
+                "S3_URL",
+                "AWS_ENDPOINT_URL",
+                "AWS_ENDPOINT_URL_S3",
+                "AWS_S3_ENDPOINT",
+            ],
+            &["_S3_ENDPOINT", "_S3_ENDPOINT_URL"],
+        ) {
+            "http://127.0.0.1:__PORT_OBJETS__"
+        } else if est(
+            &[
+                "S3_ACCESS_KEY",
+                "S3_ACCESS_KEY_ID",
+                "S3_KEY",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_ACCESS_KEY",
+                "MINIO_ACCESS_KEY",
+            ],
+            &["_S3_ACCESS_KEY", "_S3_ACCESS_KEY_ID"],
+        ) {
+            "__S3_ACCESS_KEY__"
+        } else if est(
+            &[
+                "S3_SECRET_KEY",
+                "S3_SECRET_ACCESS_KEY",
+                "S3_SECRET",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_SECRET_KEY",
+                "MINIO_SECRET_KEY",
+            ],
+            &["_S3_SECRET_KEY", "_S3_SECRET_ACCESS_KEY"],
+        ) {
+            "__S3_SECRET_KEY__"
+        } else if est(
+            &[
+                "S3_BUCKET",
+                "S3_BUCKET_NAME",
+                "AWS_S3_BUCKET",
+                "AWS_BUCKET",
+                "AWS_BUCKET_NAME",
+                "MINIO_BUCKET",
+            ],
+            &["_S3_BUCKET", "_S3_BUCKET_NAME"],
+        ) {
+            "__APP__"
+        } else if est(
+            &["S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"],
+            &["_S3_REGION"],
+        ) {
+            "us-east-1"
+        } else if est(
+            &[
+                "S3_FORCE_PATH_STYLE",
+                "S3_PATH_STYLE",
+                "AWS_S3_FORCE_PATH_STYLE",
+                "AWS_USE_PATH_STYLE_ENDPOINT",
+            ],
+            &["_S3_FORCE_PATH_STYLE", "_S3_PATH_STYLE"],
+        ) {
+            "true"
+        } else if est(&["S3_USE_SSL", "MINIO_USE_SSL"], &["_S3_USE_SSL"]) {
+            "false"
+        } else {
+            return None;
+        },
+    )
+}
+
 /// Valeur YunoHost correspondant a un role de configuration.
 ///
 /// Les placeholders sont remplaces par les helpers au moment ou le fichier est
@@ -983,6 +1113,68 @@ mod propositions {
         );
         assert!(e[1].contains("&& corepack pnpm -C admin build"), "{}", e[1]);
         assert!(e[0].starts_with("export COREPACK_HOME="));
+    }
+
+    #[test]
+    fn les_variables_s3_se_cablent_sur_le_stockage_embarque() {
+        let mut secret = var("AWS_SECRET_ACCESS_KEY", Some("changeme"), ".env.example");
+        secret.role = ConfigRole::Secret;
+        let vars = vec![
+            var("BUZZ_S3_ENDPOINT", None, ".env.example"),
+            var("S3_ACCESS_KEY_ID", None, ".env.example"),
+            secret,
+            var("S3_BUCKET", Some("uploads"), ".env.example"),
+            var("S3_FORCE_PATH_STYLE", None, ".env.example"),
+            var("S3_BATCH_SIZE", Some("50"), ".env.example"),
+        ];
+        let mut f = faits(vars.clone(), vec![]);
+        f.services.needs_s3 = true;
+        f.compose = Some(ynp_core::facts::ComposeFacts {
+            path: "docker-compose.dev.yml".into(),
+            services: vec![],
+        });
+        let r = runtime(&f, "x");
+        let v = |n: &str| r.env.get(n).map(String::as_str);
+        assert_eq!(
+            v("BUZZ_S3_ENDPOINT"),
+            Some("http://127.0.0.1:__PORT_OBJETS__")
+        );
+        assert_eq!(v("S3_ACCESS_KEY_ID"), Some("__S3_ACCESS_KEY__"));
+        // Une cle S3 n'est pas un secret a tirer au hasard.
+        assert_eq!(v("AWS_SECRET_ACCESS_KEY"), Some("__S3_SECRET_KEY__"));
+        assert_eq!(v("S3_BUCKET"), Some("__APP__"));
+        assert_eq!(v("S3_FORCE_PATH_STYLE"), Some("true"));
+        assert_eq!(v("S3_BATCH_SIZE"), None);
+
+        // Sans stockage embarque, rien n'est cable : les variables S3 d'un
+        // projet sont souvent un stockage facultatif.
+        let r = runtime(&faits(vars, vec![]), "x");
+        assert_eq!(r.env.get("S3_BUCKET"), None);
+    }
+
+    #[test]
+    fn un_stockage_objet_de_dev_sans_variable_s3_n_est_pas_exige() {
+        // Cas de chibisafe : minio dans docker-compose.dev.yml, aucune
+        // variable pour le joindre.
+        let app = ynp_core::facts::ComposeService {
+            name: "chibisafe".into(),
+            is_app: true,
+            ..Default::default()
+        };
+        let mut f = faits(vec![], vec![]);
+        f.services.needs_s3 = true;
+        f.compose = Some(ynp_core::facts::ComposeFacts {
+            path: "docker-compose.dev.yml".into(),
+            services: vec![app.clone()],
+        });
+        assert!(!exige_un_stockage_s3(&f));
+
+        // Le meme compose, de deploiement cette fois, suffit.
+        f.compose = Some(ynp_core::facts::ComposeFacts {
+            path: "docker-compose.yml".into(),
+            services: vec![app],
+        });
+        assert!(exige_un_stockage_s3(&f));
     }
 
     #[test]

@@ -212,12 +212,13 @@ services:
         .collect();
     assert!(app.is_empty(), "aucun service applicatif ici, or : {app:?}");
 
-    // minio reste signale : c'est un stockage sans equivalent YunoHost.
+    // minio signale un besoin de stockage S3, que le paquet embarque ; son
+    // client `minio/mc` n'est que de l'outillage.
     let s = services_from_compose(&c);
     assert_eq!(s.database, Database::PostgreSql);
     assert!(s.needs_redis);
-    assert_eq!(s.unsupported.len(), 1);
-    assert!(s.unsupported[0].contains("minio"));
+    assert!(s.needs_s3);
+    assert!(s.unsupported.is_empty(), "{:?}", s.unsupported);
 }
 
 #[test]

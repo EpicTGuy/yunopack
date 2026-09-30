@@ -112,6 +112,18 @@ ram.runtime = "{{ integration.ram_runtime }}"
     autoupdate.asset.{{ a.arch }} = '{{ a.pattern }}'
 {%- endfor %}
 {%- endif %}
+{%- if resources.s3 %}
+
+    # Stockage objet S3 embarque : l'application en exige un (voir
+    # _common.sh). Un binaire par architecture, lance comme service a part.
+    [resources.sources.seaweedfs]
+    prefetch = false
+    in_subdir = false
+    amd64.url = "{{ seaweedfs.amd64_url }}"
+    amd64.sha256 = "{{ seaweedfs.amd64_sha256 }}"
+    arm64.url = "{{ seaweedfs.arm64_url }}"
+    arm64.sha256 = "{{ seaweedfs.arm64_sha256 }}"
+{%- endif %}
 {%- if resources.system_user %}
 
     [resources.system_user]
@@ -129,9 +141,20 @@ ram.runtime = "{{ integration.ram_runtime }}"
     [resources.permissions]
     main.url = "{{ resources.main_permission_url }}"
 {%- endif %}
-{%- if resources.ports %}
+{%- if resources.ports or resources.s3 %}
 
     [resources.ports]
+{%- endif %}
+{%- if resources.s3 %}
+    # SeaweedFS embarque : chaque service a un port HTTP et un port gRPC.
+    objets.default = 8333
+    objets_grpc.default = 18333
+    sw_master.default = 9333
+    sw_master_grpc.default = 19333
+    sw_volume.default = 8081
+    sw_volume_grpc.default = 18081
+    sw_filer.default = 8888
+    sw_filer_grpc.default = 18888
 {%- endif %}
 {%- if resources.apt | length > 0 %}
 

@@ -46,6 +46,9 @@ ynh_safe_rm "/etc/cron.d/$app"
 # FIN DU SCRIPT
 #=================================================
 
+{%- if resources.s3 %}
+s3_retirer
+{%- endif %}
 {%- if resources.redis %}
 if [ -n "${redis_db:-}" ]; then
     ynh_redis_remove_db "$redis_db"

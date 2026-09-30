@@ -2469,6 +2469,7 @@ dependencies = [
  "serde_json",
  "tera",
  "thiserror",
+ "toml",
  "ynp-core",
 ]
 

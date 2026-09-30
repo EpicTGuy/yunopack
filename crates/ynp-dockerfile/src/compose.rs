@@ -177,6 +177,7 @@ pub fn services_from_compose(facts: &ComposeFacts) -> ServiceFacts {
                 }
             }
             Some(Kind::Redis) => out.needs_redis = true,
+            Some(Kind::StockageObjet) => out.needs_s3 = true,
             Some(Kind::Unsupported) => {
                 out.unsupported.push(format!("{} ({})", svc.name, image));
             }
@@ -189,6 +190,8 @@ pub fn services_from_compose(facts: &ComposeFacts) -> ServiceFacts {
 enum Kind {
     Database(Database),
     Redis,
+    /// Stockage objet S3. Le paquet embarque un SeaweedFS a la place.
+    StockageObjet,
     Unsupported,
     /// Reverse-proxy ou frontal : YunoHost fournit deja nginx, ces services
     /// disparaissent au packaging. Ils ne sont ni l'application, ni un blocage.
@@ -226,6 +229,12 @@ fn classify_image(image: &str) -> Option<Kind> {
         Some(Kind::Redis)
     } else if has(&["nginx", "traefik", "caddy", "haproxy", "swag"]) {
         Some(Kind::Proxy)
+    } else if has(&["minio/mc"]) {
+        // Le client de minio, lance pour creer un compartiment : de
+        // l'outillage, pas le stockage lui-meme.
+        Some(Kind::Tooling)
+    } else if has(&["minio", "seaweedfs", "dxflrs/garage", "garagehq"]) {
+        Some(Kind::StockageObjet)
     } else if has(&[
         // Outils d'administration, d'observabilite et de developpement. Ils
         // accompagnent l'application sans en faire partie, et disparaissent au
@@ -278,7 +287,6 @@ fn classify_image(image: &str) -> Option<Kind> {
         "rabbitmq",
         "kafka",
         "zookeeper",
-        "minio",
         "cockroach",
     ]) {
         // Pas d'equivalent provisionnable par le coeur de YunoHost.

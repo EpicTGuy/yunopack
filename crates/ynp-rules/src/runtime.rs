@@ -799,12 +799,12 @@ mod compose_de_developpement {
     fn le_meme_service_dans_un_compose_de_dev_degrade_sans_refuser() {
         // Cas reel de block/buzz : le compose ne lance que des dependances de
         // developpement, l'application tourne a cote. Rien ne dit qu'elle exige
-        // minio pour fonctionner.
+        // meilisearch pour fonctionner.
         let mut f = depot_sain();
-        f.services.unsupported = vec!["minio (minio/minio:latest)".into()];
+        f.services.unsupported = vec!["meilisearch (getmeili/meilisearch:latest)".into()];
         f.compose = Some(compose(&[
             ("postgres", false),
-            ("minio", false),
+            ("meilisearch", false),
             ("keycloak", false),
         ]));
 

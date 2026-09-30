@@ -1,0 +1,21 @@
+# Les services internes de SeaweedFS (filer, volumes) ecoutent sur la boucle
+# locale, ou tout processus du serveur peut les joindre. Sans ces cles, ils
+# repondent sans authentification, et n'importe quelle application pourrait
+# lire ces donnees en contournant la passerelle S3.
+[jwt.signing]
+key = "__SW_JWT_ECRITURE__"
+
+[jwt.signing.read]
+key = "__SW_JWT_LECTURE__"
+
+[jwt.filer_signing]
+key = "__SW_JWT_FILER_ECRITURE__"
+
+[jwt.filer_signing.read]
+key = "__SW_JWT_FILER_LECTURE__"
+
+[access]
+ui = false
+
+[filer.expose_directory_metadata]
+enabled = false

@@ -19,7 +19,7 @@ ynh_script_progression "Mise a jour de $app..."
 
 # --full_replace efface le repertoire avant de redeployer : sans cela, les
 # fichiers supprimes en amont subsisteraient d'une version a l'autre.
-ynh_setup_source --dest_dir="$install_dir" --full_replace
+ynh_setup_source --dest_dir="$install_dir" --full_replace{% if resources.s3 %} --keep="seaweedfs"{% endif %}
 {% if not sources.extract %}
 chmod +x "$install_dir/{{ sources.rename | default(value=app.id) }}"
 {%- endif %}
@@ -53,6 +53,15 @@ ynh_safe_rm "$install_dir/target"
 {%- endif %}
 {%- if runtime.has_config %}
 
+{%- if resources.s3 %}
+#=================================================
+# STOCKAGE S3
+#=================================================
+ynh_script_progression "Mise a jour du stockage S3 de $app..."
+
+# Les cles et le compartiment viennent des reglages : ils ne changent pas.
+s3_installer
+{% endif %}
 #=================================================
 # CONFIGURATION
 #=================================================

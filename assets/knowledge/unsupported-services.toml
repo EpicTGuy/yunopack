@@ -10,7 +10,7 @@ blocking = [
   "typesense", "meilisearch", "solr", "neo4j", "influxdb", "questdb",
   "couchdb", "etcd", "consul", "vault",
   "rabbitmq", "kafka", "zookeeper", "nats", "pulsar",
-  "minio", "seaweedfs", "cockroach", "tidb", "vitess",
+  "cockroach", "tidb", "vitess",
   "clamav", "gotenberg", "tika",
 ]
 

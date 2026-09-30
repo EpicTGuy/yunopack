@@ -95,6 +95,25 @@ fn fichiers() -> Vec<Fichier> {
             false,
             |s| s.features.systemd
         ),
+        // Le stockage S3 embarque, quand l'application en exige un.
+        f!(
+            "conf/seaweedfs.service",
+            "conf/seaweedfs.service.tera",
+            false,
+            |s| s.resources.s3
+        ),
+        f!(
+            "conf/seaweedfs.json",
+            "conf/seaweedfs.json.tera",
+            false,
+            |s| s.resources.s3
+        ),
+        f!(
+            "conf/seaweedfs-security.toml",
+            "conf/seaweedfs-security.toml.tera",
+            false,
+            |s| s.resources.s3
+        ),
         Fichier {
             destination: "conf/__CONFIG__",
             template: "conf/app-config.tera",

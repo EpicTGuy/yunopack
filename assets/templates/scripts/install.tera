@@ -41,6 +41,16 @@ ynh_safe_rm "$install_dir/.rustup"
 ynh_safe_rm "$install_dir/target"
 {%- endif %}
 {%- endif %}
+{%- if resources.s3 %}
+
+#=================================================
+# STOCKAGE S3
+#=================================================
+ynh_script_progression "Mise en place du stockage S3 de $app..."
+
+s3_installer
+s3_initialiser
+{%- endif %}
 {%- if runtime.config_file %}
 
 #=================================================
