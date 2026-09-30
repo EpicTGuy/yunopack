@@ -586,7 +586,7 @@ fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
 }
 
 /// Replace un chemin de conteneur dans le repertoire d'installation.
-fn chemin(mot: &str) -> String {
+pub(crate) fn chemin(mot: &str) -> String {
     if mot.starts_with('-') {
         return mot.to_string();
     }

@@ -508,6 +508,12 @@ pub struct Runtime {
     /// Commandes de build, dans l'ordre, executees dans `$install_dir`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub build_steps: Vec<String>,
+    /// Chaine Rust a installer pour construire, quand il y a du Rust a
+    /// compiler. YunoHost n'en fournit pas : elle est posee par `rustup` dans
+    /// le repertoire de l'application le temps de la construction, puis
+    /// retiree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust_toolchain: Option<String>,
     /// Valeur de `ExecStart=` de l'unite systemd.
     pub execstart: Known<String>,
     /// Variable par laquelle l'app apprend son port. Cable sur `$port`.

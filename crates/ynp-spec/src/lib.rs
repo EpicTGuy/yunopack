@@ -202,11 +202,140 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
     }
 }
 
+/// `corepack enable` ecrit ses raccourcis dans le repertoire de Node, qui
+/// appartient a root : execute comme utilisateur de l'application, il
+/// echoue. Appeler directement `corepack pnpm …` produit le meme effet sans
+/// rien ecrire hors de chez l'application, ou son cache est pose.
+fn sans_activation_de_corepack(etapes: Vec<String>) -> Vec<String> {
+    let active = |e: &String| e.trim().starts_with("corepack enable");
+    if !etapes.iter().any(active) {
+        return etapes;
+    }
+    etapes
+        .into_iter()
+        .filter(|e| !active(e))
+        .map(|e| {
+            let mut c = e.clone();
+            for outil in ["pnpm", "yarn"] {
+                if c.starts_with(&format!("{outil} ")) {
+                    c = format!("corepack {c}");
+                }
+                c = c.replace(&format!("&& {outil} "), &format!("&& corepack {outil} "));
+            }
+            if c.contains("corepack ") {
+                format!("export COREPACK_HOME=\"$PWD/.corepack\"; {c}")
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Les copies que l'image fait de ses etapes de construction vers son etape
+/// finale, refaites dans le repertoire d'installation.
+///
+/// Sans elles, les binaires de Buzz restaient dans `target/release/`, alors
+/// que le service lancait `__INSTALL_DIR__/buzz-relay` — la ou l'image les
+/// range, par un `COPY --from`. Une destination hors du repertoire
+/// d'installation n'est pas reproduite.
+fn copies_apres_construction(facts: &RepoFacts) -> Vec<String> {
+    let Some(b) = &facts.build else {
+        return Vec::new();
+    };
+    b.copies_d_etape
+        .iter()
+        .filter_map(|c| {
+            let vers = execstart::chemin(&c.vers);
+            let vers = vers.strip_prefix("__INSTALL_DIR__/")?.to_string();
+            if vers.is_empty() || vers == c.depuis {
+                return None;
+            }
+            let parent = vers.rsplit_once('/').map(|(p, _)| p);
+            // La destination est videe d'abord : a une mise a jour, elle existe
+            // deja, et `cp -a dist web` creerait `web/dist`.
+            Some(match parent {
+                Some(p) => format!("rm -rf {vers} && mkdir -p {p} && cp -a {} {vers}", c.depuis),
+                None => format!("rm -rf {vers} && cp -a {} {vers}", c.depuis),
+            })
+        })
+        .collect()
+}
+
+/// La chaine Rust a installer, s'il y a du Rust a compiler.
+///
+/// Rien quand l'amont publie un binaire. Sinon la version de l'image
+/// `rust:1.88` de la construction si elle en donne une, et `stable` a defaut :
+/// un `rust-toolchain.toml` dans le depot l'emporte de toute facon, `rustup`
+/// le lit a la premiere commande `cargo`.
+fn chaine_rust(facts: &RepoFacts) -> Option<String> {
+    if facts
+        .selection
+        .as_ref()
+        .is_some_and(|s| s.evite_la_compilation())
+    {
+        return None;
+    }
+    let etapes = facts
+        .build
+        .as_ref()
+        .map(|b| b.stages.as_slice())
+        .unwrap_or_default();
+    let etape_rust = etapes
+        .iter()
+        .find(|e| e.image.rsplit('/').next() == Some("rust"));
+    let compile = facts
+        .build
+        .as_ref()
+        .is_some_and(|b| b.build_steps.iter().any(|e| e.contains("cargo ")));
+    if facts.stack.primary != Technology::Rust && !(etape_rust.is_some() && compile) {
+        return None;
+    }
+    let version = etape_rust
+        .and_then(|e| e.tag.as_deref())
+        .map(|t| {
+            t.chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect::<String>()
+        })
+        .map(|v| v.trim_end_matches('.').to_string())
+        .filter(|v| v.contains('.'));
+    Some(version.unwrap_or_else(|| "stable".to_string()))
+}
+
+/// Version d'un runtime qu'une etape de construction du Dockerfile utilise,
+/// hors de l'etape finale. `FROM node:22-bookworm-slim AS web-builder` donne
+/// Node 22 ; une image sans version exploitable ne donne rien.
+fn version_d_une_etape_de_construction(facts: &RepoFacts, tech: Technology) -> Option<String> {
+    let image = match tech {
+        Technology::NodeJs => "node",
+        Technology::Ruby => "ruby",
+        Technology::Go => "golang",
+        _ => return None,
+    };
+    let build = facts.build.as_ref()?;
+    let (_, construction) = build.stages.split_last()?;
+    construction
+        .iter()
+        .filter(|e| e.image.rsplit('/').next() == Some(image))
+        .find_map(|e| {
+            let tag = e.tag.as_deref()?;
+            let majeure: String = tag
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            let majeure = majeure.trim_end_matches('.');
+            (!majeure.is_empty()).then(|| majeure.to_string())
+        })
+}
+
 /// Version a provisionner par le coeur, quand la technologie dispose d'une
 /// resource. Rien pour Python : c'est tout l'objet de la regle PY001.
 fn version_de_resource(facts: &RepoFacts, tech: Technology) -> Option<String> {
     if facts.stack.primary != tech {
-        return None;
+        // Une etape de construction peut exiger un autre runtime que celui de
+        // l'application : Buzz est ecrit en Rust mais construit son interface
+        // dans une etape `FROM node:22`. Sans Node, `pnpm` n'existe pas.
+        return version_d_une_etape_de_construction(facts, tech);
     }
     // Un binaire deja construit n'a pas besoin de son runtime a la compilation.
     if facts
@@ -227,8 +356,32 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // Les variables dont le role est reconnu se cablent sur les valeurs
     // fournies par YunoHost ; les autres restent a la main de l'administrateur.
     for var in &facts.config.variables {
+        // Un secret n'est genere que pour une variable que le projet fixe.
+        // Buzz mentionne en commentaire une cle privee Nostr de 32 octets en
+        // hexadecimal, facultative : y ecrire une chaine aleatoire l'aurait
+        // rendue invalide. Il lit aussi dans son code la cle d'un autre
+        // programme et celle d'un service de recherche externe.
+        if var.role == ConfigRole::Secret && var.facultative {
+            continue;
+        }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
+        }
+    }
+
+    // Une variable de l'image qui pointe vers ce qu'une etape de construction
+    // y a depose suit ce depot : `BUZZ_WEB_DIR=/srv/buzz/web`, rempli par
+    // `COPY --from=web-builder`, designe chez YunoHost la copie refaite dans
+    // le repertoire d'installation.
+    if let Some(b) = &facts.build {
+        for (nom, valeur) in &b.env {
+            let designe = b
+                .copies_d_etape
+                .iter()
+                .any(|c| valeur == &c.vers || valeur.starts_with(&format!("{}/", c.vers)));
+            if designe && !env.contains_key(nom) {
+                env.insert(nom.clone(), execstart::chemin(valeur));
+            }
         }
     }
 
@@ -282,12 +435,15 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             // Rien a construire : l'amont publie un binaire.
             Vec::new()
         } else {
-            facts
+            let mut etapes = facts
                 .build
                 .as_ref()
                 .map(|b| b.build_steps.clone())
-                .unwrap_or_default()
+                .unwrap_or_default();
+            etapes.extend(copies_apres_construction(facts));
+            sans_activation_de_corepack(etapes)
         },
+        rust_toolchain: chaine_rust(facts),
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
         port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
         execstart,
@@ -744,6 +900,7 @@ mod propositions {
             role: ConfigRole::Other,
             secret: false,
             source: source.into(),
+            facultative: false,
         }
     }
 
@@ -782,6 +939,39 @@ mod propositions {
         assert!(liaison_port(&f, None).value().is_none());
         assert!(!est_une_adresse("http://localhost:4317"));
         assert!(est_une_adresse("0.0.0.0:3000"));
+    }
+
+    #[test]
+    fn corepack_s_appelle_directement_plutot_que_de_s_activer() {
+        let e = sans_activation_de_corepack(vec![
+            "corepack enable".into(),
+            "pnpm install --frozen-lockfile".into(),
+            "pnpm -C web build && pnpm -C admin build".into(),
+        ]);
+        assert_eq!(e.len(), 2);
+        assert!(
+            e[0].ends_with("corepack pnpm install --frozen-lockfile"),
+            "{}",
+            e[0]
+        );
+        assert!(e[1].contains("&& corepack pnpm -C admin build"), "{}", e[1]);
+        assert!(e[0].starts_with("export COREPACK_HOME="));
+    }
+
+    #[test]
+    fn un_secret_seulement_mentionne_n_est_pas_genere() {
+        // Cas de Buzz : une cle Nostr en commentaire dans l'exemple.
+        let mut facultative = var("BUZZ_RELAY_PRIVATE_KEY", None, ".env.example");
+        facultative.role = ConfigRole::Secret;
+        facultative.facultative = true;
+        let mut fixee = var("SECRET_KEY", Some("changeme"), ".env.example");
+        fixee.role = ConfigRole::Secret;
+        let r = runtime(&faits(vec![facultative, fixee], vec![]), "x");
+        assert!(!r.env.contains_key("BUZZ_RELAY_PRIVATE_KEY"));
+        assert_eq!(
+            r.env.get("SECRET_KEY").map(String::as_str),
+            Some("__SECRET__")
+        );
     }
 
     #[test]

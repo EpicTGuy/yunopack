@@ -73,6 +73,7 @@ fn depot_complet() -> RepoFacts {
                 default: Some("8080".into()),
                 secret: false,
                 source: ".env.example".into(),
+                facultative: false,
             },
             ConfigVar {
                 name: "DATABASE_URL".into(),
@@ -80,6 +81,7 @@ fn depot_complet() -> RepoFacts {
                 default: None,
                 secret: false,
                 source: ".env.example".into(),
+                facultative: false,
             },
         ],
     };
@@ -176,6 +178,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 default: Some("8080".into()),
                 secret: false,
                 source: ".env.example".into(),
+                facultative: false,
             },
             ConfigVar {
                 name: "DATABASE_URL".into(),
@@ -183,6 +186,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 default: None,
                 secret: false,
                 source: ".env.example".into(),
+                facultative: false,
             },
             ConfigVar {
                 name: "BASE_URL".into(),
@@ -190,6 +194,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 default: None,
                 secret: false,
                 source: ".env.example".into(),
+                facultative: false,
             },
         ],
     };

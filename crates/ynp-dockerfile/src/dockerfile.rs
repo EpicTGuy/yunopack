@@ -22,6 +22,34 @@ use ynp_core::facts::{BuildRecipe, BuildStage};
 /// Les copies entre etapes (`--from=`) et les URL ne viennent pas du depot :
 /// elles sont ignorees. Une destination en repertoire recoit chaque source
 /// sous son propre nom.
+/// Les copies `COPY --from=etape` : (etape, source, destination).
+fn parse_copy_d_etape(args: &str) -> Vec<(String, String, String)> {
+    let mots: Vec<String> = args.split_whitespace().map(unquote).collect();
+    let Some(etape) = mots
+        .iter()
+        .find_map(|m| m.strip_prefix("--from=").map(str::to_string))
+    else {
+        return Vec::new();
+    };
+    let chemins: Vec<&String> = mots.iter().filter(|m| !m.starts_with("--")).collect();
+    let Some((dest, sources)) = chemins.split_last() else {
+        return Vec::new();
+    };
+    let repertoire = dest.ends_with('/') || sources.len() > 1;
+    sources
+        .iter()
+        .map(|s| {
+            let d = if repertoire {
+                let nom = s.trim_end_matches('/').rsplit('/').next().unwrap_or(s);
+                format!("{}/{}", dest.trim_end_matches('/'), nom)
+            } else {
+                dest.to_string()
+            };
+            (etape.clone(), s.to_string(), d)
+        })
+        .collect()
+}
+
 fn parse_copy(args: &str) -> Vec<(String, String)> {
     let mots: Vec<String> = if args.trim_start().starts_with('[') {
         parse_exec_form(args)
@@ -110,8 +138,12 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             "COPY" | "ADD" => {
                 // Les destinations s'ecrivent souvent avec une variable :
                 // `COPY docker/entry.sh $MEALIE_HOME/run.sh`.
-                for (dans_l_image, dans_le_depot) in parse_copy(&expand(&ins.args, &args)) {
+                let developpe = expand(&ins.args, &args);
+                for (dans_l_image, dans_le_depot) in parse_copy(&developpe) {
                     recipe.copies.insert(dans_l_image, dans_le_depot);
+                }
+                if let Some(s) = stages.last_mut() {
+                    s.copies_d_etape.extend(parse_copy_d_etape(&developpe));
                 }
             }
             "CMD" => {
@@ -163,6 +195,8 @@ struct StageAccu {
     volumes: Vec<String>,
     cmd: Option<Vec<String>>,
     entrypoint: Option<Vec<String>>,
+    /// `COPY --from=etape source destination`, tels quels.
+    copies_d_etape: Vec<(String, String, String)>,
 }
 
 fn parse_from(args: &str, vars: &IndexMap<String, String>) -> StageAccu {
@@ -460,6 +494,51 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
         .workdir
         .clone()
         .or_else(|| parent.and_then(|p| p.workdir.clone()));
+
+    // Les copies depuis les etapes de construction, rapportees au depot. Une
+    // source hors du repertoire de travail de son etape (`/usr/local/cargo/…`)
+    // n'est pas un produit du depot : elle est ignoree.
+    let workdir_de = |alias: &str| -> Option<String> {
+        let mut courant = stages
+            .iter()
+            .find(|s| s.stage.alias.as_deref() == Some(alias));
+        // La chaine est bornee au nombre d'etapes : une etape qui se designe
+        // elle-meme (`FROM x AS x`) ou un cycle faisaient tourner l'analyse de
+        // Passbolt indefiniment, a 100 % de processeur.
+        for _ in 0..stages.len() {
+            let Some(s) = courant else { break };
+            if let Some(w) = &s.workdir {
+                return Some(w.trim_end_matches('/').to_string());
+            }
+            courant = s
+                .from_alias
+                .as_ref()
+                .and_then(|a| stages.iter().find(|x| x.stage.alias.as_ref() == Some(a)));
+        }
+        None
+    };
+    let copies = parent
+        .into_iter()
+        .chain(std::iter::once(last))
+        .flat_map(|s| s.copies_d_etape.iter());
+    for (etape, source, vers) in copies {
+        let depuis = if let Some(rel) = source.strip_prefix('/') {
+            let Some(w) = workdir_de(etape) else { continue };
+            match format!("/{rel}").strip_prefix(&format!("{w}/")) {
+                Some(r) => r.to_string(),
+                None => continue,
+            }
+        } else {
+            source.trim_start_matches("./").to_string()
+        };
+        if depuis.is_empty() {
+            continue;
+        }
+        recipe.copies_d_etape.push(ynp_core::facts::CopieDEtape {
+            depuis: depuis.trim_end_matches('/').to_string(),
+            vers: vers.trim_end_matches('/').to_string(),
+        });
+    }
 }
 
 fn dedup(recipe: &mut BuildRecipe) {

@@ -131,12 +131,26 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             // commande et ses arguments, pas une ligne de shell. Une etape de
             // Dockerfile comme `(cd src/gui && npm ci)` — celle de Puter —
             // cassait la syntaxe du script d'installation.
+            //
+            // Quand il y a du Rust a compiler, chaque etape voit la chaine posee
+            // dans le repertoire d'installation : `ynh_exec_as_app` ne transmet
+            // que `PATH`, pas `CARGO_HOME`.
             "build_steps": spec
                 .runtime
                 .build_steps
                 .iter()
-                .map(|e| entre_apostrophes(e))
+                .map(|e| match &spec.runtime.rust_toolchain {
+                    Some(_) => entre_apostrophes(&format!("{ENV_RUST}{e}")),
+                    None => entre_apostrophes(e),
+                })
                 .collect::<Vec<_>>(),
+            "rust_toolchain": spec.runtime.rust_toolchain,
+            "installer_rust": spec.runtime.rust_toolchain.as_ref().map(|v| {
+                entre_apostrophes(&format!(
+                    "{ENV_RUST}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                     | sh -s -- -y --no-modify-path --profile minimal --default-toolchain {v}"
+                ))
+            }),
             "execstart": execstart,
             "port_env_var": spec.runtime.port_env_var,
             "port_binding": port_binding,
@@ -253,6 +267,11 @@ mod tests {
         assert_eq!(build(&s).0["integration"]["ldap"], "false");
     }
 }
+
+/// L'environnement d'une chaine Rust posee dans le repertoire d'installation.
+/// Les etapes s'executent depuis ce repertoire : `$PWD` le designe.
+const ENV_RUST: &str = "export CARGO_HOME=\"$PWD/.cargo\" RUSTUP_HOME=\"$PWD/.rustup\" \
+                        PATH=\"$PWD/.cargo/bin:$PATH\"; ";
 
 /// Une chaine citee pour le shell, entre apostrophes.
 ///

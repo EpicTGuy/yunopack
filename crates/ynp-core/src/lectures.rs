@@ -60,7 +60,9 @@ pub fn est_un_source_de_production(chemin: &str) -> bool {
 /// `bigbluebutton-tests`, `integration_test`, `testing` : des repertoires de
 /// test que la liste exacte ne nomme pas. `latest`, lui, n'en est pas un.
 fn est_un_repertoire_de_test(seg: &str) -> bool {
-    seg.starts_with("test")
+    // `Fixture` : jeux de donnees de test (AzuraCast y lit INIT_ADMIN_PASSWORD).
+    seg.contains("fixture")
+        || seg.starts_with("test")
         || ["-test", "_test", "-tests", "_tests", "-e2e", "_e2e"]
             .iter()
             .any(|s| seg.ends_with(s))
@@ -156,5 +158,9 @@ mod tests {
             "bigbluebutton-tests/playwright/core/parameters.ts"
         ));
         assert!(est_un_source_de_production("releases/latest/server.js"));
+        // Cas d'AzuraCast : des jeux de donnees de test.
+        assert!(!est_un_source_de_production(
+            "backend/src/Entity/Fixture/User.php"
+        ));
     }
 }

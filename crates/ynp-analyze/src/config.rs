@@ -22,6 +22,9 @@ const CANDIDATES: &[&str] = &[
     "env.example",
     ".env.defaults",
     "example.env",
+    // Kutt : `.example.env`, ou il fixe son JWT_SECRET. Sans lui, l'outil
+    // n'avait pour source que le tableau du README, qui ne fixe rien.
+    ".example.env",
     "config/.env.example",
 ];
 
@@ -38,6 +41,7 @@ const TERMINAISONS: &[&str] = &[
     ".env.dist",
     ".env.defaults",
     ".env.local.example",
+    ".example.env",
 ];
 
 pub fn detect(tree: &RepoTree, compose: Option<&ComposeFacts>) -> ConfigFacts {
@@ -82,10 +86,19 @@ pub fn detect_avec_build(
     // quel nom elle attend son port ou sa base — quand ils n'ont ni fichier
     // d'exemple, ni compose, ni `ENV` dans leur Dockerfile.
     if let Some((chemin, texte)) = tree.first_text(&["README.md", "readme.md", "README"]) {
-        let provenance = format!("{chemin}, bloc de code");
-        let mut trouvees = variables_des_blocs_de_code(texte);
-        trouvees.extend(variables_des_tableaux(texte));
-        for (nom, valeur) in trouvees {
+        // Un bloc de code montre un deploiement : il fixe ses variables comme
+        // un fichier d'exemple. Un tableau documente toutes les options
+        // possibles : il ne fixe rien. La provenance le dit, puisqu'elle est
+        // montree a l'utilisateur.
+        let trouvees = variables_des_blocs_de_code(texte)
+            .into_iter()
+            .map(|(n, v)| (n, v, false, format!("{chemin}, bloc de code")))
+            .chain(
+                variables_des_tableaux(texte)
+                    .into_iter()
+                    .map(|(n, v)| (n, v, true, format!("{chemin}, tableau"))),
+            );
+        for (nom, valeur, facultative, provenance) in trouvees {
             // Un bloc de code est une source faible : on n'en retient que ce
             // dont on connait deja le sens. Le reste irait grossir la
             // configuration du paquet de variables sans role — `VERSION`,
@@ -93,7 +106,11 @@ pub fn detect_avec_build(
             if knowledge::get().role_of(&nom) == ConfigRole::Other {
                 continue;
             }
-            ajouter(&mut facts, &nom, valeur, &provenance);
+            if facultative {
+                ajouter_facultative(&mut facts, &nom, valeur, &provenance);
+            } else {
+                ajouter(&mut facts, &nom, valeur, &provenance);
+            }
         }
     }
 
@@ -115,7 +132,7 @@ pub fn ajouter_les_lectures(facts: &mut ConfigFacts, tree: &RepoTree, depot: &st
         if !connu && !nom.starts_with(&prefixe) {
             continue;
         }
-        ajouter(facts, nom, None, &format!("lu par le code, {chemin}"));
+        ajouter_facultative(facts, nom, None, &format!("lu par le code, {chemin}"));
     }
 }
 
@@ -289,6 +306,16 @@ fn ajouter(facts: &mut ConfigFacts, name: &str, valeur: Option<String>, source: 
     facts.variables.push(make_var(name, valeur, source));
 }
 
+/// Ajoute une variable que le projet mentionne sans la fixer.
+fn ajouter_facultative(facts: &mut ConfigFacts, name: &str, valeur: Option<String>, source: &str) {
+    if facts.variables.iter().any(|v| v.name == name) {
+        return;
+    }
+    let mut v = make_var(name, valeur, source);
+    v.facultative = true;
+    facts.variables.push(v);
+}
+
 /// Analyse un fichier au format `.env`.
 ///
 /// Les lignes commentees sont lues elles aussi : un `# PORT=3000` documente la
@@ -313,8 +340,9 @@ fn parse_dotenv(content: &str, source: &str) -> Vec<ConfigVar> {
             continue;
         }
 
-        let var = make_var(name, non_empty(value.trim()), source);
+        let mut var = make_var(name, non_empty(value.trim()), source);
         if is_comment {
+            var.facultative = true;
             commented.push(var);
         } else if !out.iter().any(|v| v.name == var.name) {
             out.push(var);
@@ -339,6 +367,7 @@ fn make_var(name: &str, default: Option<String>, source: &str) -> ConfigVar {
         default: if k.is_secret(name) { None } else { default },
         name: name.to_string(),
         source: source.to_string(),
+        facultative: false,
     }
 }
 
@@ -567,5 +596,31 @@ services:
         let f = detect(&RepoTree::from_pairs([("README.md", "x")]), None);
         assert!(f.example_file.is_none());
         assert!(f.variables.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod readme_fixe_ou_documente {
+    use super::*;
+
+    #[test]
+    fn un_bloc_de_code_fixe_un_tableau_documente() {
+        // Cas de Kutt : `docker run -e JWT_SECRET=…` montre un deploiement.
+        let arbre = RepoTree::from_pairs([(
+            "README.md",
+            "```sh\ndocker run -e JWT_SECRET=changeme kutt/kutt\n```\n\n\
+             | Variable | Default | Description |\n|---|---|---|\n\
+             | MAIL_PASSWORD | - | Optional SMTP password |\n",
+        )]);
+        let f = detect(&arbre, None);
+        let v = |n: &str| {
+            f.variables
+                .iter()
+                .find(|v| v.name == n)
+                .unwrap()
+                .facultative
+        };
+        assert!(!v("JWT_SECRET"), "un bloc de code fixe sa variable");
+        assert!(v("MAIL_PASSWORD"), "un tableau ne fait que documenter");
     }
 }

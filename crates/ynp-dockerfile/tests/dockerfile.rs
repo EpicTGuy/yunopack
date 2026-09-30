@@ -629,3 +629,14 @@ fn une_destination_de_copy_ecrite_avec_une_variable_est_developpee() {
         Some("docker/entry.sh")
     );
 }
+
+#[test]
+fn une_etape_qui_se_designe_elle_meme_ne_fait_pas_tourner_l_analyse() {
+    // Cas de Passbolt : l'analyse tournait indefiniment en remontant la
+    // chaine des etapes pour trouver un repertoire de travail.
+    let r = ynp_dockerfile::parse_dockerfile(
+        "Dockerfile",
+        "FROM debian AS debian\nFROM debian AS final\nCOPY --from=debian /x /y\n",
+    );
+    assert!(r.copies_d_etape.is_empty());
+}

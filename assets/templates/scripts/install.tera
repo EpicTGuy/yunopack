@@ -23,10 +23,23 @@ chown -R "$app:www-data" "$install_dir"
 ynh_script_progression "Construction de $app..."
 
 pushd "$install_dir"
+{%- if runtime.installer_rust %}
+    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
+    # construction, puis retiree.
+    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
+{%- endif %}
 {%- for etape in runtime.build_steps %}
     ynh_exec_as_app bash -c {{ etape }}
 {%- endfor %}
 popd
+{%- if runtime.rust_toolchain %}
+
+# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
+# servent plus une fois les binaires en place.
+ynh_safe_rm "$install_dir/.cargo"
+ynh_safe_rm "$install_dir/.rustup"
+ynh_safe_rm "$install_dir/target"
+{%- endif %}
 {%- endif %}
 {%- if runtime.config_file %}
 

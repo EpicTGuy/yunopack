@@ -186,6 +186,12 @@ pub struct BuildRecipe {
     /// lire pour savoir ce que lance l'image.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub copies: IndexMap<String, String>,
+    /// Ce que l'etape finale recupere des etapes de construction, rapporte au
+    /// depot : `COPY --from=builder /build/target/release/app /usr/local/bin/app`
+    /// devient `target/release/app` vers `/usr/local/bin/app`. Hors de Docker,
+    /// c'est une copie a refaire apres la construction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copies_d_etape: Vec<CopieDEtape>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<BuildStage>,
     /// Paquets Debian, extraits litteralement des `apt-get install`.
@@ -406,6 +412,16 @@ pub struct StackFacts {
     pub pistes: Vec<PisteTechnologie>,
 }
 
+/// Un fichier que l'etape finale d'une image recupere d'une etape de
+/// construction.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopieDEtape {
+    /// Chemin dans le depot, une fois construit.
+    pub depuis: String,
+    /// Chemin dans l'image.
+    pub vers: String,
+}
+
 /// Une commande de demarrage que le projet enonce, et la source qui l'enonce.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandeDeclaree {
@@ -492,6 +508,11 @@ pub struct ConfigVar {
     /// vaut surtout par sa provenance : il peut aller verifier.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source: String,
+    /// Vrai quand le projet ne fixe pas la variable, mais seulement la
+    /// mentionne : ligne commentee d'un fichier d'exemple, tableau de README,
+    /// lecture dans le code. Lire une variable ne veut pas dire l'exiger.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub facultative: bool,
 }
 
 /// Role canonique d'une variable de configuration.
