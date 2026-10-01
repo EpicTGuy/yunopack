@@ -121,6 +121,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "ports": spec.resources.ports,
             "port_fixe": spec.resources.port_fixe,
             "apt": spec.resources.apt_packages,
+            "apt_extras": spec.resources.apt_extras,
             "database": spec.resources.database.manifest_type(),
             "nodejs_version": spec.resources.nodejs_version,
             "ruby_version": spec.resources.ruby_version,

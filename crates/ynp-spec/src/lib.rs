@@ -10,6 +10,7 @@
 
 pub mod apt;
 pub mod execstart;
+mod java;
 
 use ynp_core::facts::{ConfigRole, Database, RepoFacts, Technology};
 use ynp_core::known::{Candidate, Known};
@@ -203,6 +204,7 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         ports: a_besoin_d_un_port(facts),
         port_fixe: port_fixe_du_code(facts),
         apt_packages: apt::packages(facts),
+        apt_extras: java::depot_temurin(facts).into_iter().collect(),
         database: facts.services.database,
         nodejs_version: version_de_resource(facts, Technology::NodeJs),
         ruby_version: version_de_resource(facts, Technology::Ruby),
@@ -659,6 +661,10 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
             Known::resolved(format!("{}=127.0.0.1:__PORT__", v.name))
         }
         Some(v) => Known::resolved(format!("{}=__PORT__", v.name)),
+        // Spring Boot fixe ces noms pour toutes ses applications.
+        None if facts.stack.cadre_web.as_deref() == Some("spring-boot") => {
+            Known::resolved("SERVER_PORT=__PORT__\nSERVER_ADDRESS=127.0.0.1".into())
+        }
         None => Known::unresolved_avec(
             "on ignore sous quel nom l'application attend son port d'ecoute ; la forme varie \
              d'une application a l'autre (PORT=__PORT__, LISTEN_ADDR=127.0.0.1:__PORT__...)",
@@ -978,6 +984,17 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
+    }
+
+    // Spring Boot lit sa base dans SPRING_DATASOURCE_*, au format JDBC.
+    if facts.stack.cadre_web.as_deref() == Some("spring-boot") {
+        let url = match facts.services.database {
+            Database::PostgreSql => "jdbc:postgresql://127.0.0.1:5432/__DB_NAME__",
+            _ => "jdbc:mysql://127.0.0.1:3306/__DB_NAME__",
+        };
+        return Known::resolved(format!(
+            "SPRING_DATASOURCE_URL={url}\nSPRING_DATASOURCE_USERNAME=__DB_USER__\nSPRING_DATASOURCE_PASSWORD=__DB_PWD__"
+        ));
     }
 
     Known::unresolved_avec(
@@ -1442,6 +1459,27 @@ mod propositions {
         let mut d = var("DATABASE_URL", None, ".env");
         d.role = ConfigRole::DatabaseUrl;
         assert_eq!(avec_le_schema_attendu(a, &d, Database::PostgreSql), a);
+    }
+
+    #[test]
+    fn spring_boot_donne_ses_propres_noms_au_port_et_a_la_base() {
+        let mut f = faits(vec![], vec![8080]);
+        f.stack.primary = Technology::Java;
+        f.stack.cadre_web = Some("spring-boot".into());
+        f.services.database = Database::PostgreSql;
+        assert_eq!(
+            liaison_port(&f, Some("/usr/bin/java -jar app.jar"))
+                .value()
+                .map(String::as_str),
+            Some("SERVER_PORT=__PORT__\nSERVER_ADDRESS=127.0.0.1")
+        );
+        let b = liaison_base(&f);
+        assert!(
+            b.value().is_some_and(
+                |v| v.starts_with("SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/")
+            ),
+            "{b:?}"
+        );
     }
 
     #[test]

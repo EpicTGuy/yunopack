@@ -166,10 +166,15 @@ ram.runtime = "{{ integration.ram_runtime }}"
     sw_filer.default = 8888
     sw_filer_grpc.default = 18888
 {%- endif %}
-{%- if resources.apt | length > 0 %}
+{%- if resources.apt | length > 0 or resources.apt_extras | length > 0 %}
 
     [resources.apt]
     packages = [{% for p in resources.apt %}"{{ p }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{%- for x in resources.apt_extras %}
+    extras.{{ x.nom }}.repo = "{{ x.repo }}"
+    extras.{{ x.nom }}.key = "{{ x.key }}"
+    extras.{{ x.nom }}.packages = [{% for p in x.packages %}"{{ p }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{%- endfor %}
 {%- endif %}
 {%- if resources.database %}
 

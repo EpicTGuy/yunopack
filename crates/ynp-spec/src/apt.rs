@@ -49,6 +49,12 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         }
     }
 
+    // 2 quater. Java, quand Debian suffit (Java 17) ; au-dela, le depot
+    //    Adoptium est declare a part (voir `java`).
+    for p in crate::java::paquets_debian(facts) {
+        ajouter(&p);
+    }
+
     // 2 ter. Redis, que YunoHost ne fournit pas de lui-meme.
     if facts.services.needs_redis {
         ajouter("redis-server");

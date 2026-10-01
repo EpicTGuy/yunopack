@@ -454,6 +454,9 @@ pub struct Resources {
     pub port_fixe: Option<u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub apt_packages: Vec<String>,
+    /// Depots apt supplementaires (`extras` de la resource apt).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apt_extras: Vec<AptExtra>,
     pub database: Database,
     /// Une base Redis propre a l'application, prise sur le Redis du serveur.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -869,4 +872,13 @@ mod reponses {
     fn une_specification_complete_ne_pose_aucune_question() {
         assert!(spec().arbitrages().is_empty());
     }
+}
+
+/// Un depot apt supplementaire et les paquets a y prendre.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AptExtra {
+    pub nom: String,
+    pub repo: String,
+    pub key: String,
+    pub packages: Vec<String>,
 }

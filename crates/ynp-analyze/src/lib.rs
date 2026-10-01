@@ -145,6 +145,40 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
         facts.stack.migrations_du_point_d_entree = migrations_du_script(tree, &script, &copies);
     }
+    // Spring Boot lit SERVER_PORT et SPRING_DATASOURCE_URL quelle que soit
+    // l'application : le reconnaitre suffit a lier le port et la base. Seuls
+    // comptent le fichier de build de la racine et ceux des repertoires que
+    // le Dockerfile retenu construit ou copie : Dataverse, qui n'est pas du
+    // Spring Boot, en mentionne dans scripts/zipdownload, un outil annexe.
+    let construits: Vec<String> = facts
+        .build
+        .as_ref()
+        .map(|b| {
+            b.copies
+                .values()
+                .cloned()
+                .chain(b.build_steps.iter().flat_map(|e| {
+                    e.split_whitespace()
+                        .map(|m| m.trim_matches(|c| c == '"' || c == '\'').to_string())
+                        .collect::<Vec<_>>()
+                }))
+                .map(|d| d.trim_start_matches("./").trim_end_matches('/').to_string())
+                .filter(|d| !d.is_empty() && d != ".")
+                .collect()
+        })
+        .unwrap_or_default();
+    let spring = facts.stack.primary == ynp_core::facts::Technology::Java
+        && tree.paths().iter().any(|p| {
+            let (dossier, nom) = p.rsplit_once('/').unwrap_or(("", p));
+            matches!(nom, "pom.xml" | "build.gradle" | "build.gradle.kts")
+                && (dossier.is_empty() || construits.iter().any(|d| d == dossier || d == p))
+                && tree.text(p).is_some_and(|t| {
+                    t.contains("org.springframework.boot") || t.contains("spring-boot-starter")
+                })
+        });
+    if spring {
+        facts.stack.cadre_web = Some("spring-boot".into());
+    }
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     config::ajouter_les_lectures(&mut facts.config, tree, &forge.source.repo);
     facts.config.moteurs_cites = tree.moteurs_cites().clone();

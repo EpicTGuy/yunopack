@@ -389,6 +389,10 @@ pub struct StackFacts {
     /// qu'elles y figurent : `node build/index.js --migrate`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub migrations_du_point_d_entree: Vec<String>,
+    /// Le cadre web, quand il fixe lui-meme les variables du port et de la
+    /// base : `spring-boot`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadre_web: Option<String>,
     /// La contrainte PHP de `composer.json`, telle quelle : `^7.4` n'admet
     /// que PHP 7, `>=7.4` admet aussi PHP 8. La version seule ne le dit pas.
     #[serde(default, skip_serializing_if = "Option::is_none")]

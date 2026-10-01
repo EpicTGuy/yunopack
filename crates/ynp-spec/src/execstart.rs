@@ -91,11 +91,13 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
         // `"$@"` repasse les arguments du conteneur, c'est-a-dire le `CMD` :
         // on les remet a leur place. `exec "$@"` seul revient donc au `CMD`
         // entier, et `uwsgi "$@"` a `uwsgi` suivi du `CMD`.
-        let tete = e
-            .trim()
-            .trim_end_matches("\"$@\"")
-            .trim_end_matches("$@")
-            .trim();
+        let tete = sans_changement_d_utilisateur(
+            e.trim()
+                .trim_end_matches("\"$@\"")
+                .trim_end_matches("$@")
+                .trim(),
+        );
+        let tete = tete.as_str();
         // Les arguments du conteneur sont ce qui suit le script, pas ce qui
         // suit le premier mot : `tini -- /entrypoint.sh bin/app start`.
         let args: Vec<&str> = if e.contains("$@") {
@@ -127,7 +129,22 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
         .or_else(|| traduire_avec(&commande, facts))
         .or(depuis_le_script)
     {
-        Some(execstart) => Known::resolved(execstart),
+        Some(execstart) => match hote_du_conteneur(&execstart) {
+            // Un nom qui n'existe que dans le reseau des conteneurs : la
+            // commande ne peut pas tourner telle quelle.
+            Some(hote) => Known::unresolved_avec(
+                format!(
+                    "la commande « {commande} » designe l'hote « {hote} », qui n'existe que \
+                     dans le reseau des conteneurs"
+                ),
+                &[
+                    &build.dockerfile_path,
+                    "la documentation du projet d'origine",
+                ],
+                proposee,
+            ),
+            None => Known::resolved(execstart),
+        },
         None => Known::unresolved_avec(
             format!("commande « {commande} » non transposable automatiquement"),
             &[
@@ -137,6 +154,26 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
             proposee,
         ),
     }
+}
+
+/// Le premier hote d'une adresse de la commande qui n'est pas la machine
+/// locale : `jdbc:mysql://asqatasun-db_dev:3306/...` chez asqatasun. Dans
+/// l'image, c'est le nom d'un autre conteneur ; sous YunoHost, il ne designe
+/// rien, et le service echouerait a joindre sa base.
+fn hote_du_conteneur(commande: &str) -> Option<String> {
+    const LOCAUX: &[&str] = &["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]", ""];
+    commande.match_indices("://").find_map(|(i, _)| {
+        let reste = &commande[i + 3..];
+        let fin = reste
+            .find(['/', '?', ' ', '"', '\'', ';'])
+            .unwrap_or(reste.len());
+        // Identifiants avant `@`, port apres `:`.
+        let autorite = &reste[..fin];
+        let hote = autorite.rsplit('@').next().unwrap_or(autorite);
+        let hote = hote.split(':').next().unwrap_or(hote);
+        (!LOCAUX.contains(&hote) && !hote.starts_with("__") && !hote.contains('.'))
+            .then(|| hote.to_string())
+    })
 }
 
 /// Ce qu'une declaration du projet donne comme `ExecStart`.
@@ -166,6 +203,7 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
     // virtuel. Le script d'entree de Mealie finit par `exec mealie` : ce nom
     // seul ne dit pas ou le trouver, le pyproject le dit.
     if facts.stack.primary == Technology::Python {
+        let c = guillemets_du_shell(&c);
         let mots = sans_enveloppe(&mots_de(&c));
         if let Some(nom) = mots.first() {
             if facts.stack.scripts_python.iter().any(|s| s == nom) {
@@ -183,6 +221,7 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
     // (`next start`) ; il vit dans `node_modules/.bin`, et s'execute avec
     // l'interprete de la resource.
     if facts.stack.primary == Technology::NodeJs {
+        let c = guillemets_du_shell(&c);
         let mots = sans_enveloppe(&mots_de(&c));
         if let Some(outil) = mots.first() {
             if facts.stack.dependances_npm.iter().any(|d| d == outil) {
@@ -258,12 +297,16 @@ fn lier_les_options_d_ecoute(commande: &str, exposes: &[u16]) -> String {
     for (i, mot) in mots.iter().enumerate() {
         let precedent = i.checked_sub(1).map(|j| mots[j]);
         // Forme `--port=3000` et `--host=0.0.0.0`.
+        // Aussi `--server.port=8080` et `-Dserver.port=8080`, formes de Spring.
         if let Some((option, valeur)) = mot.split_once('=') {
+            let valeur = valeur.trim_matches(|c| c == '"' || c == '\'');
             if HOTE.contains(&option) && PARTOUT.contains(&valeur) {
                 out.push(format!("{option}=127.0.0.1"));
                 continue;
             }
-            if PORT.contains(&option) && expose(valeur) {
+            let option_de_port =
+                PORT.contains(&option) || option.ends_with(".port") || option.ends_with("-port");
+            if option_de_port && expose(valeur) {
                 out.push(format!("{option}=__PORT__"));
                 continue;
             }
@@ -323,6 +366,28 @@ fn mots_de(commande: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Retire les guillemets comme le shell, mot par mot.
+///
+/// `-Dapp.logging.path="/var/log/x/"` est, pour le shell,
+/// `-Dapp.logging.path=/var/log/x/`. Ne retirer qu'un guillemet a chaque bout
+/// du mot laissait celui du milieu : la commande d'asqatasun sortait pleine de
+/// guillemets ouverts. Un mot aux guillemets non apparies fait partie d'une
+/// chaine qui contient des espaces : il est laisse tel quel.
+fn guillemets_du_shell(commande: &str) -> String {
+    commande
+        .split(' ')
+        .map(|m| {
+            let apparies = |q: char| m.matches(q).count() % 2 == 0;
+            if (m.contains('"') || m.contains('\'')) && apparies('"') && apparies('\'') {
+                m.replace(['"', '\''], "")
+            } else {
+                m.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Ce qu'une commande lance vraiment, une fois retires les preparatifs et
 /// deplies les scripts npm.
 fn developper(commande: &str, facts: &RepoFacts) -> String {
@@ -374,6 +439,7 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
     // inverse, InvenTree ecoutait sur `0.0.0.0:__PORT__` — toutes les
     // interfaces, nginx et l'authentification de YunoHost contournes.
     let commande = lier_le_port(commande);
+    let commande = guillemets_du_shell(&commande);
     let mots = sans_enveloppe(&mots_de(&commande));
     let premier = *mots.first()?;
     // Le nom seul : `/usr/local/bin/python3` est un python3 comme un autre.
@@ -410,10 +476,19 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
         return None;
     }
 
+    // Une liste de chemins separes par `:` — le classpath de Java,
+    // `-cp /app/netrunner.jar:/app/config` — se traduit element par element.
     let reste = |depuis: usize| -> String {
         mots[depuis..]
             .iter()
-            .map(|m| chemin(m))
+            .map(|m| {
+                if m.contains(':') && !m.contains("://") && m.split(':').any(|p| p.starts_with('/'))
+                {
+                    m.split(':').map(chemin).collect::<Vec<_>>().join(":")
+                } else {
+                    chemin(m)
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
@@ -423,6 +498,9 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
         "node" => Some(format!("__NODEJS_DIR__/node {}", reste(1))),
         "npm" | "yarn" | "pnpm" => None, // demarrer par un gestionnaire de paquets est deconseille
         "ruby" | "bundle" => Some(format!("__RUBY_DIR__/{nom} {}", reste(1))),
+        // Java vient du paquet Debian ou du depot Adoptium que le manifeste
+        // declare (voir `java`) : dans les deux cas, /usr/bin/java.
+        "java" => Some(format!("/usr/bin/java {}", reste(1))),
         "php" | "php-fpm" => None, // pris en charge par la brique phpfpm
         "python" | "python3" => {
             // Pas de resource Python cote YunoHost : l'interprete vient d'un
@@ -540,6 +618,41 @@ fn lier_le_port(commande: &str) -> String {
 /// les signaux : systemd le fait deja, et mieux. `gosu` et `su-exec` changent
 /// d'utilisateur, ce que fait la directive `User=` du service. `env` ne fait
 /// que chercher un binaire dans le PATH. Les garder ferait echouer la
+/// Retire un changement d'utilisateur en tete de commande, avec ses
+/// arguments : `gosu convertx`, `su-exec "$USER_ID:$GROUP_ID"`, `runuser -u
+/// app --`, `setpriv --reuid=1000 --init-groups`.
+///
+/// systemd lance deja le service sous l'utilisateur de l'application. Laisse
+/// en place, l'utilisateur — souvent une variable — passait pour la commande,
+/// et le `$` qu'il contient faisait refuser la ligne entiere : booklore,
+/// convertx et endurain s'arretaient la.
+fn sans_changement_d_utilisateur(commande: &str) -> String {
+    let mots: Vec<&str> = commande.split_whitespace().collect();
+    let Some(premier) = mots.first() else {
+        return commande.to_string();
+    };
+    let nom = nom_de_fichier(premier);
+    let reste: &[&str] = match nom {
+        // L'utilisateur, puis la commande.
+        "gosu" | "su-exec" | "s6-setuidgid" => mots.get(2..).unwrap_or(&[]),
+        // Options jusqu'a la commande ; `-u` prend une valeur.
+        "chpst" | "runuser" | "setpriv" => {
+            let mut i = 1;
+            while i < mots.len() && mots[i].starts_with('-') {
+                let avec_valeur = matches!(mots[i], "-u" | "-g" | "--user" | "--group");
+                let fin = mots[i] == "--";
+                i += if avec_valeur { 2 } else { 1 };
+                if fin {
+                    break;
+                }
+            }
+            mots.get(i..).unwrap_or(&[])
+        }
+        _ => return commande.to_string(),
+    };
+    reste.join(" ")
+}
+
 /// traduction sur une commande qui, elle, se traduit tres bien.
 fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
     // Les interpretes de commandes aussi : `sh -c node server.js` et
@@ -667,6 +780,80 @@ mod tests {
         let mut f = facts_avec(Some(cmd.into_iter().map(String::from).collect()), tech);
         f.stack.exec_du_point_d_entree = Some(exec.into());
         f
+    }
+
+    #[test]
+    fn un_hote_de_conteneur_dans_la_commande_la_remet_en_question() {
+        assert_eq!(
+            hote_du_conteneur("java -Djdbc.url=jdbc:mysql://asqatasun-db_dev:3306/a -jar x.war"),
+            Some("asqatasun-db_dev".into())
+        );
+        assert_eq!(
+            hote_du_conteneur("node a.js --url=http://localhost:8080/"),
+            None
+        );
+        // Un domaine public n'est pas un conteneur.
+        assert_eq!(
+            hote_du_conteneur("app --api=https://api.example.com/v1"),
+            None
+        );
+        assert_eq!(
+            hote_du_conteneur("app --db=postgres://u:p@db:5432/x"),
+            Some("db".into())
+        );
+    }
+
+    #[test]
+    fn les_guillemets_s_enlevent_comme_le_fait_le_shell() {
+        assert_eq!(
+            guillemets_du_shell(r#"java -Dpath="/var/log/x/" --server.port="8080" -jar a.jar"#),
+            "java -Dpath=/var/log/x/ --server.port=8080 -jar a.jar"
+        );
+        assert_eq!(
+            lier_les_options_d_ecoute("java --server.port=8080 -jar a.jar", &[8080]),
+            "java --server.port=__PORT__ -jar a.jar"
+        );
+    }
+
+    #[test]
+    fn le_classpath_se_traduit_element_par_element() {
+        let mut f = RepoFacts::default();
+        f.stack.primary = Technology::Java;
+        f.build = Some(ynp_core::facts::BuildRecipe {
+            workdir: Some("/app".into()),
+            ..Default::default()
+        });
+        let c = traduire_avec("java -cp /app/netrunner.jar:/app/config web.core", &f).unwrap();
+        assert!(!c.contains("/app/"), "{c}");
+        assert!(c.starts_with("/usr/bin/java -cp "), "{c}");
+    }
+
+    #[test]
+    fn un_changement_d_utilisateur_avant_le_cmd_ne_bloque_plus() {
+        // Cas de booklore : `exec su-exec "$USER_ID:$GROUP_ID" "$@"`, CMD
+        // `java -jar /app/app.jar`. systemd lance deja le service sous
+        // l'utilisateur de l'application.
+        let f = facts_avec_script(
+            vec!["entrypoint.sh", "java", "-jar", "app.jar"],
+            "su-exec \"$USER_ID:$GROUP_ID\" \"$@\"",
+            Technology::Java,
+        );
+        let e = derive(&f, "booklore");
+        assert!(
+            e.value()
+                .is_some_and(|c| c.contains("java") && c.contains("app.jar")),
+            "{e:?}"
+        );
+        // gosu avec un utilisateur nomme : convertx.
+        let f = facts_avec_script(
+            vec!["/entrypoint.sh", "node", "dist/index.js"],
+            "gosu convertx \"$@\"",
+            Technology::NodeJs,
+        );
+        assert_eq!(
+            derive(&f, "convertx").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node dist/index.js")
+        );
     }
 
     #[test]
