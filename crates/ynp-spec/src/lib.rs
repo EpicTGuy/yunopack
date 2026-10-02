@@ -446,6 +446,21 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
     }
 
+    // Les affectations qui precedent la commande de l'image vont dans la
+    // configuration : cap lance `HOSTNAME="0.0.0.0" node apps/web/server.js`.
+    // Une ecoute sur toutes les interfaces se ramene sur la boucle locale,
+    // nginx etant devant.
+    if let Some(c) = facts.build.as_ref().and_then(|b| b.start_command()) {
+        for (nom, valeur) in execstart::affectations_de_tete(&c) {
+            let valeur = if matches!(valeur.as_str(), "0.0.0.0" | "::" | "[::]") {
+                "127.0.0.1".to_string()
+            } else {
+                valeur
+            };
+            env.entry(nom).or_insert(valeur);
+        }
+    }
+
     // Une variable de l'image qui pointe vers ce qu'une etape de construction
     // y a depose suit ce depot : `BUZZ_WEB_DIR=/srv/buzz/web`, rempli par
     // `COPY --from=web-builder`, designe chez YunoHost la copie refaite dans

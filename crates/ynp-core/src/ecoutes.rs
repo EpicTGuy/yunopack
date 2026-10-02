@@ -33,6 +33,14 @@ fn options() -> &'static [Regex] {
             r#"@click\.option\([^)]*["']--(port|listen|bind)["']"#,
             // JavaScript, commander et yargs.
             r#"\.option\(\s*["'][^"']*--(port|listen|bind)\b"#,
+            // JavaScript, yargs sans tirets : `.option('port', {...})`.
+            r#"\.option\(\s*["'](port|listen|bind)["']\s*,"#,
+            // Ruby, OptionParser : `opts.on('-p', '--port PORT')`.
+            r#"\.on\([^)]*["']--(port|listen|bind)\b"#,
+            // Go, cobra et pflag : `Flags().StringVarP(&a, "port", "p", ...)`.
+            r#"\.(?:String|Int|Uint|Uint16)(?:Var)?P?\((?:&[\w.]+\s*,\s*)?"(port|listen|addr|bind|address|listen-addr|http-addr)""#,
+            // Go, urfave/cli : `&cli.IntFlag{Name: "port"}`.
+            r#"cli\.(?:String|Int|Uint)Flag\{\s*Name:\s*"(port|listen|addr|bind|address)""#,
         ]
         .iter()
         .map(|m| Regex::new(m).expect("motif d'option invalide"))
@@ -134,6 +142,20 @@ mod tests {
             ),
             (r#"@click.option("--bind", default="0.0.0.0")"#, "--bind"),
             (r#"program.option('-p, --port <n>', 'port')"#, "--port"),
+            (r#"yargs.option('port', { default: 3000 })"#, "--port"),
+            (
+                r#"opts.on('-p', '--port [PORT]', 'Bind port') do |p|"#,
+                "--port",
+            ),
+            (
+                r#"cmd.Flags().StringVarP(&listen, "listen", "l", ":8080", "")"#,
+                "--listen",
+            ),
+            (
+                r#"rootCmd.PersistentFlags().IntVar(&port, "port", 8080, "")"#,
+                "--port",
+            ),
+            (r#"&cli.IntFlag{Name: "port", Value: 3000}"#, "--port"),
         ];
         for (code, attendu) in cas {
             assert_eq!(

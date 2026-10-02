@@ -421,6 +421,34 @@ fn mots_de(commande: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Les affectations `NOM=valeur` qui precedent une commande.
+pub(crate) fn affectations_de_tete(commande: &str) -> Vec<(String, String)> {
+    commande
+        .split_whitespace()
+        .map_while(|m| {
+            let (nom, valeur) = m.split_once('=')?;
+            let valide = !nom.is_empty()
+                && nom.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && !nom.starts_with(|c: char| c.is_ascii_digit());
+            valide.then(|| {
+                (
+                    nom.to_string(),
+                    valeur.trim_matches(|c| c == '"' || c == '\'').to_string(),
+                )
+            })
+        })
+        .collect()
+}
+
+fn sans_affectations_de_tete(commande: &str) -> String {
+    let n = affectations_de_tete(commande).len();
+    commande
+        .split_whitespace()
+        .skip(n)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Retire les guillemets comme le shell, mot par mot.
 ///
 /// `-Dapp.logging.path="/var/log/x/"` est, pour le shell,
@@ -495,6 +523,10 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
     // interfaces, nginx et l'authentification de YunoHost contournes.
     let commande = lier_le_port(commande);
     let commande = guillemets_du_shell(&commande);
+    // Les affectations de tete (`HOSTNAME=0.0.0.0 node server.js`) passent
+    // dans la configuration (voir `affectations_de_tete`) ; la commande se
+    // traduit sans elles.
+    let commande = sans_affectations_de_tete(&commande);
     let mots = sans_enveloppe(&mots_de(&commande));
     let premier = *mots.first()?;
     // Le nom seul : `/usr/local/bin/python3` est un python3 comme un autre.
@@ -883,6 +915,24 @@ mod tests {
         assert_eq!(
             lier_les_options_d_ecoute("java --server.port=8080 -jar a.jar", &[8080]),
             "java --server.port=__PORT__ -jar a.jar"
+        );
+    }
+
+    #[test]
+    fn les_affectations_de_tete_ne_bloquent_pas_la_commande() {
+        let mut f = RepoFacts::default();
+        f.stack.primary = Technology::NodeJs;
+        f.build = Some(Default::default());
+        assert_eq!(
+            traduire_avec("HOSTNAME=\"0.0.0.0\" node apps/web/server.js", &f).as_deref(),
+            Some("__NODEJS_DIR__/node apps/web/server.js")
+        );
+        assert_eq!(
+            affectations_de_tete("HOSTNAME=0.0.0.0 NODE_ENV=production node a.js"),
+            vec![
+                ("HOSTNAME".to_string(), "0.0.0.0".to_string()),
+                ("NODE_ENV".to_string(), "production".to_string())
+            ]
         );
     }
 

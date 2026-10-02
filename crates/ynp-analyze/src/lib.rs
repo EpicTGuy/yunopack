@@ -428,6 +428,7 @@ pub fn ligne_exec_suivant_les_copies(
     let recolle = texte.replace("\\\n", " ");
 
     let mut exec = None;
+    let mut execs_distincts: Vec<String> = Vec::new();
     let mut derniere = None;
     for ligne in recolle.lines() {
         let l = ligne.trim();
@@ -436,14 +437,32 @@ pub fn ligne_exec_suivant_les_copies(
         }
         if let Some(reste) = l.strip_prefix("exec ") {
             let reste = reste.trim();
-            if !reste.is_empty() {
+            // Le script qui se relance lui-meme sous un autre utilisateur
+            // (`exec gosu $PUID "$BASH_SOURCE" "$@"` chez Mealie) ne designe
+            // pas le processus : c'est une re-entree.
+            let nom_du_script = script.rsplit('/').next().unwrap_or(script);
+            let reentree = ["$0", "${0}", "BASH_SOURCE"]
+                .iter()
+                .any(|m| reste.contains(m))
+                || (!nom_du_script.is_empty() && reste.contains(nom_du_script));
+            if !reste.is_empty() && !reentree {
                 exec = Some(reste.to_string());
+                let renvoie_au_cmd = reste == "\"$@\"" || reste == "$@";
+                if !renvoie_au_cmd && !execs_distincts.iter().any(|e| e == reste) {
+                    execs_distincts.push(reste.to_string());
+                }
             }
         }
         derniere = Some(l.to_string());
     }
-    if exec.is_some() {
-        return exec;
+    // Plusieurs `exec` differents : le processus depend d'une condition —
+    // application ou worker chez active-pieces. Prendre le dernier serait
+    // choisir au hasard.
+    if execs_distincts.len() > 1 {
+        return None;
+    }
+    if let Some(e) = exec {
+        return Some(avec_les_variables_du_script(&e, &recolle));
     }
 
     // Sans `exec`, la derniere ligne fait foi — mais seulement si elle
@@ -452,6 +471,62 @@ pub fn ligne_exec_suivant_les_copies(
     // build/server.js` celui de Ferdium, apres ses migrations. Une derniere
     // ligne quelconque, elle, peut etre un nettoyage.
     derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@") || lance_une_application(l))
+}
+
+/// Remplace les variables de la ligne par les valeurs que le script leur
+/// donne : `CMD="uvicorn main:app --port 8080"` puis `exec $CMD` chez
+/// endurain, `LOG_LEVEL="${DOWNTIFY_LOG_LEVEL:-info}"` chez downtify. La
+/// premiere affectation fait foi : les suivantes sont souvent des ajouts
+/// conditionnels (`CMD="$CMD --proxy-headers"`). `${X:-defaut}` prend le
+/// defaut quand le script ne donne rien a X. Une valeur calculee (`$(...)`)
+/// n'est pas evaluee : la variable reste, et la commande sera refusee plus
+/// loin plutot que devinee.
+fn avec_les_variables_du_script(ligne: &str, script: &str) -> String {
+    use std::sync::OnceLock;
+    static AFFECTATION: OnceLock<regex::Regex> = OnceLock::new();
+    static REFERENCE: OnceLock<regex::Regex> = OnceLock::new();
+    let affectation = AFFECTATION.get_or_init(|| {
+        regex::Regex::new(
+            r#"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("([^"]*)"|'([^']*)'|(\S*))\s*$"#,
+        )
+        .expect("motif valide")
+    });
+    let reference = REFERENCE.get_or_init(|| {
+        regex::Regex::new(
+            r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)",
+        )
+        .expect("motif valide")
+    });
+    let resoudre = |texte: &str, valeurs: &std::collections::HashMap<String, String>| {
+        reference
+            .replace_all(texte, |m: &regex::Captures| {
+                let nom = m.get(1).or(m.get(3)).map_or("", |x| x.as_str());
+                match (valeurs.get(nom), m.get(2)) {
+                    (Some(v), _) => v.clone(),
+                    (None, Some(defaut)) => defaut.as_str().to_string(),
+                    (None, None) => m[0].to_string(),
+                }
+            })
+            .into_owned()
+    };
+    // Chaque valeur se resout au moment de son affectation, avec ce qui est
+    // connu jusque-la : `LOG_LEVEL="${LOG_LEVEL:-info}"` vaut `info`.
+    let mut valeurs: std::collections::HashMap<String, String> = Default::default();
+    for l in script.lines().map(str::trim) {
+        if let Some(c) = affectation.captures(l) {
+            let v = c
+                .get(3)
+                .or(c.get(4))
+                .or(c.get(5))
+                .map_or("", |m| m.as_str());
+            if v.contains("$(") || v.contains('`') || valeurs.contains_key(&c[1]) {
+                continue;
+            }
+            let v = resoudre(v, &valeurs);
+            valeurs.insert(c[1].to_string(), v);
+        }
+    }
+    resoudre(ligne, &valeurs)
 }
 
 /// Une commande simple qui commence par un lanceur d'application.
@@ -981,6 +1056,59 @@ exec node /app/apps/server/build/index.js
         // Un lancement en arriere-plan non plus.
         let arbre = RepoTree::from_pairs([("entrypoint.sh", "#!/bin/sh\nnode a.js &\n")]);
         assert_eq!(ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh"), None);
+    }
+
+    #[test]
+    fn les_variables_du_script_se_resolvent_avant_l_exec() {
+        // Cas d'endurain.
+        let arbre = RepoTree::from_pairs([(
+            "docker/start.sh",
+            "#!/bin/bash\nLOG_LEVEL=\"${LOG_LEVEL:-info}\"\n\
+             CMD=\"uvicorn main:app --host 0.0.0.0 --port 8080 --log-level $LOG_LEVEL\"\n\
+             if [ -n \"$P\" ]; then\n    CMD=\"$CMD --proxy-headers\"\nfi\n\
+             exec gosu \"$UID:$GID\" $CMD\n",
+        )]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "/docker-entrypoint.d/start.sh").as_deref(),
+            Some("gosu \"$UID:$GID\" uvicorn main:app --host 0.0.0.0 --port 8080 --log-level info")
+        );
+        // Une valeur calculee n'est pas devinee.
+        let arbre =
+            RepoTree::from_pairs([("run.sh", "#!/bin/sh\nBIN=$(which app)\nexec $BIN serve\n")]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "run.sh").as_deref(),
+            Some("$BIN serve")
+        );
+    }
+
+    #[test]
+    fn la_reentree_du_script_n_est_pas_un_second_processus() {
+        // Cas de Mealie.
+        let arbre = RepoTree::from_pairs([(
+            "docker/entry.sh",
+            "#!/bin/bash\nPUID=${PUID:-911}\nif [ \"$(id -u)\" = 0 ]; then\n    \
+             exec gosu $PUID \"$BASH_SOURCE\" \"$@\"\nfi\nexec mealie\n",
+        )]);
+        let mut copies = indexmap::IndexMap::new();
+        copies.insert("/app/run.sh".to_string(), "docker/entry.sh".to_string());
+        assert_eq!(
+            ligne_exec_suivant_les_copies(&arbre, "/app/run.sh", &copies).as_deref(),
+            Some("mealie")
+        );
+    }
+
+    #[test]
+    fn plusieurs_exec_differents_ne_designent_pas_un_processus() {
+        // Cas d'active-pieces : application ou worker selon une variable.
+        let arbre = RepoTree::from_pairs([(
+            "docker-entrypoint.sh",
+            "#!/bin/sh\nif [ $# -gt 0 ]; then exec \"$@\"; fi\n\
+             case \"$T\" in\n app) exec node app.js ;;\n worker) exec node worker.js ;;\nesac\n",
+        )]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "./docker-entrypoint.sh"),
+            None
+        );
     }
 
     #[test]
