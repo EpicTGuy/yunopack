@@ -615,11 +615,37 @@ pub(crate) fn port_fixe_du_code(facts: &RepoFacts) -> Option<u16> {
     let mut ports: Vec<u16> = facts.ecoute.ports_en_dur.iter().map(|(p, _)| *p).collect();
     ports.sort_unstable();
     ports.dedup();
-    let [p] = ports[..] else {
+    let mut exposes = ports_exposes(facts);
+    exposes.sort_unstable();
+    exposes.dedup();
+    if let [p] = ports[..] {
+        return (exposes.is_empty() || exposes.contains(&p)).then_some(p);
+    }
+    if !ports.is_empty() {
         return None;
-    };
-    let exposes = ports_exposes(facts);
-    (exposes.is_empty() || exposes.contains(&p)).then_some(p)
+    }
+    // En dernier recours, le port unique que l'image publie : c'est celui
+    // sur lequel l'application ecoute par defaut. Si elle lisait en fait une
+    // variable que l'outil n'a pas vue, sa valeur par defaut est ce port-la ;
+    // s'il est deja pris, YunoHost le dit a l'installation. bytestash publie
+    // 5000, gathio 3000, filestash 8334.
+    //
+    // Sauf un port privilegie ou une image qui embarque son serveur web :
+    // le port 80 d'active-pieces ou de fireshare est celui de leur nginx,
+    // place devant l'application. Et un cadre qui nomme deja son port
+    // (Spring Boot) se lie par ce nom.
+    let serveur_web = facts.build.as_ref().is_some_and(|b| {
+        b.apt_packages.iter().chain(b.apk_packages.iter()).any(|p| {
+            matches!(
+                p.as_str(),
+                "nginx" | "caddy" | "apache2" | "httpd" | "lighttpd"
+            )
+        })
+    });
+    match exposes[..] {
+        [p] if p >= 1024 && !serveur_web && facts.stack.cadre_web.is_none() => Some(p),
+        _ => None,
+    }
 }
 
 /// Ligne de configuration transmettant le port reserve par le coeur.
@@ -1344,7 +1370,9 @@ mod propositions {
             vec![var("TEEDY_URL", Some("http://localhost:8080"), ".env")],
             vec![8080],
         );
-        assert!(liaison_port(&f, None).value().is_none());
+        // L'URL n'est pas la variable du port ; le port publie se reserve.
+        assert_eq!(liaison_port(&f, None).value().map(String::as_str), Some(""));
+        assert_eq!(port_fixe_du_code(&f), Some(8080));
         assert!(!est_une_adresse("http://localhost:4317"));
         assert!(est_une_adresse("0.0.0.0:3000"));
     }
@@ -1531,6 +1559,23 @@ mod propositions {
         let mut port = var("PORT", Some("3000"), "src/main.rs");
         port.role = ConfigRole::Port;
         f.config.variables = vec![port];
+        assert_eq!(port_fixe_du_code(&f), None);
+    }
+
+    #[test]
+    fn le_port_unique_de_l_image_se_reserve_en_dernier_recours() {
+        // Cas de bytestash : EXPOSE 5000, aucune variable de port.
+        let mut f = faits(vec![], vec![5000]);
+        f.stack.primary = Technology::NodeJs;
+        assert_eq!(port_fixe_du_code(&f), Some(5000));
+        // Le port 80 est celui d'un serveur web place devant l'application.
+        let mut g = faits(vec![], vec![80]);
+        g.stack.primary = Technology::NodeJs;
+        assert_eq!(port_fixe_du_code(&g), None);
+        // Une image qui installe nginx non plus.
+        if let Some(b) = f.build.as_mut() {
+            b.apt_packages = vec!["nginx".into()];
+        }
         assert_eq!(port_fixe_du_code(&f), None);
     }
 

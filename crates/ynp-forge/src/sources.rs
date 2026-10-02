@@ -65,7 +65,7 @@ pub fn choose_avec(
             url: archive_url(source, &r.tag),
             version: Some(strip_v(&r.tag)),
             reference: r.tag.clone(),
-            strategy: format!("latest_{forge}_release"),
+            strategy: strategie(forge, "release"),
             kind: SourceKind::Release,
             version_regex: None,
         };
@@ -76,7 +76,7 @@ pub fn choose_avec(
             url: archive_url(source, &tag),
             version: Some(strip_v(&tag)),
             reference: tag,
-            strategy: format!("latest_{forge}_tag"),
+            strategy: strategie(forge, "tag"),
             kind: SourceKind::Tag,
             version_regex: None,
         };
@@ -98,10 +98,21 @@ pub fn choose_avec(
     SourceChoice {
         url: archive_url(source, &reference),
         reference,
-        strategy: format!("latest_{forge}_commit"),
+        strategy: strategie(forge, "commit"),
         version: None,
         kind: SourceKind::Commit,
         version_regex: None,
+    }
+}
+
+/// `latest_<forge>_<sorte>`, ou rien pour une forge que l'autoupdater de
+/// YunoHost ne connait pas : une strategie inventee echouerait a son premier
+/// passage.
+fn strategie(forge: &str, sorte: &str) -> String {
+    if forge.is_empty() {
+        String::new()
+    } else {
+        format!("latest_{forge}_{sorte}")
     }
 }
 
@@ -220,7 +231,7 @@ pub fn choisir_dans_la_famille(
         url: archive_url(source, &tag),
         version: Some(version),
         reference: tag,
-        strategy: format!("latest_{forge}_tag"),
+        strategy: strategie(forge, "tag"),
         kind: SourceKind::Tag,
         version_regex: Some(version_regex(cle)),
     })

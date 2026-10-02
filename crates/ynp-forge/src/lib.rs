@@ -57,6 +57,7 @@ pub(crate) async fn obtenir(
 pub mod archive;
 pub mod catalogue;
 pub mod client;
+pub mod git;
 pub mod gitea;
 pub mod github;
 pub mod gitlab;

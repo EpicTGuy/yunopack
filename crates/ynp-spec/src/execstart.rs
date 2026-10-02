@@ -22,7 +22,37 @@ const RACINES: &[&str] = &[
     "/usr/src/app/",
 ];
 
+/// La commande de demarrage, a condition qu'elle puisse tourner hors de
+/// l'image : quelle que soit la branche qui l'a trouvee — Dockerfile, unite
+/// systemd, Procfile —, une commande qui designe un hote de conteneur, un
+/// fichier que le paquet ne cree pas ou un specificateur de modele systemd
+/// (`%i`) redevient une question. L'unite de slidge lance
+/// `slidge -c /etc/slidge/%i.conf`.
 pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
+    let e = derive_sans_garde(facts, app_id);
+    let Some(c) = e.value() else {
+        return e;
+    };
+    let specificateur = c
+        .split_whitespace()
+        .any(|m| m.contains("%i") || m.contains("%I"));
+    match hote_du_conteneur(c)
+        .or_else(|| chemin_etranger(c))
+        .or_else(|| specificateur.then(|| "%i".to_string()))
+    {
+        Some(x) => Known::unresolved_avec(
+            format!(
+                "la commande « {c} » designe « {x} », qui n'existe pas hors de l'image ou \
+                 de son modele d'unite"
+            ),
+            &["la documentation du projet d'origine"],
+            Vec::new(),
+        ),
+        None => e,
+    }
+}
+
+fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
     // Un binaire nu publie par l'amont est renomme d'apres l'app : son chemin
     // est connu sans qu'il faille interpreter quoi que ce soit.
     if let Some(sel) = &facts.selection {
@@ -129,22 +159,25 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
         .or_else(|| traduire_avec(&commande, facts))
         .or(depuis_le_script)
     {
-        Some(execstart) => match hote_du_conteneur(&execstart) {
-            // Un nom qui n'existe que dans le reseau des conteneurs : la
-            // commande ne peut pas tourner telle quelle.
-            Some(hote) => Known::unresolved_avec(
-                format!(
-                    "la commande « {commande} » designe l'hote « {hote} », qui n'existe que \
-                     dans le reseau des conteneurs"
+        Some(execstart) => {
+            match hote_du_conteneur(&execstart).or_else(|| chemin_etranger(&execstart)) {
+                // Un nom qui n'existe que dans le reseau des conteneurs : la
+                // commande ne peut pas tourner telle quelle.
+                Some(hote) => Known::unresolved_avec(
+                    format!(
+                        "la commande « {commande} » designe « {hote} », qui n'existe pas hors \
+                     de l'image : un hote du reseau des conteneurs, ou un chemin que le \
+                     paquet ne cree pas"
+                    ),
+                    &[
+                        &build.dockerfile_path,
+                        "la documentation du projet d'origine",
+                    ],
+                    proposee,
                 ),
-                &[
-                    &build.dockerfile_path,
-                    "la documentation du projet d'origine",
-                ],
-                proposee,
-            ),
-            None => Known::resolved(execstart),
-        },
+                None => Known::resolved(execstart),
+            }
+        }
         None => Known::unresolved_avec(
             format!("commande « {commande} » non transposable automatiquement"),
             &[
@@ -154,6 +187,28 @@ pub fn derive(facts: &RepoFacts, app_id: &str) -> Known<String> {
             proposee,
         ),
     }
+}
+
+/// Un chemin absolu de la commande que le paquet ne cree pas.
+///
+/// L'unite systemd de crowdsec lance `crowdsec -c /etc/crowdsec/config.yaml` :
+/// sous YunoHost, ce fichier n'existe pas, et le service ne demarrerait pas.
+/// Les chemins du systeme (`/usr/bin`, `/dev/shm`, `/tmp`) restent admis.
+fn chemin_etranger(commande: &str) -> Option<String> {
+    const ETRANGERS: &[&str] = &[
+        "/etc/",
+        "/var/lib/",
+        "/srv/",
+        "/opt/",
+        "/data/",
+        "/home/",
+        "/config/",
+        "/app/",
+    ];
+    commande
+        .split(|c: char| c.is_whitespace() || matches!(c, '=' | ':' | '"' | '\''))
+        .find(|m| ETRANGERS.iter().any(|e| m.starts_with(e)))
+        .map(str::to_string)
 }
 
 /// Le premier hote d'une adresse de la commande qui n'est pas la machine
@@ -780,6 +835,22 @@ mod tests {
         let mut f = facts_avec(Some(cmd.into_iter().map(String::from).collect()), tech);
         f.stack.exec_du_point_d_entree = Some(exec.into());
         f
+    }
+
+    #[test]
+    fn un_chemin_que_le_paquet_ne_cree_pas_remet_la_commande_en_question() {
+        assert_eq!(
+            chemin_etranger("__INSTALL_DIR__/crowdsec -c /etc/crowdsec/config.yaml"),
+            Some("/etc/crowdsec/config.yaml".into())
+        );
+        assert_eq!(
+            chemin_etranger("gunicorn app --worker-tmp-dir /dev/shm"),
+            None
+        );
+        assert_eq!(
+            chemin_etranger("/usr/bin/java -jar __INSTALL_DIR__/a.jar"),
+            None
+        );
     }
 
     #[test]

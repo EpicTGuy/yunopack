@@ -9,6 +9,7 @@
 //! `git.exemple.fr` peut faire tourner n'importe quoi. On l'interroge donc,
 //! plutot que de deviner — c'est ce que fait l'outil partout ailleurs.
 
+use crate::git::GitBrut;
 use crate::gitea::Gitea;
 use crate::github::{ForgeError, GitHub};
 use crate::gitlab::GitLab;
@@ -18,6 +19,7 @@ pub enum Client {
     GitHub(GitHub),
     Gitea(Gitea),
     GitLab(GitLab),
+    Git(GitBrut),
 }
 
 impl Client {
@@ -29,6 +31,17 @@ impl Client {
             Forge::GitHub => Ok(Client::GitHub(GitHub::new()?)),
             Forge::Gitea | Forge::Forgejo => Ok(Client::Gitea(Gitea::new(&hote)?)),
             Forge::GitLab => Ok(Client::GitLab(GitLab::new(&hote)?)),
+            Forge::Git => {
+                GitBrut::pour(source)
+                    .await
+                    .map(Client::Git)
+                    .ok_or_else(|| ForgeError::Unexpected {
+                        status: 0,
+                        body: format!(
+                            "{hote} : depot Git injoignable, ou forme d'archive inconnue"
+                        ),
+                    })
+            }
             Forge::Inconnue => {
                 // Gitea d'abord : sa reponse est franche et sans
                 // authentification. GitLab ensuite, teste sur le projet
@@ -37,6 +50,8 @@ impl Client {
                     Ok(Client::Gitea(Gitea::new(&hote)?))
                 } else if est_une_instance_gitlab(&hote, source).await {
                     Ok(Client::GitLab(GitLab::new(&hote)?))
+                } else if let Some(g) = GitBrut::pour(source).await {
+                    Ok(Client::Git(g))
                 } else {
                     Err(ForgeError::Unexpected {
                         status: 0,
@@ -55,6 +70,7 @@ impl Client {
             Client::GitHub(c) => c.repo(source).await,
             Client::Gitea(c) => c.repo(source).await,
             Client::GitLab(c) => c.repo(source).await,
+            Client::Git(c) => c.repo(source).await,
         }
     }
 
@@ -63,6 +79,8 @@ impl Client {
             Client::GitHub(c) => c.releases(source).await,
             Client::Gitea(c) => c.releases(source).await,
             Client::GitLab(c) => c.releases(source).await,
+            // Pas de releases sans forge : seulement des tags.
+            Client::Git(_) => Ok(Vec::new()),
         }
     }
 
@@ -75,6 +93,7 @@ impl Client {
             Client::GitHub(c) => c.dernier_commit(source, branche).await,
             Client::Gitea(c) => c.dernier_commit(source, branche).await,
             Client::GitLab(c) => c.dernier_commit(source, branche).await,
+            Client::Git(c) => c.dernier_commit(source, branche).await,
         }
     }
 
@@ -83,6 +102,7 @@ impl Client {
             Client::GitHub(c) => c.tags(source).await,
             Client::Gitea(c) => c.tags(source).await,
             Client::GitLab(c) => c.tags(source).await,
+            Client::Git(c) => c.tags(source).await,
         }
     }
 
@@ -143,6 +163,7 @@ impl Client {
                 Client::GitHub(c) => c.download(url).await,
                 Client::Gitea(c) => c.download(url).await,
                 Client::GitLab(c) => c.download(url).await,
+                Client::Git(c) => c.download(url).await,
             };
             match resultat {
                 Err(ForgeError::Http(e)) if essai < 2 && est_passagere(&e) => {
@@ -160,6 +181,7 @@ impl Client {
             Client::GitHub(_) => crate::github::archive_url(source, reference),
             Client::Gitea(c) => crate::gitea::archive_url(c.hote(), source, reference),
             Client::GitLab(c) => crate::gitlab::archive_url(c.hote(), source, reference),
+            Client::Git(c) => c.archive_url(source, reference),
         }
     }
 }

@@ -27,6 +27,30 @@ pub fn parse(input: &str) -> Result<SourceRef, UrlError> {
         .replacen(".com:", ".com/", 1)
         .replacen(".org:", ".org/", 1);
 
+    // Une page projet de Savannah designe un depot Git que cgit sert.
+    if let Some(projet) = cleaned
+        .strip_prefix("savannah.gnu.org/projects/")
+        .or_else(|| cleaned.strip_prefix("savannah.nongnu.org/projects/"))
+    {
+        let projet = projet.split('/').next().unwrap_or(projet).to_string();
+        if !projet.is_empty() {
+            return Ok(SourceRef {
+                forge: Forge::Git,
+                url: format!("https://git.savannah.gnu.org/cgit/{projet}.git"),
+                owner: "savannah".into(),
+                repo: projet,
+                default_branch: None,
+                commit: None,
+            });
+        }
+    }
+
+    // Une page projet de sourcehut (`sr.ht/~u/projet`) designe le depot Git
+    // du meme nom sur git.sr.ht.
+    let cleaned = match cleaned.strip_prefix("sr.ht/") {
+        Some(reste) => format!("git.sr.ht/{reste}"),
+        None => cleaned,
+    };
     let mut parts = cleaned.split('/').filter(|s| !s.is_empty());
     let host = parts
         .next()
@@ -48,10 +72,14 @@ pub fn parse(input: &str) -> Result<SourceRef, UrlError> {
     let (dernier, chemin) = segments
         .split_last()
         .ok_or_else(|| UrlError::Unrecognized(raw.into()))?;
-    if chemin.is_empty() {
-        return Err(UrlError::Unrecognized(raw.into()));
-    }
-    let owner = chemin.join("/");
+    // Une page de groupe ou d'organisation, sans depot : le projet porte
+    // souvent le nom du groupe (`foss.heptapod.net/tryton/` est
+    // `tryton/tryton`). S'il n'existe pas, la forge le dira.
+    let owner = if chemin.is_empty() {
+        dernier.to_string()
+    } else {
+        chemin.join("/")
+    };
     let repo = dernier.trim_end_matches(".git").to_string();
 
     if owner.is_empty() || repo.is_empty() {
@@ -64,6 +92,11 @@ pub fn parse(input: &str) -> Result<SourceRef, UrlError> {
         h if h.contains("codeberg") => Forge::Forgejo,
         h if h.contains("forgejo") => Forge::Forgejo,
         h if h.contains("gitea") => Forge::Gitea,
+        // Instances GitLab, et Heptapod qui en est une variante.
+        h if h.contains("gitlab") || h.contains("heptapod") => Forge::GitLab,
+        // sourcehut n'a pas d'API publique sans jeton : le protocole Git
+        // suffit (voir `git`).
+        "git.sr.ht" | "sr.ht" | "bitbucket.org" => Forge::Git,
         // Instances GitLab connues de la liste de souhaits de YunoHost. Les
         // autres sont reconnues en interrogeant l'instance.
         "framagit.org" | "salsa.debian.org" | "0xacab.org" | "git.laquadrature.net" => {
@@ -141,9 +174,32 @@ mod tests {
     fn un_hote_inconnu_reste_a_determiner() {
         // C'est `fetch` qui tranche, apres avoir interroge l'instance.
         assert_eq!(
-            parse("https://git.sr.ht/~owner/repo").unwrap().forge,
+            parse("https://git.exemple.org/owner/repo").unwrap().forge,
             Forge::Inconnue
         );
+    }
+
+    #[test]
+    fn une_page_de_groupe_designe_le_projet_du_meme_nom() {
+        let s = parse("https://foss.heptapod.net/tryton/").unwrap();
+        assert_eq!(s.forge, Forge::GitLab);
+        assert_eq!((s.owner.as_str(), s.repo.as_str()), ("tryton", "tryton"));
+        assert_eq!(
+            parse("https://gitlab.fabcloud.org/a/b").unwrap().forge,
+            Forge::GitLab
+        );
+    }
+
+    #[test]
+    fn sourcehut_et_savannah_se_lisent_par_git() {
+        let s = parse("https://git.sr.ht/~nicoco/slidge-debian/").unwrap();
+        assert_eq!(s.forge, Forge::Git);
+        assert_eq!(s.url, "https://git.sr.ht/~nicoco/slidge-debian");
+        let s = parse("https://sr.ht/~mlb/linkhut/").unwrap();
+        assert_eq!(s.url, "https://git.sr.ht/~mlb/linkhut");
+        let s = parse("https://savannah.gnu.org/projects/mediagoblin").unwrap();
+        assert_eq!(s.forge, Forge::Git);
+        assert_eq!(s.url, "https://git.savannah.gnu.org/cgit/mediagoblin.git");
     }
 
     #[test]
@@ -175,7 +231,14 @@ mod tests {
 
     #[test]
     fn une_url_incomplete_est_refusee() {
-        assert!(parse("https://github.com/gristlabs").is_err());
+        // Une page d'organisation se tente comme le projet du meme nom ;
+        // c'est la forge qui dira s'il existe.
+        let s = parse("https://github.com/gristlabs").unwrap();
+        assert_eq!(
+            (s.owner.as_str(), s.repo.as_str()),
+            ("gristlabs", "gristlabs")
+        );
         assert!(parse("").is_err());
+        assert!(parse("https://github.com").is_err());
     }
 }

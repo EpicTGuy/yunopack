@@ -663,24 +663,53 @@ pub fn premier_mot_de_script(commande: &str) -> Option<String> {
 /// l'unique unite s'il n'y en a qu'une.
 pub fn commande_d_unite_systemd(tree: &RepoTree, depot: &str) -> Option<(String, String)> {
     let unites: Vec<String> = tree
-        .find_by_name(|n| n.ends_with(".service") && !n.contains('@'))
+        .find_by_name(|n| n.ends_with(".service"))
         .into_iter()
         .filter(|p| tree.text(p).is_some())
         .collect();
 
-    let nom_depot = depot.to_lowercase().replace(['-', '_'], "");
-    let rappelle_le_depot = |p: &String| {
-        let tige = p
+    // Le nom de l'unite, ramene a l'essentiel : `chatwoot-web.1.service`
+    // donne `chatwootweb`, `gollum@.service` donne `gollum`.
+    let simple = |s: &str| s.to_lowercase().replace(['-', '_', '.', '@'], "");
+    let nom_depot = simple(depot);
+    let tige = |p: &String| {
+        let t = p
             .rsplit('/')
             .next()
             .unwrap_or(p)
             .trim_end_matches(".service");
-        let tige = tige.to_lowercase().replace(['-', '_'], "");
-        !tige.is_empty() && (tige.contains(&nom_depot) || nom_depot.contains(&tige))
+        let t = t.split('@').next().unwrap_or(t);
+        simple(t.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.'))
     };
-    let choisie = match unites.iter().find(|p| rappelle_le_depot(p)) {
-        Some(p) => p.clone(),
-        None if unites.len() == 1 => unites[0].clone(),
+    // Le nom du depot exact d'abord, puis suivi d'un role de serveur, puis
+    // un nom voisin : crowdsec livre aussi crowdsec-hubupdate.service.
+    let rang = |p: &String| -> Option<u8> {
+        let t = tige(p);
+        if t.is_empty() {
+            None
+        } else if t == nom_depot {
+            Some(0)
+        } else if ["web", "server", "app", "daemon", "api"]
+            .iter()
+            .any(|r| t == format!("{nom_depot}{r}"))
+        {
+            Some(1)
+        } else if t.contains(&nom_depot) || nom_depot.contains(&t) {
+            Some(2)
+        } else {
+            None
+        }
+    };
+    let choisie = match unites
+        .iter()
+        .filter_map(|p| rang(p).map(|r| (r, p.len(), p)))
+        .min()
+    {
+        Some((_, _, p)) => p.clone(),
+        // Une unite unique sans rapport de nom n'est retenue que si elle n'est
+        // pas un modele : `xvfb@.service`, seule unite d'asqatasun, lance un
+        // serveur d'affichage auxiliaire, pas l'application.
+        None if unites.len() == 1 && !unites[0].contains('@') => unites[0].clone(),
         None => return None,
     };
 
@@ -692,10 +721,66 @@ pub fn commande_d_unite_systemd(tree: &RepoTree, depot: &str) -> Option<(String,
         // `-` en tete demande a systemd d'ignorer un echec : sans rapport ici.
         .trim_start_matches('-')
         .to_string();
-    if commande.is_empty() || commande.contains('$') {
+    if commande.is_empty() {
         return None;
     }
+    let commande = variables_de_l_unite(&commande, texte)?;
     Some((ramener_a_l_installation(&commande), choisie))
+}
+
+/// Resout les variables d'une ligne `ExecStart` comme systemd le ferait.
+///
+/// Chatwoot definit `PORT=3000` et `RAILS_ENV=production` dans l'unite meme ;
+/// Duplicati passe `$DAEMON_OPTS`, lu d'un fichier facultatif de `/etc` et vide
+/// par defaut. La variable est remplacee par sa valeur quand l'unite la donne,
+/// retiree quand c'est une liste d'options (`_OPTS`, `_ARGS`...) ou qu'elle ne
+/// peut venir que d'un fichier facultatif — systemd la developpe alors a vide.
+/// `$PORT` reste : c'est le port, que la liaison du port remplace. Toute autre
+/// variable fait renoncer : la commande dependrait d'un fichier qu'on n'a pas.
+fn variables_de_l_unite(commande: &str, unite: &str) -> Option<String> {
+    let mut valeurs: std::collections::HashMap<String, String> = Default::default();
+    let mut fichier_facultatif = false;
+    let mut fichier_obligatoire = false;
+    for l in unite.lines().map(str::trim) {
+        if let Some(v) = l.strip_prefix("Environment=") {
+            for affectation in v.split_whitespace() {
+                let a = affectation.trim_matches('"');
+                if let Some((k, val)) = a.split_once('=') {
+                    valeurs.insert(k.to_string(), val.trim_matches('"').to_string());
+                }
+            }
+        }
+        if l.starts_with("EnvironmentFile=-") {
+            fichier_facultatif = true;
+        } else if l.starts_with("EnvironmentFile=") {
+            fichier_obligatoire = true;
+        }
+    }
+    let motif = regex::Regex::new(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?").expect("motif valide");
+    let mut echec = false;
+    let resultat = motif.replace_all(commande, |c: &regex::Captures| {
+        let nom = &c[1];
+        if nom == "PORT" {
+            return c[0].to_string();
+        }
+        if let Some(v) = valeurs.get(nom) {
+            return v.clone();
+        }
+        let options = ["OPTS", "ARGS", "FLAGS", "OPTIONS", "PARAMS"]
+            .iter()
+            .any(|s| nom.ends_with(s));
+        // Un fichier d'environnement obligatoire, que le depot ne fournit
+        // pas, peut donner a n'importe quelle variable une valeur necessaire.
+        if !fichier_obligatoire && (options || fichier_facultatif) {
+            return String::new();
+        }
+        echec = true;
+        String::new()
+    });
+    if echec {
+        return None;
+    }
+    Some(resultat.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
 /// `/opt/opencast/bin/start` devient `./bin/start` : dans une unite livree
@@ -744,12 +829,66 @@ mod unite_systemd {
 
     #[test]
     fn des_variables_definies_ailleurs_font_renoncer() {
-        // Cas de Suwayomi : $JAVA_ARGS vient d'un fichier de /etc.
+        // Cas de Suwayomi : $JAVA_ARGS vient d'un fichier obligatoire de /etc.
         let arbre = RepoTree::from_pairs([(
             "suwayomi-server.service",
-            "[Service]\nExecStart=/usr/bin/suwayomi-server $JAVA_ARGS\n",
+            "[Service]\nEnvironmentFile=/etc/suwayomi/server.conf\n\
+             ExecStart=/usr/bin/suwayomi-server $JAVA_ARGS\n",
         )]);
         assert_eq!(commande_d_unite_systemd(&arbre, "Suwayomi-Server"), None);
+    }
+
+    #[test]
+    fn un_modele_sans_rapport_avec_le_depot_n_est_pas_l_application() {
+        let arbre = RepoTree::from_pairs([(
+            "web-app/resources/installation/xvfb@.service",
+            "[Service]\nExecStart=/usr/bin/Xvfb %I -screen 0 1280x1024x24\n",
+        )]);
+        assert_eq!(commande_d_unite_systemd(&arbre, "Asqatasun"), None);
+    }
+
+    #[test]
+    fn les_variables_de_l_unite_se_resolvent_comme_le_fait_systemd() {
+        // Chatwoot : valeurs donnees par l'unite, $PORT laisse a la liaison.
+        let arbre = RepoTree::from_pairs([
+            (
+                "deployment/chatwoot-web.1.service",
+                "[Service]\nEnvironment=\"PORT=3000\"\nEnvironment=\"RAILS_ENV=production\"\n\
+                 ExecStart=/bin/bash -lc 'bin/rails server -p $PORT -e $RAILS_ENV'\n",
+            ),
+            (
+                "deployment/chatwoot-worker.1.service",
+                "[Service]\nExecStart=/bin/bash -lc 'bundle exec sidekiq'\n",
+            ),
+        ]);
+        let (c, ou) = commande_d_unite_systemd(&arbre, "chatwoot").unwrap();
+        assert_eq!(ou, "deployment/chatwoot-web.1.service");
+        assert!(c.contains("-p $PORT -e production"), "{c}");
+        // Duplicati : options d'un fichier facultatif, vides par defaut.
+        let arbre = RepoTree::from_pairs([(
+            "debian/systemd/duplicati.service",
+            "[Service]\nEnvironmentFile=-/etc/default/duplicati\n\
+             ExecStart=/usr/bin/duplicati-server $DAEMON_OPTS\n",
+        )]);
+        assert_eq!(
+            commande_d_unite_systemd(&arbre, "duplicati").unwrap().0,
+            "/usr/bin/duplicati-server"
+        );
+        // Crowdsec : l'unite du nom du depot, pas l'auxiliaire.
+        let arbre = RepoTree::from_pairs([
+            (
+                "build/crowdsec-hubupdate.service",
+                "[Service]\nExecStart=/usr/bin/cscli hub update\n",
+            ),
+            (
+                "config/crowdsec.service",
+                "[Service]\nExecStart=/usr/local/bin/crowdsec -c /etc/crowdsec/config.yaml\n",
+            ),
+        ]);
+        assert_eq!(
+            commande_d_unite_systemd(&arbre, "crowdsec").unwrap().1,
+            "config/crowdsec.service"
+        );
     }
 
     #[test]

@@ -84,6 +84,9 @@ pub enum Forge {
     GitLab,
     Gitea,
     Forgejo,
+    /// Depot Git sans API connue (sourcehut, cgit, Bitbucket) : lu par le
+    /// protocole Git lui-meme.
+    Git,
     /// Hote non identifiable a son nom de domaine. Une instance auto-hebergee
     /// doit etre interrogee pour qu'on sache quelle forge elle fait tourner.
     Inconnue,
@@ -98,6 +101,9 @@ impl Forge {
             Forge::GitLab => "gitlab",
             Forge::Gitea => "gitea",
             Forge::Forgejo => "forgejo",
+            // L'autoupdater de YunoHost ne connait que les quatre forges
+            // ci-dessus : pas de strategie plutot qu'une strategie inventee.
+            Forge::Git => "",
             Forge::Inconnue => "inconnue",
         }
     }
