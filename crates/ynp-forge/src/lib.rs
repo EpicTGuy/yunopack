@@ -63,6 +63,7 @@ pub mod github;
 pub mod gitlab;
 pub mod prebuilt;
 pub mod recherche;
+pub mod redirection;
 pub mod scorecard;
 pub mod sources;
 pub mod url;
@@ -103,7 +104,16 @@ pub struct Fetched {
 /// manifest. Telecharger deux fois exposerait a ce que l'amont change entre
 /// les deux, et donc a publier une somme qui ne correspond a rien.
 pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
-    let mut source = url::parse(repo_url)?;
+    // Une image Docker Hub designe un projet, pas son depot : on suit le lien
+    // que sa description cite.
+    let repo_url = match redirection::depot_d_une_image(repo_url).await {
+        Some(depot) => {
+            tracing::info!("{repo_url} est une image Docker : depot {depot}");
+            depot
+        }
+        None => repo_url.to_string(),
+    };
+    let mut source = url::parse(&repo_url)?;
     let client = client::Client::pour(&source).await?;
 
     let meta = client.repo(&mut source).await?;

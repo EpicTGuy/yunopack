@@ -12,6 +12,9 @@ const API: &str = "https://api.github.com";
 pub enum ForgeError {
     #[error("depot introuvable : {0}")]
     NotFound(String),
+    /// Ressource refusee a un visiteur anonyme, sans rapport avec un quota.
+    #[error("acces refuse : {0}")]
+    Interdit(String),
     /// La forge refuse de repondre pour cause de quota. Le nom de la variable
     /// a definir depend d'elle : le dire evite de chercher au mauvais endroit.
     #[error("quota d'API epuise sur {forge} — definir {variable} pour le relever")]

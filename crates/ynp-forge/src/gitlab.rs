@@ -49,7 +49,9 @@ impl GitLab {
             // GitLab rend 404 sur un projet prive comme sur un projet absent :
             // c'est voulu de sa part, et indistinguable de l'exterieur.
             401 | 404 => Err(ForgeError::NotFound(chemin.to_string())),
-            403 | 429 => Err(ForgeError::RateLimited {
+            // 429 est le quota ; 403 un acces refuse a cette ressource.
+            403 => Err(ForgeError::Interdit(chemin.to_string())),
+            429 => Err(ForgeError::RateLimited {
                 forge: self.hote.clone(),
                 variable: "GITLAB_TOKEN".into(),
             }),
@@ -92,12 +94,21 @@ impl GitLab {
     }
 
     pub async fn releases(&self, source: &SourceRef) -> Result<Vec<Release>, ForgeError> {
-        let body = self
+        // Une instance peut reserver ses releases aux membres, ou les avoir
+        // desactivees, alors que depot et tags restent publics : 403 sur
+        // git.laquadrature.net et foss.heptapod.net. Ce n'est pas un quota :
+        // les tags prennent le relais.
+        let body = match self
             .get(&format!(
                 "/projects/{}/releases?per_page=30",
                 chemin_encode(source)
             ))
-            .await?;
+            .await
+        {
+            Ok(b) => b,
+            Err(ForgeError::NotFound(_)) | Err(ForgeError::Interdit(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
         let raw: Vec<RawRelease> = serde_json::from_str(&body).unwrap_or_default();
 
         Ok(raw
