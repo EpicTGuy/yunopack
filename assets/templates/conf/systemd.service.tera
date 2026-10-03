@@ -30,11 +30,8 @@ ExecStartPre={{ m }}
 TimeoutStartSec=15min
 {%- endif %}
 ExecStart={{ runtime.execstart }}
-{%- if resources.nodejs_version %}
-Environment="PATH=__PATH_WITH_NODEJS__"
-{%- endif %}
-{%- if resources.ruby_version %}
-Environment="PATH=__PATH_WITH_RUBY__"
+{%- if runtime.outils_locaux or resources.nodejs_version or resources.ruby_version %}
+Environment="PATH={% if runtime.outils_locaux %}__INSTALL_DIR__:{% endif %}{% if resources.ruby_version %}__PATH_WITH_RUBY__{% elif resources.nodejs_version %}__PATH_WITH_NODEJS__{% else %}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{% endif %}"
 {%- endif %}
 Restart=always
 RestartSec=5

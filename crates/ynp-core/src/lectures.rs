@@ -148,6 +148,22 @@ pub fn defauts_lus(contenu: &str) -> Vec<(String, String)> {
     out
 }
 
+/// L'objet d'application web qu'un module Python cree au niveau du module :
+/// `app = Flask(__name__)`, `app = FastAPI()`. Le nom de l'objet et le
+/// cadre, c'est tout ce qu'il faut a gunicorn ou uvicorn pour le servir.
+pub fn applications_web(contenu: &str) -> Vec<(String, String)> {
+    static M: OnceLock<Regex> = OnceLock::new();
+    let m = M.get_or_init(|| {
+        Regex::new(
+            r"(?m)^([A-Za-z_]\w*)\s*(?::\s*[\w.\[\]]+\s*)?=\s*(Flask|FastAPI|Starlette|Quart|Litestar|Bottle)\(",
+        )
+        .expect("motif d'application web invalide")
+    });
+    m.captures_iter(contenu)
+        .map(|c| (c[1].to_string(), c[2].to_string()))
+        .collect()
+}
+
 /// Les noms de variables qu'un fichier source lit, dans l'ordre, sans doublon.
 pub fn variables_lues(contenu: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -250,6 +266,15 @@ mod tests {
                 ("PORT".to_string(), "3000".to_string())
             ]
         );
+        assert_eq!(
+            applications_web("from flask import Flask\napp = Flask(__name__)\n"),
+            vec![("app".to_string(), "Flask".to_string())]
+        );
+        assert_eq!(
+            applications_web("api: FastAPI = FastAPI(title='x')"),
+            vec![("api".to_string(), "FastAPI".to_string())]
+        );
+        assert!(applications_web("    app = Flask(__name__)").is_empty());
         assert!(est_un_source_de_production("bin/gollum"));
         assert!(est_un_source_de_production("config/packages/doctrine.yaml"));
         assert_eq!(

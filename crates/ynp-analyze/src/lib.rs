@@ -221,6 +221,15 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     if spring {
         facts.stack.cadre_web = Some("spring-boot".into());
     }
+    facts.stack.applications_web = tree
+        .applications_web()
+        .iter()
+        .map(|(chemin, objet, cadre)| ynp_core::facts::ApplicationWeb {
+            chemin: chemin.clone(),
+            objet: objet.clone(),
+            cadre: cadre.clone(),
+        })
+        .collect();
     facts.stack.dependances_ruby = tree
         .text("Gemfile")
         .map(|t| {

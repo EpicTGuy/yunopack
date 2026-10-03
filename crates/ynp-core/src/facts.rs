@@ -428,9 +428,19 @@ pub struct StackFacts {
     /// installe dans `node_modules/.bin` quand un script l'appelle par son nom.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_npm: Vec<String>,
+    /// Les objets d'application web des modules Python (`app = Flask(...)`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applications_web: Vec<ApplicationWeb>,
     /// Les paquets que le `composer.json` exige (`require`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_php: Vec<String>,
+    /// La version de Node que le depot demande (`.nvmrc`, `engines`), meme
+    /// quand l'application est ecrite dans un autre langage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_node: Option<String>,
+    /// Le champ `main` du `package.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_npm: Option<String>,
     /// Les gems que le `Gemfile` declare.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_ruby: Vec<String>,
@@ -469,6 +479,16 @@ pub struct CopieDEtape {
 pub struct CommandeDeclaree {
     pub commande: String,
     pub ou: String,
+}
+
+/// Un objet d'application web cree au niveau d'un module Python.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationWeb {
+    /// Chemin du module dans le depot : `app.py`, `src/monapp/main.py`.
+    pub chemin: String,
+    pub objet: String,
+    /// `Flask`, `FastAPI`...
+    pub cadre: String,
 }
 
 /// Une technologie apercue quelque part dans le depot, et ou.

@@ -35,6 +35,7 @@ pub fn deduite(facts: &RepoFacts) -> Option<Entree> {
         Technology::Rust => rust(facts),
         Technology::Python => python(facts),
         Technology::NodeJs => node(facts),
+        Technology::Ruby => rails(facts),
         _ => None,
     }
 }
@@ -113,6 +114,62 @@ pub fn django(facts: &RepoFacts) -> Option<(String, Vec<String>)> {
     ))
 }
 
+/// Le serveur d'un projet Python qui cree son application au niveau d'un
+/// module (`app = Flask(__name__)` dans `app.py`) : gunicorn pour WSGI,
+/// uvicorn pour ASGI, sur le port reserve et la boucle locale. Rend la
+/// commande et le serveur a installer. Plusieurs candidats sans racine qui
+/// s'impose : on ne choisit pas.
+pub fn application_python(facts: &RepoFacts) -> Option<(String, &'static str)> {
+    if facts.stack.primary != Technology::Python {
+        return None;
+    }
+    let candidats: Vec<&ynp_core::facts::ApplicationWeb> = facts
+        .stack
+        .applications_web
+        .iter()
+        .filter(|a| a.chemin.matches('/').count() <= 2)
+        .collect();
+    let rang = |a: &ynp_core::facts::ApplicationWeb| {
+        let nom = a.chemin.rsplit('/').next().unwrap_or(&a.chemin);
+        let profondeur = a.chemin.trim_start_matches("src/").matches('/').count();
+        let conventionnel = matches!(
+            nom,
+            "app.py" | "main.py" | "wsgi.py" | "asgi.py" | "server.py" | "application.py"
+        );
+        (profondeur, !conventionnel)
+    };
+    let meilleur = candidats.iter().map(|a| rang(a)).min()?;
+    let retenus: Vec<&&ynp_core::facts::ApplicationWeb> =
+        candidats.iter().filter(|a| rang(a) == meilleur).collect();
+    let [a] = retenus.as_slice() else {
+        return None;
+    };
+    let (dossier, module) = match a.chemin.strip_prefix("src/") {
+        Some(reste) => (Some("src"), reste),
+        None => (None, a.chemin.as_str()),
+    };
+    let module = module.trim_end_matches(".py").replace('/', ".");
+    let cible = format!("{module}:{}", a.objet);
+    Some(match a.cadre.as_str() {
+        "Flask" | "Bottle" => (
+            format!(
+                "__INSTALL_DIR__/venv/bin/gunicorn{} {cible} --bind 127.0.0.1:__PORT__",
+                dossier.map(|d| format!(" --chdir {d}")).unwrap_or_default()
+            ),
+            "gunicorn",
+        ),
+        _ => (
+            format!(
+                "__INSTALL_DIR__/venv/bin/uvicorn{} {cible} --host 127.0.0.1 --port __PORT__",
+                dossier
+                    .map(|d| format!(" --app-dir {d}"))
+                    .unwrap_or_default()
+            ),
+            "uvicorn",
+        ),
+    })
+}
+
 /// Un projet Python s'installe dans son environnement virtuel, par ses
 /// dependances declarees. Un projet Django (`manage.py` et un module
 /// `<projet>/wsgi.py`) se lance par gunicorn et se migre par manage.py :
@@ -132,13 +189,57 @@ fn python(facts: &RepoFacts) -> Option<Entree> {
             etapes.push("pip install gunicorn".into());
             (Some(c), m)
         }
-        None => (None, Vec::new()),
+        None => match application_python(facts) {
+            Some((c, serveur)) => {
+                etapes.push(format!("pip install {serveur}"));
+                (Some(c), Vec::new())
+            }
+            None => (None, Vec::new()),
+        },
     };
     Some(Entree {
         binaire: String::new(),
         etapes,
         commande,
         migrations,
+    })
+}
+
+/// La convention de Rails, sans Dockerfile ni Procfile qui la dise : puma
+/// avec sa configuration (celle que Rails genere), les gems hors
+/// developpement, les assets precompiles, la base preparee avant chaque
+/// demarrage (creee ou migree). feedbin ne declare que ses processus
+/// annexes.
+fn rails(facts: &RepoFacts) -> Option<Entree> {
+    if facts.stack.cadre_web.as_deref() != Some("rails") {
+        return None;
+    }
+    let a = |p: &str| facts.tree.iter().any(|x| x == p);
+    let commande = if a("config/puma.rb") {
+        "__RUBY_DIR__/bundle exec puma -C config/puma.rb"
+    } else {
+        "__RUBY_DIR__/bundle exec rails server"
+    };
+    let mut etapes = vec![
+        "bundle config set --local deployment true".to_string(),
+        "bundle config set --local without 'development test'".to_string(),
+        "bundle install".to_string(),
+    ];
+    let assets = facts
+        .tree
+        .iter()
+        .any(|p| p.starts_with("app/assets/") || p.starts_with("app/javascript/"));
+    if assets {
+        etapes.push(
+            "RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 bundle exec rails assets:precompile"
+                .to_string(),
+        );
+    }
+    Some(Entree {
+        binaire: String::new(),
+        etapes,
+        commande: Some(commande.to_string()),
+        migrations: vec!["__RUBY_DIR__/bundle exec rails db:prepare".to_string()],
     })
 }
 
@@ -151,14 +252,15 @@ fn python(facts: &RepoFacts) -> Option<Entree> {
 /// Un `start` qui lance un serveur de developpement (docusaurus, decap-cms :
 /// `develop`, `vite`, `--watch`) n'est pas un service : on ne le retient pas.
 fn node(facts: &RepoFacts) -> Option<Entree> {
-    if !facts.stack.scripts_npm.contains_key("start") {
-        return None;
-    }
-    let lance = crate::execstart::developper("npm start", facts);
-    if de_developpement(&lance) {
-        return None;
-    }
-    let commande = crate::execstart::traduire_avec("npm start", facts)?;
+    let commande = if facts.stack.scripts_npm.contains_key("start") {
+        let lance = crate::execstart::developper("npm start", facts);
+        if de_developpement(&lance) {
+            return None;
+        }
+        crate::execstart::traduire_avec("npm start", facts)?
+    } else {
+        format!("__NODEJS_DIR__/node {}", point_d_entree_node(facts)?)
+    };
     let a = |p: &str| facts.tree.iter().any(|x| x == p);
     let (installer, outil) = if a("pnpm-lock.yaml") {
         ("corepack pnpm install --frozen-lockfile", "corepack pnpm")
@@ -179,6 +281,32 @@ fn node(facts: &RepoFacts) -> Option<Entree> {
         commande: Some(commande),
         migrations: Vec::new(),
     })
+}
+
+/// Sans script `start` : `server.js` a la racine, que `npm start` lance
+/// alors de lui-meme ; sinon le `main` du package.json, si le projet depend
+/// d'un serveur web — sans quoi `main` designe une bibliotheque.
+fn point_d_entree_node(facts: &RepoFacts) -> Option<String> {
+    let a = |p: &str| facts.tree.iter().any(|x| x == p);
+    if a("server.js") {
+        return Some("server.js".into());
+    }
+    const SERVEURS: &[&str] = &[
+        "express",
+        "fastify",
+        "koa",
+        "@hapi/hapi",
+        "hapi",
+        "restify",
+        "polka",
+    ];
+    let serveur = facts
+        .stack
+        .dependances_npm
+        .iter()
+        .any(|d| SERVEURS.contains(&d.as_str()));
+    let main = facts.stack.main_npm.as_deref()?;
+    (serveur && a(main) && main.ends_with(".js")).then(|| main.to_string())
 }
 
 /// Une commande qui lance un serveur de developpement ou un mode de
@@ -253,6 +381,58 @@ mod tests {
     }
 
     #[test]
+    fn une_application_flask_ou_fastapi_se_sert_par_son_module() {
+        use ynp_core::facts::ApplicationWeb;
+        let mut f = faits(Technology::Python, "x", &["requirements.txt", "app.py"]);
+        let app = |c: &str, o: &str, k: &str| ApplicationWeb {
+            chemin: c.into(),
+            objet: o.into(),
+            cadre: k.into(),
+        };
+        f.stack.applications_web = vec![
+            app("app.py", "app", "Flask"),
+            app("tools/x.py", "a", "Flask"),
+        ];
+        let e = deduite(&f).unwrap();
+        assert_eq!(
+            e.commande.as_deref(),
+            Some("__INSTALL_DIR__/venv/bin/gunicorn app:app --bind 127.0.0.1:__PORT__")
+        );
+        assert!(e.etapes.contains(&"pip install gunicorn".to_string()));
+
+        f.stack.applications_web = vec![app("src/svc/main.py", "api", "FastAPI")];
+        assert_eq!(
+            application_python(&f).unwrap().0,
+            "__INSTALL_DIR__/venv/bin/uvicorn --app-dir src svc.main:api --host 127.0.0.1 --port __PORT__"
+        );
+
+        // Deux modules a egalite : on ne choisit pas.
+        f.stack.applications_web = vec![app("a.py", "app", "Flask"), app("b.py", "app", "Flask")];
+        assert_eq!(application_python(&f), None);
+    }
+
+    #[test]
+    fn rails_sans_dockerfile_suit_sa_convention() {
+        let mut f = faits(
+            Technology::Ruby,
+            "feedbin",
+            &["Gemfile", "config/puma.rb", "app/assets/config/manifest.js"],
+        );
+        assert_eq!(deduite(&f), None);
+        f.stack.cadre_web = Some("rails".into());
+        let e = deduite(&f).unwrap();
+        assert_eq!(
+            e.commande.as_deref(),
+            Some("__RUBY_DIR__/bundle exec puma -C config/puma.rb")
+        );
+        assert!(e.etapes.iter().any(|x| x.contains("assets:precompile")));
+        assert_eq!(
+            e.migrations,
+            vec!["__RUBY_DIR__/bundle exec rails db:prepare"]
+        );
+    }
+
+    #[test]
     fn un_projet_node_se_lance_par_son_script_start() {
         let mut f = faits(
             Technology::NodeJs,
@@ -277,6 +457,19 @@ mod tests {
             e.commande.as_deref(),
             Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
         );
+
+        // Sans script start, `server.js` a la racine.
+        let mut g = faits(Technology::NodeJs, "x", &["package.json", "server.js"]);
+        assert_eq!(
+            deduite(&g).unwrap().commande.as_deref(),
+            Some("__NODEJS_DIR__/node server.js")
+        );
+        // Un `main` sans serveur web est une bibliotheque.
+        g.tree = vec!["package.json".into(), "index.js".into()];
+        g.stack.main_npm = Some("index.js".into());
+        assert_eq!(deduite(&g), None);
+        g.stack.dependances_npm = vec!["express".into()];
+        assert!(deduite(&g).is_some());
 
         // Un serveur de developpement n'est pas un service.
         f.stack

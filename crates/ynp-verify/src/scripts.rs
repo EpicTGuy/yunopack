@@ -151,6 +151,36 @@ pub fn verifier(nom: &str, contenu: &str) -> Vec<Finding> {
             );
         }
 
+        // Une etape reprise de l'image qui modifie le systeme : installer des
+        // paquets, ecrire dans /etc ou /usr. Dans un conteneur, c'est la
+        // preparation de l'image ; sous YunoHost, l'utilisateur de
+        // l'application n'en a pas le droit, et ce serait toucher au serveur.
+        // checkmk reecrivait /etc/apt/sources.list, duplicati posait rclone
+        // dans /usr/bin.
+        if code.contains("ynh_exec_as_app") {
+            if let Some(cible) = ecrit_dans_le_systeme(code) {
+                out.push(
+                    Finding::new(
+                        "LINT007",
+                        Severity::Blocker,
+                        format!("Etape de construction qui modifie le systeme : {cible}"),
+                    )
+                    .arg("cible", &cible)
+                    .detail(
+                        "L'etape reprise du Dockerfile prepare l'image : elle installe des \
+                         paquets ou ecrit hors du repertoire d'installation. Sous YunoHost, \
+                         elle echouerait, ou modifierait le serveur.",
+                    )
+                    .remediation(
+                        "Declarer les paquets dans le manifeste et ecrire dans le \
+                         repertoire d'installation, ou corriger `runtime.build_steps` dans \
+                         appspec.toml.",
+                    )
+                    .evidence(Evidence::at(nom, ligne_num, ligne.trim())),
+                );
+            }
+        }
+
         // `rm -rf` sur un chemin issu d'une variable peut effacer la racine si
         // la variable est vide. Le helper refuse les chemins hors du perimetre.
         if code.contains("rm -rf") && code.contains('$') && !code.contains("ynh_safe_rm") {
@@ -217,6 +247,82 @@ fn contient_appel(ligne: &str, fonction: &str) -> bool {
     !matches!(suivant, Some(c) if c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Ce qu'une etape modifie du systeme, s'il y a lieu : un gestionnaire de
+/// paquets, ou un chemin du systeme qu'une commande d'ecriture vise.
+fn ecrit_dans_le_systeme(code: &str) -> Option<String> {
+    const SYSTEME: &[&str] = &[
+        "/etc/",
+        "/usr/",
+        "/bin/",
+        "/sbin/",
+        "/lib/",
+        "/lib64/",
+        "/opt/",
+        "/var/lib/",
+        "/var/www/",
+        "/root/",
+        "/srv/",
+        "/home/",
+    ];
+    const ECRITURE: &[&str] = &[
+        "cp", "mv", "ln", "install", "tee", "chmod", "chown", "mkdir", "rm", "touch", "unzip",
+        "tar", "sed", "curl", "wget",
+    ];
+    let mots: Vec<&str> = code
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')' | '\''))
+        .filter(|m| !m.is_empty())
+        .collect();
+    for (i, m) in mots.iter().enumerate() {
+        if matches!(*m, "dpkg" | "apt-get" | "apt" | "apk" | "yum" | "dnf")
+            && mots
+                .get(i + 1)
+                .is_some_and(|s| matches!(*s, "-i" | "install" | "add" | "remove"))
+        {
+            return Some(format!("{m} {}", mots[i + 1]));
+        }
+    }
+    let systeme = |m: &str| {
+        let m = m.trim_matches(|c| c == '"' || c == '\'');
+        let m = m
+            .strip_prefix(">>")
+            .or_else(|| m.strip_prefix('>'))
+            .unwrap_or(m);
+        SYSTEME
+            .iter()
+            .any(|s| m.starts_with(s))
+            .then(|| m.to_string())
+    };
+    // Une redirection vers le systeme.
+    for (i, m) in mots.iter().enumerate() {
+        if matches!(*m, ">" | ">>") {
+            if let Some(c) = mots.get(i + 1).and_then(|c| systeme(c)) {
+                return Some(c);
+            }
+        } else if m.starts_with('>') {
+            if let Some(c) = systeme(m) {
+                return Some(c);
+            }
+        }
+    }
+    // Un chemin du systeme dans les arguments d'une commande qui ecrit.
+    let mut ecrit = false;
+    for m in &mots {
+        let nom = m.rsplit('/').next().unwrap_or(m);
+        if ECRITURE.contains(&nom) {
+            ecrit = true;
+            continue;
+        }
+        if ecrit {
+            if let Some(c) = systeme(m) {
+                // Lire un fichier du systeme pour le copier chez soi est
+                // permis : seul compte le dernier argument d'une copie.
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 /// Vrai pour une compilation dont la sortie est un chemin absolu hors de
 /// l'installation (`/tmp` excepte).
 fn sortie_hors_installation(code: &str) -> bool {
@@ -256,6 +362,29 @@ mod tests {
     }
 
     const ENTETE: &str = "#!/bin/bash\nsource /usr/share/yunohost/helpers\n";
+
+    #[test]
+    fn une_etape_qui_modifie_le_systeme_est_bloquante() {
+        let s = |e: &str| format!("{ENTETE}ynh_exec_as_app bash -c '{e}'\n");
+        for e in [
+            "cp /tmp/rclone /usr/bin/rclone",
+            "sed -i s/a/b/ /etc/apt/sources.list",
+            "dpkg -i paquet.deb",
+            "echo exit > /usr/sbin/policy-rc.d",
+        ] {
+            assert!(ids(&verifier("install", &s(e))).contains(&"LINT007"), "{e}");
+        }
+        for e in [
+            "npm ci",
+            "cp config.sample.yml config.yml",
+            "go build -o ./app .",
+        ] {
+            assert!(
+                !ids(&verifier("install", &s(e))).contains(&"LINT007"),
+                "{e}"
+            );
+        }
+    }
 
     #[test]
     fn un_script_conforme_ne_declenche_rien() {

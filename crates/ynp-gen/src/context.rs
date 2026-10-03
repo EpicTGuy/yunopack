@@ -160,6 +160,14 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .iter()
                 .map(|e| {
                     let venv = if spec.runtime.venv_python { ENV_VENV } else { "" };
+                    // Les outils que l'image posait dans /usr/local/bin sont a
+                    // la racine de l'installation : les etapes suivantes les
+                    // appellent par leur nom.
+                    let venv = if spec.runtime.outils_locaux {
+                        format!("export PATH=\"$PWD:$PATH\"; {venv}")
+                    } else {
+                        venv.to_string()
+                    };
                     let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
                     let corps = entre_apostrophes(&format!("{rust}{venv}{e}"));
                     format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
@@ -196,6 +204,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .chain(spec.runtime.a_garder.iter().cloned())
                 .collect::<Vec<_>>(),
             "racine_web": spec.runtime.racine_web,
+            "outils_locaux": spec.runtime.outils_locaux,
             "fichier_sqlite": spec.runtime.fichier_sqlite,
             "cron": spec.runtime.cron,
             "a_une_cle_32": spec.runtime.env.values().any(|v| v.contains("__CLE_32__")),

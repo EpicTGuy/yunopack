@@ -13,6 +13,7 @@ mod entree;
 pub mod execstart;
 mod java;
 mod php;
+mod statique;
 
 use ynp_core::facts::{ConfigRole, Database, RepoFacts, Technology};
 use ynp_core::known::{Candidate, Known};
@@ -22,17 +23,104 @@ use ynp_core::spec::*;
 pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
     let app_id = ynp_core::app_id_from(Some(&facts.source.owner), &facts.source.repo)?;
 
+    let mut runtime = runtime(facts, &app_id);
+    let mut resources = resources(facts, &app_id);
+    outils_des_etapes(facts, &mut runtime, &mut resources);
+    // Un reglage qui designe le repertoire de donnees l'exige : sans lui,
+    // YunoHost s'arrete sur « Variable $data_dir wasn't initialized »
+    // (endurain).
+    if !resources.data_dir && designe_les_donnees(&runtime) {
+        resources.data_dir = true;
+    }
+
     Ok(AppSpec {
         schema_version: SPEC_SCHEMA_VERSION,
         app: identite(facts, &app_id),
         upstream: upstream(facts),
         integration: integration(facts),
-        install: questions(),
-        resources: resources(facts, &app_id),
-        runtime: runtime(facts, &app_id),
+        install: questions(facts),
+        resources,
+        runtime,
         features: features(facts),
         docs: docs(facts),
     })
+}
+
+/// Vrai si la configuration, la commande ou les migrations designent le
+/// repertoire de donnees.
+fn designe_les_donnees(r: &Runtime) -> bool {
+    let d = |v: &str| v.contains("__DATA_DIR__");
+    r.env.values().any(|v| d(v))
+        || r.execstart.value().is_some_and(|v| d(v))
+        || r.port_binding.value().is_some_and(|v| d(v))
+        || r.database_binding.value().is_some_and(|v| d(v))
+        || r.migrations.iter().any(|v| d(v))
+        || r.processus_annexes.iter().any(|p| d(&p.execstart))
+        || r.cron.iter().any(|v| d(v))
+}
+
+/// Vrai si une etape lance un outil de Node.
+fn appelle_node(etapes: &[String]) -> bool {
+    appelle(
+        etapes,
+        &["npm", "npx", "pnpm", "yarn", "corepack", "node", "bun"],
+    )
+}
+
+/// Vrai si une etape lance l'un de ces outils.
+fn appelle(etapes: &[String], outils: &[&str]) -> bool {
+    etapes.iter().any(|e| {
+        e.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+            .any(|m| outils.contains(&m.rsplit('/').next().unwrap_or(m)))
+    })
+}
+
+/// Ce que les etapes de construction appellent, le paquet doit l'installer,
+/// quel que soit le langage de l'application. klaxon (Ruby) construisait ses
+/// assets par yarn sans Node ; danbooru lancait bundle sans Ruby ;
+/// backstage (Node) installait sa documentation par pip, que Debian refuse
+/// hors d'un environnement virtuel.
+fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut Resources) {
+    let etapes = runtime.build_steps.clone();
+    if resources.nodejs_version.is_none() && appelle_node(&etapes) {
+        resources.nodejs_version = Some(
+            facts
+                .stack
+                .version_node
+                .clone()
+                .unwrap_or_else(|| "20".into()),
+        );
+    }
+    if resources.ruby_version.is_none() && appelle(&etapes, &["bundle", "gem", "rake", "rails"]) {
+        resources.ruby_version = Some(
+            (facts.stack.primary == Technology::Ruby)
+                .then(|| facts.stack.runtime_version.clone())
+                .flatten()
+                .unwrap_or_else(|| "3.3".into()),
+        );
+    }
+    if !runtime.venv_python && appelle(&etapes, &["pip", "pip3"]) {
+        runtime.venv_python = true;
+    }
+    let mut apt = |p: &str| {
+        if !resources.apt_packages.iter().any(|a| a == p) {
+            resources.apt_packages.push(p.to_string());
+        }
+    };
+    if runtime.venv_python {
+        apt("python3-venv");
+        apt("python3-dev");
+    }
+    if appelle(&etapes, &["composer"]) {
+        apt("composer");
+        apt("unzip");
+    }
+    for outil in ["git", "curl", "wget", "unzip", "make"] {
+        if appelle(&etapes, &[outil]) {
+            apt(outil);
+        }
+    }
+    resources.apt_packages.sort_unstable();
 }
 
 fn identite(facts: &RepoFacts, app_id: &str) -> AppIdentity {
@@ -139,12 +227,15 @@ fn integration(facts: &RepoFacts) -> Integration {
     }
 }
 
-fn questions() -> InstallQuestions {
+fn questions(facts: &RepoFacts) -> InstallQuestions {
     InstallQuestions {
-        // On reste sur le cas courant. Les applications exigeant un domaine
-        // dedie sont minoritaires et ne se reconnaissent a aucun signal fiable :
-        // c'est a la relecture de l'appspec de trancher.
-        url_scheme: UrlScheme::DomainAndPath,
+        // Le cas courant, sauf un site construit : il reference ses fichiers
+        // depuis la racine, et ne fonctionnerait pas sous un chemin.
+        url_scheme: if statique::site(facts).is_some() {
+            UrlScheme::FullDomain
+        } else {
+            UrlScheme::DomainAndPath
+        },
         init_main_permission: "all_users".into(),
         extra: Vec::new(),
     }
@@ -281,6 +372,80 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
                 .join(" ")
         })
         .collect()
+}
+
+/// Un outil que l'image pose dans `/usr/bin` ou `/usr/local/bin` — uv chez
+/// simplelogin, rclone chez duplicati, caddy chez dreeve — va a la racine de
+/// l'installation, la ou la traduction des commandes le cherche deja ;
+/// l'utilisateur de l'application ne peut pas ecrire dans le systeme. Le
+/// PATH des etapes et du service inclut alors l'installation
+/// (`runtime.outils_locaux`).
+fn outils_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
+    const SYSTEME: &[&str] = &[
+        "env", "sh", "bash", "python", "python3", "perl", "git", "curl", "wget", "tar", "unzip",
+        "node", "npm", "php", "ruby", "java", "make", "gcc", "true", "false",
+    ];
+    etapes
+        .into_iter()
+        .map(|e| {
+            let ecrit = ecrit_dans_un_repertoire_de_binaires(&e);
+            if !ecrit {
+                return e;
+            }
+            e.split(' ')
+                .map(|m| {
+                    let (tete, chemin) = match m.find("/usr/") {
+                        Some(i) => (&m[..i], &m[i..]),
+                        None => return m.to_string(),
+                    };
+                    for d in ["/usr/local/bin", "/usr/bin"] {
+                        if chemin == d || chemin == format!("{d}/") {
+                            return format!("{tete}$PWD");
+                        }
+                        if let Some(nom) = chemin.strip_prefix(&format!("{d}/")) {
+                            let base = nom.split(['/', '"', '\'']).next().unwrap_or(nom);
+                            if d == "/usr/bin" && SYSTEME.contains(&base) {
+                                return m.to_string();
+                            }
+                            return format!("{tete}$PWD/{nom}");
+                        }
+                    }
+                    m.to_string()
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
+/// Vrai si l'etape ecrit dans `/usr/bin` ou `/usr/local/bin`.
+fn ecrit_dans_un_repertoire_de_binaires(etape: &str) -> bool {
+    const ECRITURE: &[&str] = &[
+        "cp", "mv", "install", "ln", "tar", "unzip", "curl", "wget", "chmod",
+    ];
+    let mots: Vec<&str> = etape
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+        .filter(|m| !m.is_empty())
+        .collect();
+    let mut ecrit = false;
+    for (i, m) in mots.iter().enumerate() {
+        if ECRITURE.contains(&m.rsplit('/').next().unwrap_or(m)) {
+            ecrit = true;
+        }
+        let cible = m
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim_start_matches('>');
+        let bin = cible.starts_with("/usr/local/bin") || cible.starts_with("/usr/bin");
+        if bin
+            && (ecrit
+                || mots
+                    .get(i.wrapping_sub(1))
+                    .is_some_and(|p| p.starts_with('>')))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// `corepack enable` ecrit ses raccourcis dans le repertoire de Node, qui
@@ -511,6 +676,20 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
     }
 
+    // Rails en production : l'environnement, la cle des sessions, les
+    // fichiers statiques et le journal, que l'image fixait par ses ENV.
+    if facts.stack.cadre_web.as_deref() == Some("rails") {
+        for (nom, valeur) in [
+            ("RAILS_ENV", "production"),
+            ("SECRET_KEY_BASE", "__SECRET__"),
+            ("RAILS_SERVE_STATIC_FILES", "true"),
+            ("RAILS_LOG_TO_STDOUT", "true"),
+        ] {
+            env.entry(nom.to_string())
+                .or_insert_with(|| valeur.to_string());
+        }
+    }
+
     // Ce que le cadre PHP exige et qu'aucun exemple ne remplit : la cle de
     // chiffrement de Laravel, l'environnement de production.
     for (nom, valeur) in php::reglages(facts) {
@@ -570,6 +749,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // service a demarrer, donc aucune commande a demander. Chaque
     // application PHP sans Dockerfile posait pourtant la question.
     let execstart = match facts.stack.primary {
+        _ if statique::site(facts).is_some() => Known::resolved(String::new()),
         // Sauf la file de taches d'une application Laravel, que rien d'autre
         // ne fait tourner.
         Technology::Php => Known::resolved(php::file_de_taches(facts).unwrap_or_default()),
@@ -632,6 +812,69 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         _ => execstart,
     };
 
+    let etapes = if facts
+        .selection
+        .as_ref()
+        .is_some_and(|s| s.evite_la_compilation())
+    {
+        // Rien a construire : l'amont publie un binaire.
+        Vec::new()
+    } else {
+        let mut etapes = statique::site(facts)
+            .map(|s| s.etapes)
+            .or_else(|| facts.build.as_ref().map(|b| b.build_steps.clone()))
+            .or_else(|| entree::deduite(facts).map(|e| e.etapes))
+            .unwrap_or_default();
+        if facts.stack.primary == Technology::Php {
+            etapes = etapes
+                .iter()
+                .map(|e| php::avec_le_php_du_manifeste(e))
+                .collect();
+            if !etapes.iter().any(|e| e.contains("/usr/bin/composer")) {
+                if let Some(c) = php::etape_composer(facts) {
+                    etapes.insert(0, c);
+                }
+            }
+            if !etapes.iter().any(|e| e.contains("npm ")) {
+                etapes.extend(php::etapes_du_frontal(facts));
+            }
+            // Le lien public des fichiers deposes (`public/storage`), que
+            // Laravel ne cree pas de lui-meme.
+            if php::cadre(facts) == Some(php::Cadre::Laravel)
+                && !etapes.iter().any(|e| e.contains("storage:link"))
+            {
+                etapes.push("php$PHP_VERSION artisan storage:link || true".into());
+            }
+        }
+        etapes.extend(copies_apres_construction(facts));
+        // La convention Django lance gunicorn : un Dockerfile sans
+        // commande ne l'installe pas forcement.
+        let sans_cmd = facts
+            .build
+            .as_ref()
+            .is_some_and(|b| b.start_command().is_none());
+        if sans_cmd
+            && entree::django(facts).is_some()
+            && !etapes.iter().any(|e| e.contains("gunicorn"))
+        {
+            etapes.push("pip install gunicorn".into());
+        } else if sans_cmd && entree::django(facts).is_none() {
+            if let Some((_, serveur)) = entree::application_python(facts) {
+                if !etapes.iter().any(|e| e.contains(serveur)) {
+                    etapes.push(format!("pip install {serveur}"));
+                }
+            }
+        }
+        sans_activation_de_corepack(relatives_au_repertoire_de_travail(
+            sans_clone_du_depot(etapes, facts),
+            facts,
+        ))
+    };
+    let outils_locaux = etapes
+        .iter()
+        .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
+    let build_steps = outils_dans_l_installation(etapes);
+
     Runtime {
         technology: match facts.stack.primary {
             // Rien a la racine. Si le depot porte des fichiers de projet plus
@@ -664,61 +907,12 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                     candidats,
                 )
             }
+            // Un site construit par Node est servi tel quel.
+            _ if statique::site(facts).is_some() => Known::resolved(Technology::Static),
             t => Known::resolved(t),
         },
-        build_steps: if facts
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.evite_la_compilation())
-        {
-            // Rien a construire : l'amont publie un binaire.
-            Vec::new()
-        } else {
-            let mut etapes = facts
-                .build
-                .as_ref()
-                .map(|b| b.build_steps.clone())
-                .or_else(|| entree::deduite(facts).map(|e| e.etapes))
-                .unwrap_or_default();
-            if facts.stack.primary == Technology::Php {
-                etapes = etapes
-                    .iter()
-                    .map(|e| php::avec_le_php_du_manifeste(e))
-                    .collect();
-                if !etapes.iter().any(|e| e.contains("/usr/bin/composer")) {
-                    if let Some(c) = php::etape_composer(facts) {
-                        etapes.insert(0, c);
-                    }
-                }
-                if !etapes.iter().any(|e| e.contains("npm ")) {
-                    etapes.extend(php::etapes_du_frontal(facts));
-                }
-                // Le lien public des fichiers deposes (`public/storage`), que
-                // Laravel ne cree pas de lui-meme.
-                if php::cadre(facts) == Some(php::Cadre::Laravel)
-                    && !etapes.iter().any(|e| e.contains("storage:link"))
-                {
-                    etapes.push("php$PHP_VERSION artisan storage:link || true".into());
-                }
-            }
-            etapes.extend(copies_apres_construction(facts));
-            // La convention Django lance gunicorn : un Dockerfile sans
-            // commande ne l'installe pas forcement.
-            let sans_cmd = facts
-                .build
-                .as_ref()
-                .is_some_and(|b| b.start_command().is_none());
-            if sans_cmd
-                && entree::django(facts).is_some()
-                && !etapes.iter().any(|e| e.contains("gunicorn"))
-            {
-                etapes.push("pip install gunicorn".into());
-            }
-            sans_activation_de_corepack(relatives_au_repertoire_de_travail(
-                sans_clone_du_depot(etapes, facts),
-                facts,
-            ))
-        },
+        build_steps,
+        outils_locaux,
         rust_toolchain: chaine_rust(facts),
         // Toute application Python, et toute commande qui appelle le venv.
         venv_python: facts.stack.primary == Technology::Python
@@ -730,7 +924,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         execstart,
         migrations,
         processus_annexes,
-        racine_web: php::racine_web(facts),
+        racine_web: php::racine_web(facts).or_else(|| statique::site(facts).map(|s| s.racine)),
         a_garder: php::a_garder(facts),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
@@ -1596,7 +1790,8 @@ fn features(facts: &RepoFacts) -> Features {
     // Un service systemd n'a de sens que si l'on sait quoi demarrer : pour
     // une application PHP, sa file de taches si elle en a une.
     let daemon =
-        (!php && facts.stack.primary != Technology::Static) || php::file_de_taches(facts).is_some();
+        (!php && facts.stack.primary != Technology::Static && statique::site(facts).is_none())
+            || php::file_de_taches(facts).is_some();
 
     Features {
         nginx: true,
@@ -1629,6 +1824,9 @@ fn docs(facts: &RepoFacts) -> Docs {
 /// reverse-proxy. Constate sur gotify, dont le Dockerfile ne declare aucun
 /// port alors que le paquet officiel en reserve un.
 fn a_besoin_d_un_port(facts: &RepoFacts) -> bool {
+    if statique::site(facts).is_some() {
+        return false;
+    }
     if expose_un_port(facts) {
         return true;
     }
@@ -1934,6 +2132,54 @@ mod propositions {
         f.config.variables.remove(1);
         f.config.variables.remove(0);
         assert_eq!(fichier_sqlite(&f), None);
+    }
+
+    #[test]
+    fn un_outil_de_l_image_va_dans_l_installation() {
+        let e = outils_dans_l_installation(vec![
+            "mv /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/bin/uv".into(),
+            "tar -xzf /tmp/caddy.tar.gz -C /usr/bin caddy".into(),
+            "curl -fsSL https://x/composer.phar -o /usr/local/bin/composer".into(),
+            "/usr/bin/env python3 build.py".into(),
+        ]);
+        assert_eq!(e[0], "mv /tmp/uv-x86_64-unknown-linux-gnu/uv $PWD/uv");
+        assert_eq!(e[1], "tar -xzf /tmp/caddy.tar.gz -C $PWD caddy");
+        assert_eq!(e[2], "curl -fsSL https://x/composer.phar -o $PWD/composer");
+        // Lire un outil du systeme n'est pas en poser un.
+        assert_eq!(e[3], "/usr/bin/env python3 build.py");
+    }
+
+    #[test]
+    fn les_outils_des_etapes_sont_installes() {
+        let mut f = faits(vec![], vec![]);
+        f.stack.primary = Technology::NodeJs;
+        let mut r = Runtime {
+            build_steps: vec![
+                "pip install mkdocs".into(),
+                "wget -q https://x/y.tgz".into(),
+                "bundle install".into(),
+            ],
+            ..Default::default()
+        };
+        let mut res = Resources::default();
+        outils_des_etapes(&f, &mut r, &mut res);
+        assert!(r.venv_python);
+        assert_eq!(res.ruby_version.as_deref(), Some("3.3"));
+        for p in ["python3-venv", "wget"] {
+            assert!(res.apt_packages.iter().any(|a| a == p), "{p}");
+        }
+    }
+
+    #[test]
+    fn une_etape_qui_appelle_node_exige_node() {
+        assert!(appelle_node(&[
+            "bundle install".into(),
+            "yarn install --frozen-lockfile".into()
+        ]));
+        assert!(appelle_node(&["cd front && npm ci".into()]));
+        assert!(!appelle_node(
+            &["bundle exec rake assets:precompile".into()]
+        ));
     }
 
     #[test]

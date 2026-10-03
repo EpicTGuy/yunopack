@@ -691,3 +691,38 @@ fn l_administration_de_l_image_n_est_pas_une_etape() {
         vec!["bundle install", "bundle exec rake install"]
     );
 }
+
+#[test]
+fn les_paquets_d_une_ligne_a_bloc_vont_au_manifeste() {
+    // Cas de passbolt : une ligne qui contient un `if` reste entiere, mais
+    // son apt-get ne peut pas tourner sous l'utilisateur de l'application.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM php:8.2-fpm\nRUN apt-get update && apt-get -y install --no-install-recommends git unzip \
+         && if [ -n \"$X\" ]; then echo x; fi && rm -rf /var/lib/apt/lists/*\n",
+    );
+    assert!(r.apt_packages.contains(&"git".to_string()));
+    assert!(r.apt_packages.contains(&"unzip".to_string()));
+    assert_eq!(r.build_steps.len(), 1);
+    assert!(
+        !r.build_steps[0].contains("apt-get"),
+        "{}",
+        r.build_steps[0]
+    );
+    assert!(r.build_steps[0].contains("if [ -n"));
+}
+
+#[test]
+fn un_sous_shell_d_installation_va_au_manifeste() {
+    // Cas de dawarich : `(apt-get install … 2>/dev/null || true)`.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM ruby:3.4\nRUN (apt-get install -y --no-install-recommends mesa-libgallium 2>/dev/null || true)\n",
+    );
+    assert_eq!(r.apt_packages, vec!["mesa-libgallium"]);
+    assert!(
+        r.build_steps.iter().all(|e| !e.contains("apt-get")),
+        "{:?}",
+        r.build_steps
+    );
+}

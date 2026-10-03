@@ -25,6 +25,9 @@ pub struct RepoTree {
     moteurs_cites: BTreeMap<String, usize>,
     /// Les valeurs par defaut que le code donne aux variables qu'il lit.
     defauts_lus: BTreeMap<String, String>,
+    /// Les objets d'application web des modules Python : (chemin, objet,
+    /// cadre).
+    applications_web: Vec<(String, String, String)>,
 }
 
 impl RepoTree {
@@ -47,6 +50,11 @@ impl RepoTree {
         }
         for i in crate::ecoutes::indices(contenu) {
             self.ecoutes.entry(i).or_insert_with(|| path.to_string());
+        }
+        if path.ends_with(".py") {
+            for (objet, cadre) in crate::lectures::applications_web(contenu) {
+                self.applications_web.push((path.to_string(), objet, cadre));
+            }
         }
         for m in crate::lectures::moteurs_cites(contenu) {
             *self.moteurs_cites.entry(m).or_default() += 1;
@@ -72,6 +80,11 @@ impl RepoTree {
     /// Indices d'ecoute releves dans le code, avec le fichier qui les montre.
     pub fn ecoutes(&self) -> &BTreeMap<crate::ecoutes::Indice, String> {
         &self.ecoutes
+    }
+
+    /// Les objets d'application web des modules Python.
+    pub fn applications_web(&self) -> &[(String, String, String)] {
+        &self.applications_web
     }
 
     /// Valeurs par defaut donnees par le code aux variables qu'il lit.

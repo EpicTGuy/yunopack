@@ -549,6 +549,10 @@ pub struct Runtime {
     /// l'installation : `public` pour Laravel et Symfony.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub racine_web: Option<String>,
+    /// Les etapes posent des outils a la racine de l'installation (au lieu
+    /// de `/usr/local/bin`) : elle entre dans le PATH du service.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub outils_locaux: bool,
     /// Le fichier de la base SQLite, cree dans `data_dir` a l'installation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fichier_sqlite: Option<String>,

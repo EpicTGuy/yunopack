@@ -78,6 +78,11 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
                 facts.dependances_npm.extend(d.keys().cloned());
             }
         }
+        facts.version_node = node_version(tree);
+        facts.main_npm = pkg
+            .get("main")
+            .and_then(Value::as_str)
+            .map(|m| m.trim_start_matches("./").to_string());
     }
 
     facts.commande_declaree =

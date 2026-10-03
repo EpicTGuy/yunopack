@@ -138,7 +138,9 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
         };
     };
     let Some(commande) = build.start_command() else {
-        let django = crate::entree::django(facts).map(|(c, _)| c);
+        let django = crate::entree::django(facts)
+            .map(|(c, _)| c)
+            .or_else(|| crate::entree::application_python(facts).map(|(c, _)| c));
         let (du_compose, autres) = commande_du_compose(facts);
         let mut proposee = proposee;
         proposee.extend(autres);

@@ -268,7 +268,13 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
             .is_some_and(|t| matches!(t.as_str(), "if" | "case" | "for" | "while"))
     });
     if a_un_bloc {
-        recipe.build_steps.push(commande.trim().to_string());
+        // Les paquets qu'il installe vont quand meme au manifeste, et leur
+        // installation dans l'etape devient `true` : l'utilisateur de
+        // l'application ne peut pas lancer apt-get (passbolt).
+        let (apt, apk, nettoye) = neutraliser_les_paquets(commande.trim());
+        recipe.apt_packages.extend(apt);
+        recipe.apk_packages.extend(apk);
+        recipe.build_steps.push(nettoye);
         return;
     }
     for cmd in fragments {
@@ -283,6 +289,43 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
             RunKind::BuildStep => recipe.build_steps.push(cmd.clone()),
         }
     }
+}
+
+/// Les paquets qu'une ligne composee installe, et la ligne ou ces
+/// installations — et le menage de leurs index — sont remplacees par `true`.
+fn neutraliser_les_paquets(commande: &str) -> (Vec<String>, Vec<String>, String) {
+    use std::sync::OnceLock;
+    static INSTALL: OnceLock<regex::Regex> = OnceLock::new();
+    static MENAGE: OnceLock<regex::Regex> = OnceLock::new();
+    let install = INSTALL.get_or_init(|| {
+        regex::Regex::new(
+            r"\b(?:(?:apt-get|apt|aptitude)\s+(?:-\S+\s+)*install|apk\s+(?:-\S+\s+)*add)\b([^&;|)]*)",
+        )
+        .expect("motif valide")
+    });
+    let menage = MENAGE.get_or_init(|| {
+        regex::Regex::new(
+            r"\b(?:apt-get|apt|apk)\s+(?:-\S+\s+)*(?:update|upgrade|clean|autoremove|del|cache\s+clean)\b[^&;|)]*|\brm\s+-rf\s+/var/lib/apt/lists/\S*|\brm\s+-rf\s+/var/cache/apk/\S*",
+        )
+        .expect("motif valide")
+    });
+    let (mut apt, mut apk) = (Vec::new(), Vec::new());
+    for c in install.captures_iter(commande) {
+        let paquets: Vec<String> = tokenize(&c[1])
+            .into_iter()
+            .filter(|t| !t.starts_with('-') && !is_dynamic(t) && !t.contains('>'))
+            .map(|t| t.split('=').next().unwrap_or(&t).to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if c[0].trim_start().starts_with("apk") {
+            apk.extend(paquets);
+        } else {
+            apt.extend(paquets);
+        }
+    }
+    let nettoye = install.replace_all(commande, "true");
+    let nettoye = menage.replace_all(&nettoye, "true");
+    (apt, apk, nettoye.into_owned())
 }
 
 /// Retire les options de `RUN` introduites par BuildKit, qui precedent la
@@ -316,6 +359,9 @@ fn classify(toks: &[String]) -> RunKind {
     let Some(bin) = cmd.first().map(|s| s.as_str()) else {
         return RunKind::Noise;
     };
+    // `(apt-get install … || apt-get install …)` decoupe laisse la
+    // parenthese ouvrante au premier mot.
+    let bin = bin.trim_start_matches('(').trim_end_matches(')');
     let bin = bin.rsplit('/').next().unwrap_or(bin);
 
     // `cargo chef` met en cache les couches d'une image Docker. Hors de
@@ -325,6 +371,26 @@ fn classify(toks: &[String]) -> RunKind {
             || (cmd.get(1).is_some_and(|s| s == "install")
                 && cmd.iter().any(|t| t == "cargo-chef")))
     {
+        return RunKind::Noise;
+    }
+
+    // La configuration du serveur web ou du superviseur de l'image : YunoHost
+    // a son nginx et son systemd. phplist reglait le journal d'Apache.
+    if matches!(
+        bin,
+        "a2enmod" | "a2enconf" | "a2ensite" | "a2dismod" | "a2disconf" | "a2dissite"
+    ) || cmd.iter().any(|t| {
+        let t = t.trim_start_matches('>');
+        [
+            "/etc/apache2/",
+            "/etc/nginx/",
+            "/etc/supervisor",
+            "/usr/local/etc/php-fpm.d/",
+            "/etc/php/",
+        ]
+        .iter()
+        .any(|p| t.starts_with(p))
+    }) {
         return RunKind::Noise;
     }
 
@@ -410,7 +476,9 @@ fn packages_after(cmd: &[String], verb: &str) -> Vec<String> {
     };
     cmd[at + 1..]
         .iter()
-        .filter(|t| !t.starts_with('-') && !is_dynamic(t))
+        // Ni option, ni variable, ni redirection (`2>/dev/null`), ni
+        // parenthese d'un sous-shell.
+        .filter(|t| !t.starts_with('-') && !is_dynamic(t) && !t.contains(['>', '/', '|', ')']))
         // Un epinglage `foo=1.2.3` ne se transpose pas : on garde le nom.
         .map(|t| t.split('=').next().unwrap_or(t).to_string())
         .filter(|t| !t.is_empty())
