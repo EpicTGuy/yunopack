@@ -12,6 +12,7 @@ pub mod apt;
 mod entree;
 pub mod execstart;
 mod java;
+mod php;
 
 use ynp_core::facts::{ConfigRole, Database, RepoFacts, Technology};
 use ynp_core::known::{Candidate, Known};
@@ -195,7 +196,10 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         s3: exige_un_stockage_s3(facts),
         // Un volume declare signale des donnees a preserver a la desinstallation.
         // Le stockage S3 embarque range aussi ses objets dans ce repertoire.
+        // Une base SQLite aussi : dans le repertoire d'installation, la mise
+        // a jour, qui le remplace, l'emporterait.
         data_dir: exige_un_stockage_s3(facts)
+            || fichier_sqlite(facts).is_some()
             || facts.build.as_ref().is_some_and(|b| !b.volumes.is_empty())
             || facts
                 .compose
@@ -207,7 +211,10 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         apt_packages: apt::packages(facts),
         apt_extras: java::depot_temurin(facts).into_iter().collect(),
         database: facts.services.database,
-        nodejs_version: version_de_resource(facts, Technology::NodeJs),
+        nodejs_version: version_de_resource(facts, Technology::NodeJs).or_else(|| {
+            // Le frontal d'une application PHP se construit avec Node.
+            (!php::etapes_du_frontal(facts).is_empty()).then(|| "20".to_string())
+        }),
         ruby_version: version_de_resource(facts, Technology::Ruby),
         go_version: version_de_resource(facts, Technology::Go),
         composer_version: None,
@@ -238,6 +245,40 @@ fn sans_clone_du_depot(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
                 && b.split_whitespace()
                     .any(|m| m.trim_end_matches(".git").rsplit('/').next() == Some(depot.as_str()));
             !clone
+        })
+        .collect()
+}
+
+/// Les chemins absolus du repertoire de travail de l'image, rendus relatifs :
+/// les etapes tournent dans le repertoire d'installation, qui en tient lieu.
+/// webhook.site creait `/var/www/html/database/database.sqlite`, hors de
+/// toute installation.
+fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
+    let Some(workdir) = facts
+        .build
+        .as_ref()
+        .and_then(|b| b.workdir.as_deref())
+        .map(|w| w.trim_end_matches('/'))
+        .filter(|w| w.len() > 1)
+    else {
+        return etapes;
+    };
+    let prefixe = format!("{workdir}/");
+    etapes
+        .into_iter()
+        .map(|e| {
+            e.split(' ')
+                .map(|m| {
+                    if let Some(reste) = m.strip_prefix(&prefixe) {
+                        format!("./{reste}")
+                    } else if m == workdir {
+                        ".".to_string()
+                    } else {
+                        m.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
         })
         .collect()
 }
@@ -456,11 +497,24 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 "REDIS_HOST" => "127.0.0.1",
                 "REDIS_PORT" => "6379",
                 "REDIS_DB" | "REDIS_DATABASE" => "__REDIS_DB__",
+                // Le Redis de YunoHost n'a pas de mot de passe : en envoyer
+                // un fait echouer la connexion (« AUTH called without any
+                // password configured »).
+                "REDIS_PASSWORD" => {
+                    env.insert(var.name.clone(), String::new());
+                    continue;
+                }
                 _ => continue,
             };
             env.entry(var.name.clone())
                 .or_insert_with(|| valeur.to_string());
         }
+    }
+
+    // Ce que le cadre PHP exige et qu'aucun exemple ne remplit : la cle de
+    // chiffrement de Laravel, l'environnement de production.
+    for (nom, valeur) in php::reglages(facts) {
+        env.insert(nom.to_string(), valeur.to_string());
     }
 
     // Les variables que le projet nomme pour joindre son stockage S3, cablees
@@ -516,7 +570,10 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // service a demarrer, donc aucune commande a demander. Chaque
     // application PHP sans Dockerfile posait pourtant la question.
     let execstart = match facts.stack.primary {
-        Technology::Php | Technology::Static => Known::resolved(String::new()),
+        // Sauf la file de taches d'une application Laravel, que rien d'autre
+        // ne fait tourner.
+        Technology::Php => Known::resolved(php::file_de_taches(facts).unwrap_or_default()),
+        Technology::Static => Known::resolved(String::new()),
         _ => avec_l_option_de_port(facts, execstart::derive(facts, app_id)),
     };
 
@@ -536,6 +593,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .flatten()
         })
         .unwrap_or_default();
+    for m in php::migrations(facts) {
+        if !migrations.contains(&m) {
+            migrations.push(m);
+        }
+    }
     let mut intraduisible = None;
     for m in &facts.stack.migrations_du_point_d_entree {
         match execstart::traduire_avec(m, facts) {
@@ -543,6 +605,18 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             None => intraduisible = Some(m.clone()),
         }
     }
+    let (processus_annexes, annexe_intraduisible) = processus_annexes(facts, &mut migrations);
+    let execstart = match (annexe_intraduisible, execstart.value()) {
+        (Some((nom, c)), Some(_)) => Known::unresolved_avec(
+            format!(
+                "le Procfile declare aussi le processus « {nom} » (`{c}`), non transposable \
+                 automatiquement : sans lui, l'application serait incomplete"
+            ),
+            &["Procfile", "la documentation du projet d'origine"],
+            Vec::new(),
+        ),
+        _ => execstart,
+    };
     let execstart = match (intraduisible, execstart.value()) {
         (Some(m), Some(_)) => Known::unresolved_avec(
             format!(
@@ -606,6 +680,27 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .map(|b| b.build_steps.clone())
                 .or_else(|| entree::deduite(facts).map(|e| e.etapes))
                 .unwrap_or_default();
+            if facts.stack.primary == Technology::Php {
+                etapes = etapes
+                    .iter()
+                    .map(|e| php::avec_le_php_du_manifeste(e))
+                    .collect();
+                if !etapes.iter().any(|e| e.contains("/usr/bin/composer")) {
+                    if let Some(c) = php::etape_composer(facts) {
+                        etapes.insert(0, c);
+                    }
+                }
+                if !etapes.iter().any(|e| e.contains("npm ")) {
+                    etapes.extend(php::etapes_du_frontal(facts));
+                }
+                // Le lien public des fichiers deposes (`public/storage`), que
+                // Laravel ne cree pas de lui-meme.
+                if php::cadre(facts) == Some(php::Cadre::Laravel)
+                    && !etapes.iter().any(|e| e.contains("storage:link"))
+                {
+                    etapes.push("php$PHP_VERSION artisan storage:link || true".into());
+                }
+            }
             etapes.extend(copies_apres_construction(facts));
             // La convention Django lance gunicorn : un Dockerfile sans
             // commande ne l'installe pas forcement.
@@ -619,7 +714,10 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             {
                 etapes.push("pip install gunicorn".into());
             }
-            sans_activation_de_corepack(sans_clone_du_depot(etapes, facts))
+            sans_activation_de_corepack(relatives_au_repertoire_de_travail(
+                sans_clone_du_depot(etapes, facts),
+                facts,
+            ))
         },
         rust_toolchain: chaine_rust(facts),
         // Toute application Python, et toute commande qui appelle le venv.
@@ -631,6 +729,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
         execstart,
         migrations,
+        processus_annexes,
+        racine_web: php::racine_web(facts),
+        a_garder: php::a_garder(facts),
+        fichier_sqlite: fichier_sqlite(facts),
+        cron: php::cron(facts),
         repertoire_de_travail: repertoire_de_travail(facts),
         database_binding: liaison_base(facts),
         // Un fichier de configuration est necessaire des qu'il y a quelque
@@ -790,6 +893,9 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
         // Spring Boot fixe ces noms pour toutes ses applications.
         None if facts.stack.cadre_web.as_deref() == Some("spring-boot") => {
             Known::resolved("SERVER_PORT=__PORT__\nSERVER_ADDRESS=127.0.0.1".into())
+        }
+        None if facts.stack.cadre_web.as_deref() == Some("rails") => {
+            Known::resolved("PORT=__PORT__".into())
         }
         None => Known::unresolved_avec(
             "on ignore sous quel nom l'application attend son port d'ecoute ; la forme varie \
@@ -1079,6 +1185,9 @@ fn type_de_base(
 /// reglages que le coeur fournit ; seul le *nom* sous lequel l'application
 /// l'attend reste inconnu quand l'amont ne publie aucun exemple.
 fn liaison_base(facts: &RepoFacts) -> Known<String> {
+    if let Some(fichier) = fichier_sqlite(facts) {
+        return Known::resolved(liaison_sqlite(facts, &fichier));
+    }
     let adresse = match facts.services.database {
         Database::PostgreSql => {
             "postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable"
@@ -1153,6 +1262,31 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
         );
     }
 
+    // Rails fusionne `DATABASE_URL` dans config/database.yml ; le schema
+    // nomme l'adaptateur (`postgresql`, `mysql2`).
+    if facts.stack.cadre_web.as_deref() == Some("rails") {
+        let url = match facts.services.database {
+            Database::PostgreSql => {
+                "postgresql://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__".to_string()
+            }
+            _ => {
+                let adaptateur = if facts.stack.dependances_ruby.iter().any(|g| g == "trilogy") {
+                    "trilogy"
+                } else {
+                    "mysql2"
+                };
+                format!("{adaptateur}://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__")
+            }
+        };
+        return Known::resolved(
+            moteur
+                .into_iter()
+                .chain([format!("DATABASE_URL={url}")])
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+
     // Spring Boot lit sa base dans SPRING_DATASOURCE_*, au format JDBC.
     if facts.stack.cadre_web.as_deref() == Some("spring-boot") {
         let url = match facts.services.database {
@@ -1175,6 +1309,104 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
         ],
         candidats_base(facts, adresse),
     )
+}
+
+/// Les processus du Procfile autres que `web`, traduits. `release` est la
+/// commande que la plateforme lance a chaque deploiement : une migration,
+/// lancee ici avant chaque demarrage. Un processus de developpement
+/// (`--watch`) n'a rien a faire en production. Rend aussi le premier
+/// processus qui ne se traduit pas.
+fn processus_annexes(
+    facts: &RepoFacts,
+    migrations: &mut Vec<String>,
+) -> (Vec<ProcessusAnnexe>, Option<(String, String)>) {
+    let mut out = Vec::new();
+    let mut intraduisible = None;
+    if matches!(facts.stack.primary, Technology::Php | Technology::Static) {
+        return (out, None);
+    }
+    for p in &facts.stack.processus_du_procfile {
+        if entree::de_developpement(&p.commande) {
+            continue;
+        }
+        let Some(t) = execstart::traduire_avec(&p.commande, facts) else {
+            intraduisible.get_or_insert((p.ou.clone(), p.commande.clone()));
+            continue;
+        };
+        if p.ou == "release" {
+            if !migrations.contains(&t) {
+                migrations.push(t);
+            }
+            continue;
+        }
+        let nom: String =
+            p.ou.to_lowercase()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+        out.push(ProcessusAnnexe { nom, execstart: t });
+    }
+    (out, intraduisible)
+}
+
+/// Le fichier d'une base SQLite que le paquet range dans `data_dir`, quand
+/// l'application dit ou elle l'attend : une variable de nom de base, ou une
+/// adresse `sqlite:`/`file:`.
+fn fichier_sqlite(facts: &RepoFacts) -> Option<String> {
+    if facts.services.database != Database::Sqlite {
+        return None;
+    }
+    let nommee = facts
+        .config
+        .variables
+        .iter()
+        .any(|v| v.role == ConfigRole::DatabaseName && !d_un_autre_moteur(&v.name))
+        || facts.config.variables.iter().any(|v| {
+            v.role == ConfigRole::DatabaseUrl
+                && v.default
+                    .as_deref()
+                    .is_some_and(|d| d.starts_with("sqlite:") || d.starts_with("file:"))
+        });
+    nommee.then(|| "database.sqlite".to_string())
+}
+
+/// Une variable propre a un moteur client-serveur : `MARIADB_DATABASE` chez
+/// Puter ne designe pas sa base SQLite.
+fn d_un_autre_moteur(nom: &str) -> bool {
+    let n = nom.to_ascii_uppercase();
+    ["MYSQL", "MARIADB", "POSTGRES", "PG_", "PGDATABASE", "MONGO"]
+        .iter()
+        .any(|m| n.contains(m))
+}
+
+/// Les variables qui designent la base SQLite, pointees sur `data_dir`.
+fn liaison_sqlite(facts: &RepoFacts, fichier: &str) -> String {
+    let chemin = format!("__DATA_DIR__/{fichier}");
+    let mut lignes = Vec::new();
+    for v in facts
+        .config
+        .variables
+        .iter()
+        .filter(|v| !d_un_autre_moteur(&v.name))
+    {
+        match v.role {
+            ConfigRole::DatabaseName => lignes.push(format!("{}={chemin}", v.name)),
+            ConfigRole::DatabaseUrl => match v.default.as_deref() {
+                // `sqlite:///` puis un chemin absolu : la forme de SQLAlchemy
+                // et de dj-database-url.
+                Some(d) if d.starts_with("sqlite:") => {
+                    lignes.push(format!("{}=sqlite:///{chemin}", v.name))
+                }
+                Some(d) if d.starts_with("file:") => {
+                    lignes.push(format!("{}=file:{chemin}", v.name))
+                }
+                _ => {}
+            },
+            ConfigRole::DatabaseType => lignes.push(format!("{}=sqlite", v.name)),
+            _ => {}
+        }
+    }
+    lignes.join("\n")
 }
 
 /// Vrai pour une valeur de la forme `hote:port`, y compris `:8080`.
@@ -1361,8 +1593,10 @@ fn valeur_yunohost(role: ConfigRole) -> Option<&'static str> {
 
 fn features(facts: &RepoFacts) -> Features {
     let php = facts.stack.primary == Technology::Php;
-    // Un service systemd n'a de sens que si l'on sait quoi demarrer.
-    let daemon = !php && facts.stack.primary != Technology::Static;
+    // Un service systemd n'a de sens que si l'on sait quoi demarrer : pour
+    // une application PHP, sa file de taches si elle en a une.
+    let daemon =
+        (!php && facts.stack.primary != Technology::Static) || php::file_de_taches(facts).is_some();
 
     Features {
         nginx: true,
@@ -1372,7 +1606,7 @@ fn features(facts: &RepoFacts) -> Features {
         // Les motifs de detection d'intrusion demandent de connaitre le format
         // des journaux de l'application : on ne les invente pas.
         fail2ban: false,
-        cron: false,
+        cron: !php::cron(facts).is_empty(),
         change_url: true,
         service_integration: daemon,
     }
@@ -1642,6 +1876,83 @@ mod propositions {
         // La racine de l'image non plus.
         f.build.as_mut().unwrap().workdir = Some("/app".into());
         assert_eq!(repertoire_de_travail(&f), None);
+    }
+
+    #[test]
+    fn les_processus_du_procfile_deviennent_des_services() {
+        use ynp_core::facts::CommandeDeclaree;
+        let mut f = faits(vec![], vec![]);
+        f.stack.primary = Technology::Ruby;
+        f.tree = vec!["bin/rails".into()];
+        let p = |nom: &str, c: &str| CommandeDeclaree {
+            commande: c.into(),
+            ou: nom.into(),
+        };
+        f.stack.processus_du_procfile = vec![
+            p("worker", "bundle exec sidekiq -C config/sidekiq.yml"),
+            p("release", "bundle exec rails db:migrate"),
+            p("css", "bin/rails tailwindcss:watch"),
+        ];
+        let mut migrations = Vec::new();
+        let (annexes, intraduisible) = processus_annexes(&f, &mut migrations);
+        assert_eq!(intraduisible, None);
+        assert_eq!(annexes.len(), 1);
+        assert_eq!(annexes[0].nom, "worker");
+        assert_eq!(
+            annexes[0].execstart,
+            "__RUBY_DIR__/bundle exec sidekiq -C config/sidekiq.yml"
+        );
+        assert_eq!(
+            migrations,
+            vec!["__RUBY_DIR__/bundle exec rails db:migrate"]
+        );
+    }
+
+    #[test]
+    fn une_base_sqlite_vit_dans_le_repertoire_de_donnees() {
+        let role = |nom: &str, r: ConfigRole, d: Option<&str>| ConfigVar {
+            name: nom.into(),
+            role: r,
+            default: d.map(String::from),
+            ..Default::default()
+        };
+        let mut f = faits(
+            vec![
+                role("DB_CONNECTION", ConfigRole::DatabaseType, Some("sqlite")),
+                role("DB_DATABASE", ConfigRole::DatabaseName, None),
+                role("MARIADB_DATABASE", ConfigRole::DatabaseName, None),
+            ],
+            vec![],
+        );
+        f.services.database = Database::Sqlite;
+        assert_eq!(fichier_sqlite(&f).as_deref(), Some("database.sqlite"));
+        assert_eq!(
+            liaison_base(&f).value().map(String::as_str),
+            Some("DB_CONNECTION=sqlite\nDB_DATABASE=__DATA_DIR__/database.sqlite")
+        );
+        // Seule une variable d'un autre moteur : rien a pointer.
+        f.config.variables.remove(1);
+        f.config.variables.remove(0);
+        assert_eq!(fichier_sqlite(&f), None);
+    }
+
+    #[test]
+    fn rails_lit_database_url_et_port() {
+        let mut f = faits(vec![], vec![3000]);
+        f.stack.primary = Technology::Ruby;
+        f.stack.cadre_web = Some("rails".into());
+        f.services.database = Database::MySql;
+        f.stack.dependances_ruby = vec!["rails".into(), "trilogy".into()];
+        assert_eq!(
+            liaison_port(&f, Some("__RUBY_DIR__/bundle exec rails server"))
+                .value()
+                .map(String::as_str),
+            Some("PORT=__PORT__")
+        );
+        assert_eq!(
+            liaison_base(&f).value().map(String::as_str),
+            Some("DATABASE_URL=trilogy://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__")
+        );
     }
 
     #[test]

@@ -43,13 +43,23 @@ const HORS_PRODUCTION: &[&str] = &[
 /// Vrai pour un fichier source dont les lectures valent pour l'application.
 pub fn est_un_source_de_production(chemin: &str) -> bool {
     let bas = chemin.to_lowercase();
-    let Some((_, ext)) = bas.rsplit_once('.') else {
-        return false;
-    };
-    if !EXTENSIONS.contains(&ext) {
-        return false;
-    }
     let nom = bas.rsplit('/').next().unwrap_or(&bas);
+    // Un executable sans extension sous `bin/` ou `exe/` : c'est la
+    // convention des gems Ruby, et des paquets npm ou Python qui livrent une
+    // commande. `bin/gollum` y declare son option `--port`.
+    let executable = !nom.contains('.') && matches!(bas.rsplit('/').nth(1), Some("bin" | "exe"));
+    // La configuration d'un cadre PHP (Symfony) lit ses variables dans
+    // `config/packages/doctrine.yaml` : novosga y prend `DATABASE_URL`.
+    let configuration =
+        bas.starts_with("config/") && (nom.ends_with(".yaml") || nom.ends_with(".yml"));
+    if !executable && !configuration {
+        let Some((_, ext)) = nom.rsplit_once('.') else {
+            return false;
+        };
+        if !EXTENSIONS.contains(&ext) {
+            return false;
+        }
+    }
     if nom.contains(".test.") || nom.contains(".spec.") || nom.starts_with("test_") {
         return false;
     }
@@ -101,11 +111,41 @@ fn motifs() -> &'static [Regex] {
             r#"\benv(?:\.\w+)?\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
             // AdonisJS.
             r#"\bEnv\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
+            // Symfony, dans config/ : `%env(resolve:DATABASE_URL)%`.
+            r#"%env\((?:[a-z_]+:)*([A-Z][A-Z0-9_]*)\)%"#,
         ]
         .iter()
         .map(|m| Regex::new(m).expect("motif de lecture invalide"))
         .collect()
     })
+}
+
+/// Les valeurs par defaut que le code donne aux variables qu'il lit :
+/// `env('DB_CONNECTION', 'mysql')` dans la configuration de Laravel. C'est
+/// la valeur que l'application prend quand rien ne la regle — linguacafe,
+/// sans fichier d'exemple, n'annoncait sa base MySQL que la.
+pub fn defauts_lus(contenu: &str) -> Vec<(String, String)> {
+    static M: OnceLock<Vec<Regex>> = OnceLock::new();
+    let motifs = M.get_or_init(|| {
+        [
+            r#"\benv(?:\.\w+)?\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
+            r#"os\.(?:getenv|environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
+            r#"ENV\.fetch\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
+            r#"process\.env\.([A-Z][A-Z0-9_]*)\s*(?:\|\||\?\?)\s*['"]([^'"]*)['"]"#,
+        ]
+        .iter()
+        .map(|m| Regex::new(m).expect("motif de valeur par defaut invalide"))
+        .collect()
+    });
+    let mut out: Vec<(String, String)> = Vec::new();
+    for m in motifs {
+        for c in m.captures_iter(contenu) {
+            if !out.iter().any(|(n, _)| n == &c[1]) {
+                out.push((c[1].to_string(), c[2].to_string()));
+            }
+        }
+    }
+    out
 }
 
 /// Les noms de variables qu'un fichier source lit, dans l'ordre, sans doublon.
@@ -201,6 +241,23 @@ mod tests {
     fn le_code_de_test_ne_compte_pas() {
         assert!(est_un_source_de_production("src/server.js"));
         assert!(est_un_source_de_production("config/puma.rb"));
+        assert_eq!(
+            defauts_lus(
+                "'default' => env('DB_CONNECTION', 'mysql'),\nport: process.env.PORT || '3000'"
+            ),
+            vec![
+                ("DB_CONNECTION".to_string(), "mysql".to_string()),
+                ("PORT".to_string(), "3000".to_string())
+            ]
+        );
+        assert!(est_un_source_de_production("bin/gollum"));
+        assert!(est_un_source_de_production("config/packages/doctrine.yaml"));
+        assert_eq!(
+            variables_lues("        url: '%env(resolve:DATABASE_URL)%'"),
+            vec!["DATABASE_URL"]
+        );
+        assert!(!est_un_source_de_production("LICENSE"));
+        assert!(!est_un_source_de_production("bin/setup.cfg"));
         assert!(!est_un_source_de_production("test/server.js"));
         assert!(!est_un_source_de_production("src/app.test.ts"));
         assert!(!est_un_source_de_production("tests/test_api.py"));

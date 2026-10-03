@@ -1,0 +1,4 @@
+# Genere par yunopack : les taches planifiees de l'application.
+{%- for ligne in runtime.cron %}
+{{ ligne }}
+{%- endfor %}

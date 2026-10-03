@@ -273,6 +273,9 @@ pub struct ComposeService {
     pub environment: IndexMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes: Vec<String>,
+    /// La commande `command:` du service, qui remplace le `CMD` de l'image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -425,6 +428,12 @@ pub struct StackFacts {
     /// installe dans `node_modules/.bin` quand un script l'appelle par son nom.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_npm: Vec<String>,
+    /// Les paquets que le `composer.json` exige (`require`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependances_php: Vec<String>,
+    /// Les gems que le `Gemfile` declare.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependances_ruby: Vec<String>,
     /// Le langage que le depot annonce a sa racine quand YunoHost ne sait pas
     /// le provisionner. Sa presence invalide les pistes ci-dessous : elles ne
     /// designeraient qu'un composant secondaire.
@@ -434,6 +443,10 @@ pub struct StackFacts {
     /// fait ailleurs que dans un Dockerfile, et d'ou elle vient.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commande_declaree: Option<CommandeDeclaree>,
+    /// Les processus du Procfile autres que `web`, par nom : `worker`,
+    /// `release`... Le serveur web ne suffit pas a faire l'application.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processus_du_procfile: Vec<CommandeDeclaree>,
     /// Technologies reperees hors de la racine, de la mieux attestee a la
     /// moins. Renseignee seulement quand la racine n'a rien appris : elle
     /// sert alors a proposer, pas a conclure.

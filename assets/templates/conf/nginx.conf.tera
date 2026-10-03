@@ -2,10 +2,14 @@
 location __PATH__/ {
 {%- if features.phpfpm %}
 
-  alias __INSTALL_DIR__/;
+  alias __INSTALL_DIR__/{% if runtime.racine_web %}{{ runtime.racine_web }}/{% endif %};
   index index.php;
 
-  try_files $uri $uri/ index.php;
+  # Ce qui n'est pas un fichier va au controleur frontal : c'est ainsi que
+  # Laravel, Symfony et la plupart des applications PHP routent leurs pages.
+  if (!-e $request_filename) {
+    rewrite ^ __PATH__/index.php last;
+  }
   location ~ [^/]\.php(/|$) {
     fastcgi_split_path_info ^(.+?\.php)(/.*)$;
     fastcgi_pass unix:/var/run/php/php__PHP_VERSION__-fpm-__APP__.sock;

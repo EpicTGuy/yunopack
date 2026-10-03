@@ -119,7 +119,12 @@ fn is_interesting(path: &str) -> bool {
         "license",
         "license.md",
         "license.txt",
+        "license.rst",
+        "licence",
+        "licence.md",
+        "licence.txt",
         "copying",
+        "copying.md",
         "pom.xml",
         "build.gradle",
         "build.gradle.kts",
@@ -139,6 +144,9 @@ fn is_interesting(path: &str) -> bool {
         // `entrypoint` : `run.sh` chez Mealie, `bootstrap.sh` chez Linkding,
         // `docker_start.sh` chez Loomio. Ces scripts sont courts.
         || lower.ends_with(".sh")
+        // Sans extension aussi : `bin/docker-entrypoint`, celui que Rails
+        // genere depuis sa version 7.1.
+        || lower.contains("entrypoint") && !lower.contains('.')
         // Une unite systemd livree par le projet dit comment il se lance en
         // demon : c'est exactement ce que le paquet doit ecrire.
         || lower.ends_with(".service")

@@ -46,6 +46,10 @@ ynh_restore "/etc/nginx/conf.d/$domain.d/$app.conf"
 {%- if features.systemd %}
 ynh_restore "/etc/systemd/system/$app.service"
 systemctl enable "$app.service" --quiet
+{%- for p in runtime.processus_annexes %}
+ynh_restore "/etc/systemd/system/$app-{{ p.nom }}.service"
+systemctl enable "$app-{{ p.nom }}.service" --quiet
+{%- endfor %}
 {%- endif %}
 {%- if resources.s3 %}
 ynh_restore "/etc/systemd/system/$app-seaweedfs.service"
@@ -54,6 +58,9 @@ yunohost service add "$app-seaweedfs" --description="Stockage S3 de $app" --log=
 {%- endif %}
 {%- if features.service_integration %}
 yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/$app.log"
+{%- for p in runtime.processus_annexes %}
+yunohost service add "$app-{{ p.nom }}" --description="{{ app.name }} ({{ p.nom }})" --log="/var/log/$app/$app.log"
+{%- endfor %}
 {%- endif %}
 {%- if features.logrotate %}
 ynh_restore "/etc/logrotate.d/$app"
@@ -80,6 +87,9 @@ ynh_systemctl --service="$app-seaweedfs" --action="start"
 {%- endif %}
 {%- if features.systemd %}
 ynh_systemctl --service="$app" --action="start"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="start"
+{%- endfor %}
 {%- endif %}
 {%- if features.phpfpm %}
 ynh_systemctl --service="php$php_version-fpm" --action=reload

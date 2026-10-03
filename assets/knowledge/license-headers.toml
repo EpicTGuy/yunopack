@@ -9,6 +9,61 @@
 # L'ordre compte : les licences dont l'en-tete en prefixe une autre d'abord
 # (AGPL avant GPL, LGPL avant GPL).
 
+# Licences non libres, en premier : leur texte cite souvent une licence libre
+# (« Change License: GNU Affero General Public License » dans une BSL), qui
+# ne doit pas l'emporter. Elles sont refusees sous leur nom, pas comme
+# « non identifiables ».
+[[licence]]
+spdx = "BUSL-1.1"
+marqueurs = ["business source license"]
+
+[[licence]]
+spdx = "SSPL-1.0"
+marqueurs = ["server side public license"]
+
+[[licence]]
+spdx = "LicenseRef-Commons-Clause"
+marqueurs = ["commons clause"]
+
+[[licence]]
+spdx = "CC-BY-NC-SA-4.0"
+marqueurs = ["attribution-noncommercial-sharealike 4.0"]
+
+[[licence]]
+spdx = "CC-BY-NC-4.0"
+marqueurs = ["attribution-noncommercial 4.0"]
+
+[[licence]]
+spdx = "Elastic-2.0"
+marqueurs = ["elastic license 2.0"]
+
+# Coeur libre et parties commerciales (« open core ») : ni refus ni accord,
+# une verification a la main, comme toute licence hors de la liste.
+[[licence]]
+spdx = "LicenseRef-open-core"
+marqueurs = ["license.enterprise"]
+
+[[licence]]
+spdx = "LicenseRef-open-core"
+marqueurs = ["commercial license", "portions of this software"]
+
+[[licence]]
+spdx = "LicenseRef-open-core"
+marqueurs = ["each", "package has its own license", "gplv3"]
+
+# Une licence libre modifiee n'est plus elle-meme : a verifier.
+[[licence]]
+spdx = "LicenseRef-EUPL-1.2-modifiee"
+marqueurs = ["modified version of european union public license"]
+
+[[licence]]
+spdx = "Artistic-1.0-Perl OR GPL-1.0-or-later"
+marqueurs = ["same terms as the perl 5"]
+
+[[licence]]
+spdx = "ECL-2.0"
+marqueurs = ["educational community license", "version 2.0"]
+
 [[licence]]
 spdx = "AGPL-3.0-or-later"
 marqueurs = ["gnu affero general public license", "version 3"]
@@ -72,6 +127,10 @@ marqueurs = ["do what the fuck you want to public license"]
 [[licence]]
 spdx = "EUPL-1.2"
 marqueurs = ["european union public licence", "1.2"]
+
+[[licence]]
+spdx = "EUPL-1.2"
+marqueurs = ["european union public license", "1.2"]
 
 # Identifiants SPDX obsoletes, tels que les rend encore GitHub, et leur
 # equivalent actuel. Sans cette table, nos manifests annoncent une licence

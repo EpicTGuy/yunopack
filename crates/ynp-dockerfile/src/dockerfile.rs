@@ -328,6 +328,18 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // La configuration de git propre a l'image : `safe.directory` pour un
+    // volume du conteneur, dans le `.gitconfig` d'un compte de l'image.
+    // Gollum ecrivait ainsi dans `/home/www-data/.gitconfig`.
+    if bin == "git"
+        && cmd.get(1).is_some_and(|s| s == "config")
+        && cmd
+            .iter()
+            .any(|t| matches!(t.as_str(), "--global" | "--system" | "--file" | "-f"))
+    {
+        return RunKind::Noise;
+    }
+
     match bin {
         "apt-get" | "apt" | "aptitude" => match subcommand(cmd) {
             Some("install") => RunKind::AptInstall(packages_after(cmd, "install")),
@@ -347,6 +359,23 @@ fn classify(toks: &[String]) -> RunKind {
         | "adduser"
         | "groupadd"
         | "addgroup"
+        // Modifier les comptes de l'image (`groupmod -g 1000 www-data` chez
+        // Gollum) toucherait ceux du serveur, et echouerait de toute facon :
+        // les etapes tournent sous l'utilisateur de l'application.
+        | "usermod"
+        | "groupmod"
+        | "userdel"
+        | "groupdel"
+        | "deluser"
+        | "delgroup"
+        | "chpasswd"
+        | "passwd"
+        | "chgrp"
+        | "setcap"
+        | "update-alternatives"
+        | "ldconfig"
+        | "systemctl"
+        | "service"
         | "echo"
         | "true"
         | ":"

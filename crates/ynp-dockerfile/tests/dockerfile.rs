@@ -674,3 +674,20 @@ fn une_etape_qui_se_designe_elle_meme_ne_fait_pas_tourner_l_analyse() {
     );
     assert!(r.copies_d_etape.is_empty());
 }
+
+#[test]
+fn l_administration_de_l_image_n_est_pas_une_etape() {
+    // Cas de Gollum : ses etapes modifiaient le groupe www-data et le
+    // `.gitconfig` d'un compte de l'image.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM ruby:3.3\nRUN bundle install && bundle exec rake install\n\
+         RUN groupmod -g 1000 www-data\n\
+         RUN git config --file /home/www-data/.gitconfig --add safe.directory /wiki\n\
+         RUN git config --global user.name x && usermod -aG staff app\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec!["bundle install", "bundle exec rake install"]
+    );
+}

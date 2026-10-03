@@ -49,6 +49,9 @@ ynh_script_progression "Bascule sur la nouvelle version de $app..."
 {%- if features.systemd %}
 
 ynh_systemctl --service="$app" --action="stop"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="stop"
+{%- endfor %}
 {%- endif %}
 {%- if resources.s3 %}
 
@@ -72,6 +75,9 @@ chown -R "$app:www-data" "$install_dir"
 ynh_script_progression "Arret du service de $app..."
 
 ynh_systemctl --service="$app" --action="stop"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="stop"
+{%- endfor %}
 {%- endif %}
 
 #=================================================
@@ -81,7 +87,7 @@ ynh_script_progression "Mise a jour de $app..."
 
 # --full_replace efface le repertoire avant de redeployer : sans cela, les
 # fichiers supprimes en amont subsisteraient d'une version a l'autre.
-ynh_setup_source --dest_dir="$install_dir" --full_replace{% if resources.s3 %} --keep="seaweedfs"{% endif %}
+ynh_setup_source --dest_dir="$install_dir" --full_replace{% if runtime.a_garder | length > 0 %} --keep="{{ runtime.a_garder | join(sep=" ") }}"{% endif %}
 {% if not sources.extract %}
 chmod +x "$install_dir/{{ sources.rename | default(value=app.id) }}"
 {%- endif %}
@@ -153,10 +159,38 @@ if [ -z "${secret:-}" ]; then
     ynh_app_setting_set --key=secret --value="$secret"
 fi
 {%- endif %}
+{%- if runtime.a_une_cle_32 %}
+
+if [ -z "${cle_32:-}" ]; then
+    cle_32=$(ynh_string_random --length=32)
+    ynh_app_setting_set --key=cle_32 --value="$cle_32"
+fi
+{%- endif %}
 
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 chmod 400 "$install_dir/{{ runtime.config_file }}"
 chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
+{%- endif %}
+
+{%- if runtime.migrations_scripts | length > 0 %}
+
+#=================================================
+# MIGRATION DE LA BASE
+#=================================================
+ynh_script_progression "Migration de la base de $app..."
+
+pushd "$install_dir"
+{%- for m in runtime.migrations_scripts %}
+    ynh_exec_as_app {{ m }}
+{%- endfor %}
+popd
+{%- endif %}
+{%- if features.cron %}
+
+# Les taches planifiees de l'application.
+ynh_config_add --template="cron" --destination="/etc/cron.d/$app"
+chown root:root "/etc/cron.d/$app"
+chmod 644 "/etc/cron.d/$app"
 {%- endif %}
 
 #=================================================
@@ -171,12 +205,18 @@ ynh_config_add_nginx
 {%- endif %}
 {%- if features.systemd %}
 ynh_config_add_systemd
+{%- for p in runtime.processus_annexes %}
+ynh_config_add_systemd --service="$app-{{ p.nom }}" --template="{{ p.nom }}.service"
+{%- endfor %}
 {%- endif %}
 {%- if features.logrotate %}
 ynh_config_add_logrotate
 {%- endif %}
 {%- if features.service_integration %}
 yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/$app.log"
+{%- for p in runtime.processus_annexes %}
+yunohost service add "$app-{{ p.nom }}" --description="{{ app.name }} ({{ p.nom }})" --log="/var/log/$app/$app.log"
+{%- endfor %}
 {%- endif %}
 {%- if features.systemd %}
 
@@ -186,6 +226,9 @@ yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/
 ynh_script_progression "Redemarrage du service de $app..."
 
 ynh_systemctl --service="$app" --action="start"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="start"
+{%- endfor %}
 {%- endif %}
 
 #=================================================

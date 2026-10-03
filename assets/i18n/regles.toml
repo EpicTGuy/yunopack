@@ -23,6 +23,12 @@ en.remede = "Open the project's LICENSE file. If it does carry a free licence th
 es.titre = "Licencia no identificable"
 es.remede = "Abre el archivo LICENSE del proyecto. Si lleva una licencia libre que la forja no supo reconocer, rellena `upstream.license` a mano."
 
+[LIC002-blocker]
+en.titre = "Non-free licence: {licence}"
+en.remede = "None: the project is not free software."
+es.titre = "Licencia no libre: {licence}"
+es.remede = "Ninguno: el proyecto no es software libre."
+
 [SRC001-blocker]
 en.titre = "No downloadable archive"
 en.remede = "The package needs a stable archive with a checksum. Check whether the project publishes releases elsewhere."

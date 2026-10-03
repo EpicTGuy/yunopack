@@ -95,6 +95,10 @@ fn fichiers() -> Vec<Fichier> {
             false,
             |s| s.features.systemd
         ),
+        f!("conf/cron", "conf/cron.tera", false, |s| !s
+            .runtime
+            .cron
+            .is_empty()),
         // Le stockage S3 embarque, quand l'application en exige un.
         f!(
             "conf/seaweedfs.service",
@@ -138,12 +142,40 @@ pub struct Genere {
 pub fn generate(spec: &AppSpec, parent: &Path) -> Result<Genere, GenError> {
     let racine = parent.join(format!("{}_ynh", spec.app.id));
     let (valeurs, a_completer) = context::build(spec);
-    let contexte = tera::Context::from_value(valeurs).map_err(|e| GenError::Template {
+    let contexte = tera::Context::from_value(valeurs.clone()).map_err(|e| GenError::Template {
         nom: "contexte".into(),
         source: Box::new(e),
     })?;
 
     let mut ecrits = Vec::new();
+    // Chaque processus annexe a son unite, rendue par le meme modele que le
+    // service principal : meme utilisateur, meme configuration, meme
+    // durcissement — seuls la commande et le nom changent, et les migrations
+    // restent au service principal.
+    if spec.features.systemd {
+        for p in &spec.runtime.processus_annexes {
+            let mut valeurs = valeurs.clone();
+            valeurs["runtime"]["execstart"] = serde_json::json!(p.execstart);
+            valeurs["runtime"]["migrations"] = serde_json::json!([]);
+            valeurs["processus"] = serde_json::json!(p.nom);
+            let contexte = tera::Context::from_value(valeurs).map_err(|e| GenError::Template {
+                nom: "contexte".into(),
+                source: Box::new(e),
+            })?;
+            let rendu = Tera::one_off(
+                include_str!("../../../assets/templates/conf/systemd.service.tera"),
+                &contexte,
+                false,
+            )
+            .map_err(|e| GenError::Template {
+                nom: "conf/systemd.service.tera".into(),
+                source: Box::new(e),
+            })?;
+            let destination = format!("conf/{}.service", p.nom);
+            ecrire(&racine.join(&destination), &nettoyer(&rendu), false)?;
+            ecrits.push(destination);
+        }
+    }
     for fichier in fichiers() {
         if !(fichier.requis)(spec) {
             continue;

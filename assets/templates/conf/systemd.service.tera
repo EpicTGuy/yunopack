@@ -1,5 +1,5 @@
 [Unit]
-Description={{ app.name }}
+Description={{ app.name }}{% if processus %} ({{ processus }}){% endif %}
 After=network.target
 {%- if resources.database %}
 After=postgresql.service mysql.service

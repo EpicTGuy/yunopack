@@ -23,6 +23,8 @@ pub struct RepoTree {
     /// Noms de moteurs de base cites par le code (`'pgsql'`, `pg: {`), et
     /// combien de fois : c'est le vocabulaire de l'application.
     moteurs_cites: BTreeMap<String, usize>,
+    /// Les valeurs par defaut que le code donne aux variables qu'il lit.
+    defauts_lus: BTreeMap<String, String>,
 }
 
 impl RepoTree {
@@ -57,6 +59,9 @@ impl RepoTree {
         for nom in crate::lectures::variables_lues(contenu) {
             self.lectures.entry(nom).or_insert_with(|| path.to_string());
         }
+        for (nom, valeur) in crate::lectures::defauts_lus(contenu) {
+            self.defauts_lus.entry(nom).or_insert(valeur);
+        }
     }
 
     /// Noms de moteurs de base cites par le code, avec leur nombre.
@@ -67,6 +72,11 @@ impl RepoTree {
     /// Indices d'ecoute releves dans le code, avec le fichier qui les montre.
     pub fn ecoutes(&self) -> &BTreeMap<crate::ecoutes::Indice, String> {
         &self.ecoutes
+    }
+
+    /// Valeurs par defaut donnees par le code aux variables qu'il lit.
+    pub fn defauts_lus(&self) -> &BTreeMap<String, String> {
+        &self.defauts_lus
     }
 
     /// Variables lues par le code, avec le fichier qui les lit.

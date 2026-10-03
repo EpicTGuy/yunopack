@@ -39,6 +39,7 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     if let Some(Value::Object(requis)) =
         json(tree, "composer.json").and_then(|c| c.get("require").cloned())
     {
+        facts.dependances_php = requis.keys().cloned().collect();
         facts.extensions_php = requis
             .keys()
             .filter_map(|k| k.strip_prefix("ext-"))
@@ -81,6 +82,7 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
 
     facts.commande_declaree =
         commande_declaree(tree).map(|(commande, ou)| CommandeDeclaree { commande, ou });
+    facts.processus_du_procfile = processus_du_procfile(tree);
 
     // La racine n'a rien appris. Soit elle annonce un langage hors perimetre
     // — et c'est lui qu'il faut nommer — soit on regarde plus bas, pour
@@ -290,6 +292,34 @@ pub fn commande_declaree(tree: &RepoTree) -> Option<(String, String)> {
     }
 
     None
+}
+
+/// Les processus d'un Procfile autres que `web`, chacun avec son nom (dans
+/// `ou`). Le Procfile de chatwoot declare `worker: bundle exec sidekiq` a
+/// cote de son serveur : sans ce processus, aucune tache ne s'execute.
+pub fn processus_du_procfile(tree: &RepoTree) -> Vec<CommandeDeclaree> {
+    let Some(texte) = tree.text("Procfile") else {
+        return Vec::new();
+    };
+    texte
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split_once(':'))
+        .map(|(nom, cmd)| (nom.trim(), cmd.trim()))
+        .filter(|(nom, cmd)| {
+            *nom != "web"
+                && !cmd.is_empty()
+                && !nom.is_empty()
+                && nom
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+        .map(|(nom, cmd)| CommandeDeclaree {
+            commande: cmd.to_string(),
+            ou: nom.to_string(),
+        })
+        .collect()
 }
 
 /// Toutes les cles declarees sous une section TOML.

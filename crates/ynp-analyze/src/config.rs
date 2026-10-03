@@ -132,7 +132,12 @@ pub fn ajouter_les_lectures(facts: &mut ConfigFacts, tree: &RepoTree, depot: &st
         if !connu && !nom.starts_with(&prefixe) {
             continue;
         }
-        ajouter_facultative(facts, nom, None, &format!("lu par le code, {chemin}"));
+        let defaut = tree
+            .defauts_lus()
+            .get(nom)
+            .filter(|v| !v.is_empty())
+            .cloned();
+        ajouter_facultative(facts, nom, defaut, &format!("lu par le code, {chemin}"));
     }
 }
 

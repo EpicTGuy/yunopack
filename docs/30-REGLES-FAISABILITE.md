@@ -32,6 +32,14 @@ Le catalogue YunoHost n'accepte que du logiciel libre, ou éthique au cas par ca
 > « MIT License ». Une licence **inconnue mais présente** produit un constat *majeur*
 > (« à vérifier »), pas un refus : refuser une licence libre par méconnaissance serait pire.
 
+### `LIC002` — Licence reconnue et non libre
+BSL, SSPL, Commons Clause, Creative Commons « NonCommercial », Elastic License : ces licences
+restreignent l'usage commercial ou la mise à disposition en service. Elles sont reconnues à leur
+en-tête et refusées sous leur nom, plutôt que comme « non identifiables ». Un cœur libre doublé
+de parties commerciales (« open core ») et une licence libre modifiée restent, eux, des constats
+*majeurs* `LIC001` à vérifier.
+**Remédiation** : aucune, le projet n'est pas libre.
+
 ### `SRC001` — Aucune archive téléchargeable
 Ni release, ni tag, ni branche par défaut : il n'y a rien à figer dans `[resources.sources]`, dont
 l'`url` et le `sha256` sont obligatoires.

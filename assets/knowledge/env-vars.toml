@@ -12,6 +12,12 @@
 # repandues : GOTIFY_DATABASE_CONNECTION, NEXTCLOUD_DB_HOST, PAPERLESS_DBUSER.
 # Sans eux, une application qui nomme correctement ses variables etait declaree
 # indeterminable au seul motif qu'elle les prefixe.
+# L'adresse d'un autre moteur que la base SQL du paquet : `COUCH_DB_URL` chez
+# Budibase finit par `_DB_URL`, et recevait l'adresse PostgreSQL.
+[[rule]]
+role = "other"
+contains = ["COUCH", "ELASTIC", "CLICKHOUSE", "INFLUX", "MEILI", "QDRANT", "TYPESENSE", "OPENSEARCH"]
+
 [[rule]]
 role = "database_url"
 exact = [
@@ -39,25 +45,40 @@ suffix = ["_DB_TYPE", "_DATABASE_TYPE", "_DB_CLIENT", "_DATABASE_CLIENT", "_DB_D
 
 [[rule]]
 role = "database_host"
-exact = ["DB_HOST", "DATABASE_HOST", "POSTGRES_HOST", "MYSQL_HOST", "PGHOST", "DB_SERVER"]
-suffix = ["_DB_HOST", "_DATABASE_HOST", "_DBHOST"]
+exact = [
+  "DB_HOST", "DATABASE_HOST", "POSTGRES_HOST", "MYSQL_HOST", "PGHOST", "DB_SERVER",
+  "DB_HOSTNAME", "POSTGRES_HOSTNAME", "MYSQL_HOSTNAME", "MARIADB_HOST", "PG_HOST",
+]
+suffix = ["_DB_HOST", "_DATABASE_HOST", "_DBHOST", "_POSTGRES_HOST", "_MYSQL_HOST"]
 
 [[rule]]
 role = "database_name"
-exact = ["DB_NAME", "DATABASE_NAME", "POSTGRES_DB", "MYSQL_DATABASE", "PGDATABASE", "DB_DATABASE"]
-suffix = ["_DB_NAME", "_DATABASE_NAME", "_DBNAME"]
+exact = [
+  "DB_NAME", "DATABASE_NAME", "POSTGRES_DB", "MYSQL_DATABASE", "PGDATABASE", "DB_DATABASE",
+  "POSTGRES_DATABASE", "POSTGRES_DBNAME", "MYSQL_DB", "MYSQL_DBNAME", "MARIADB_DATABASE",
+  "PG_DATABASE",
+]
+suffix = ["_DB_NAME", "_DATABASE_NAME", "_DBNAME", "_POSTGRES_DB", "_POSTGRES_DATABASE", "_MYSQL_DATABASE"]
 
 [[rule]]
 role = "database_user"
-exact = ["DB_USER", "DB_USERNAME", "DATABASE_USER", "POSTGRES_USER", "MYSQL_USER", "PGUSER"]
-suffix = ["_DB_USER", "_DATABASE_USER", "_DBUSER", "_DB_USERNAME"]
+exact = [
+  "DB_USER", "DB_USERNAME", "DATABASE_USER", "POSTGRES_USER", "MYSQL_USER", "PGUSER",
+  "DATABASE_USERNAME", "POSTGRES_USERNAME", "MYSQL_USERNAME", "MARIADB_USER", "PG_USER",
+]
+suffix = [
+  "_DB_USER", "_DATABASE_USER", "_DBUSER", "_DB_USERNAME", "_POSTGRES_USER", "_MYSQL_USER",
+  "_POSTGRES_USERNAME", "_MYSQL_USERNAME", "_DATABASE_USERNAME",
+]
 
 [[rule]]
 role = "database_password"
 exact = [
   "DB_PASSWORD", "DB_PASS", "DATABASE_PASSWORD", "POSTGRES_PASSWORD",
   "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "PGPASSWORD",
+  "POSTGRES_PASS", "MARIADB_PASSWORD", "PG_PASSWORD", "DB_PWD",
 ]
+suffix = ["_DB_PASSWORD", "_DATABASE_PASSWORD", "_DB_PASS", "_POSTGRES_PASSWORD", "_MYSQL_PASSWORD"]
 
 # Pas de terminaison `_PORT` generique : elle attrapait `DB_PORT`, `SMTP_PORT`,
 # `REDIS_PORT`, `PROMETHEUS_PORT` — le port d'un autre service. Le premier

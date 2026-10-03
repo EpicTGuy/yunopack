@@ -42,6 +42,19 @@ const LIBRES: &[&str] = &[
     "Zlib",
     "EUPL-1.2",
     "artistic-2.0",
+    "ECL-2.0",
+    "Artistic-1.0-Perl OR GPL-1.0-or-later",
+];
+
+/// Licences reconnues et non libres : restriction d'usage commercial ou de
+/// mise a disposition en service. Le catalogue YunoHost les refuse.
+const NON_LIBRES: &[&str] = &[
+    "BUSL-1.1",
+    "SSPL-1.0",
+    "LicenseRef-Commons-Clause",
+    "CC-BY-NC-SA-4.0",
+    "CC-BY-NC-4.0",
+    "Elastic-2.0",
 ];
 
 pub struct NonLibre;
@@ -54,6 +67,22 @@ impl Rule for NonLibre {
     fn check(&self, facts: &RepoFacts) -> Option<Finding> {
         match facts.meta.license_spdx.as_deref() {
             Some(spdx) if LIBRES.iter().any(|l| l.eq_ignore_ascii_case(spdx)) => None,
+
+            Some(spdx) if NON_LIBRES.iter().any(|l| l.eq_ignore_ascii_case(spdx)) => Some(
+                Finding::new(
+                    "LIC002",
+                    Severity::Blocker,
+                    format!("Licence non libre : {spdx}"),
+                )
+                .arg("licence", spdx)
+                .detail(
+                    "Cette licence restreint l'usage commercial ou la mise a disposition en \
+                     service : ce n'est pas un logiciel libre, et le catalogue YunoHost ne \
+                     l'accepte pas.",
+                )
+                .remediation("Aucune : le projet n'est pas libre.")
+                .evidence(Evidence::file("LICENSE")),
+            ),
 
             Some(spdx) => Some(
                 Finding::new(

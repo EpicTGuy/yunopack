@@ -545,6 +545,21 @@ pub struct Runtime {
     /// l'image travaille dans un sous-repertoire du depot (`apps/remix`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repertoire_de_travail: Option<String>,
+    /// Le sous-repertoire que nginx sert, quand ce n'est pas la racine de
+    /// l'installation : `public` pour Laravel et Symfony.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub racine_web: Option<String>,
+    /// Le fichier de la base SQLite, cree dans `data_dir` a l'installation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fichier_sqlite: Option<String>,
+    /// Les chemins du repertoire d'installation que la mise a jour garde en
+    /// remplacant les sources : `storage` de Laravel, ou vivent les fichiers
+    /// deposes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub a_garder: Vec<String>,
+    /// Les lignes de `/etc/cron.d/$app` : le planificateur de Laravel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cron: Vec<String>,
     /// Variable par laquelle l'app apprend son port. Cable sur `$port`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port_env_var: Option<String>,
@@ -568,6 +583,19 @@ pub struct Runtime {
     pub database_binding: Known<String>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, String>,
+    /// Les autres processus de l'application (`worker: bundle exec sidekiq`
+    /// dans un Procfile), chacun dans son propre service `$app-<nom>`. Sans
+    /// eux, l'application sert ses pages mais n'execute jamais ses taches.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processus_annexes: Vec<ProcessusAnnexe>,
+}
+
+/// Un processus de l'application autre que celui qui sert le trafic.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessusAnnexe {
+    /// Nom court, suffixe du service : `worker` donne `$app-worker`.
+    pub nom: String,
+    pub execstart: String,
 }
 
 impl Default for Known<Technology> {

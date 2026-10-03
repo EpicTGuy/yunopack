@@ -27,6 +27,16 @@ pub fn detect(
         }
     }
 
+    // La variable qui choisit le moteur, et sa valeur d'exemple :
+    // `DB_CONNECTION=mysql` dans le .env.example de toute application
+    // Laravel. anonaddy n'avait ainsi aucune base.
+    if facts.database == Database::None {
+        if let Some((db, evidence)) = from_database_type(config) {
+            facts.database = db;
+            facts.database_evidence = Some(evidence);
+        }
+    }
+
     // Dernier recours : le pilote present dans les dependances.
     if facts.database == Database::None {
         if let Some((db, evidence)) = from_drivers(tree) {
@@ -35,8 +45,38 @@ pub fn detect(
         }
     }
 
+    // Redis, d'apres la configuration : une adresse d'exemple, ou un pilote
+    // de file, de cache ou de session regle sur `redis`.
+    if !facts.needs_redis {
+        facts.needs_redis = config.variables.iter().any(|v| {
+            let nom = v.name.to_ascii_uppercase();
+            let valeur = v.default.as_deref().unwrap_or("").to_ascii_lowercase();
+            (matches!(nom.as_str(), "REDIS_HOST" | "REDIS_URL") && !valeur.is_empty())
+                || (valeur == "redis"
+                    && ["QUEUE", "CACHE", "SESSION", "BROADCAST"]
+                        .iter()
+                        .any(|p| nom.starts_with(p)))
+        });
+    }
+
     facts.requires_container_runtime = requires_containers(tree, compose, stack, has_dockerfile);
     facts
+}
+
+/// Base deduite de la variable qui nomme le moteur.
+fn from_database_type(config: &ConfigFacts) -> Option<(Database, String)> {
+    let var = config
+        .variables
+        .iter()
+        .find(|v| v.role == ConfigRole::DatabaseType && v.default.is_some())?;
+    let valeur = var.default.as_deref()?.to_lowercase();
+    let db = match valeur.as_str() {
+        "mysql" | "mysql2" | "mariadb" | "mysqli" | "pdo_mysql" => Database::MySql,
+        "pgsql" | "pg" | "postgres" | "postgresql" | "pdo_pgsql" => Database::PostgreSql,
+        "sqlite" | "sqlite3" | "pdo_sqlite" => Database::Sqlite,
+        _ => return None,
+    };
+    Some((db, format!("{} = {valeur}", var.name)))
 }
 
 /// Base deduite du schema d'une URL de connexion.

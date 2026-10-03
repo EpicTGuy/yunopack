@@ -32,6 +32,9 @@ ynh_backup "/etc/nginx/conf.d/$domain.d/$app.conf"
 {%- endif %}
 {%- if features.systemd %}
 ynh_backup "/etc/systemd/system/$app.service"
+{%- for p in runtime.processus_annexes %}
+ynh_backup "/etc/systemd/system/$app-{{ p.nom }}.service"
+{%- endfor %}
 {%- endif %}
 {%- if resources.s3 %}
 ynh_backup "/etc/systemd/system/$app-seaweedfs.service"

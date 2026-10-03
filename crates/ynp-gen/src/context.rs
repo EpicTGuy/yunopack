@@ -50,7 +50,13 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             spec.runtime.database_binding.value(),
         )
     } else {
-        String::new()
+        // Une base sans ressource (SQLite) peut avoir sa liaison : le chemin
+        // du fichier dans le repertoire de donnees.
+        spec.runtime
+            .database_binding
+            .value()
+            .cloned()
+            .unwrap_or_default()
     };
 
     let technologie = spec
@@ -156,7 +162,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                     let venv = if spec.runtime.venv_python { ENV_VENV } else { "" };
                     let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
                     let corps = entre_apostrophes(&format!("{rust}{venv}{e}"));
-                    format!("{}bash -c {corps}", env_docker(e))
+                    format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
                 })
                 .collect::<Vec<_>>(),
             "rust_toolchain": spec.runtime.rust_toolchain,
@@ -173,6 +179,27 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             }),
             "execstart": execstart,
             "migrations": spec.runtime.migrations,
+            // Sans service, les migrations passent par les scripts
+            // d'installation et de mise a jour : une application PHP.
+            "migrations_scripts": if spec.features.systemd {
+                Vec::new()
+            } else {
+                spec.runtime.migrations.iter().map(|m| commande_de_script(m)).collect()
+            },
+            // Ce que la mise a jour ne doit pas effacer en remplacant les
+            // sources : le stockage S3 embarque, les donnees de l'application.
+            "a_garder": spec
+                .resources
+                .s3
+                .then(|| "seaweedfs".to_string())
+                .into_iter()
+                .chain(spec.runtime.a_garder.iter().cloned())
+                .collect::<Vec<_>>(),
+            "racine_web": spec.runtime.racine_web,
+            "fichier_sqlite": spec.runtime.fichier_sqlite,
+            "cron": spec.runtime.cron,
+            "a_une_cle_32": spec.runtime.env.values().any(|v| v.contains("__CLE_32__")),
+            "processus_annexes": spec.runtime.processus_annexes,
             "repertoire_de_travail": spec.runtime.repertoire_de_travail,
             "port_env_var": spec.runtime.port_env_var,
             "port_binding": port_binding,
@@ -215,6 +242,31 @@ mod tests {
     use super::*;
     use ynp_core::known::Known;
     use ynp_core::spec::*;
+
+    #[test]
+    fn chaque_processus_annexe_a_son_service() {
+        let mut s = spec_minimale();
+        s.runtime.processus_annexes = vec![ProcessusAnnexe {
+            nom: "worker".into(),
+            execstart: "__INSTALL_DIR__/demo worker".into(),
+        }];
+        let dossier = std::env::temp_dir().join(format!("ynp-gen-annexe-{}", std::process::id()));
+        let g = crate::generate(&s, &dossier).unwrap();
+        let lire = |f: &str| std::fs::read_to_string(g.racine.join(f)).unwrap();
+        let unite = lire("conf/worker.service");
+        assert!(
+            unite.contains("ExecStart=__INSTALL_DIR__/demo worker"),
+            "{unite}"
+        );
+        assert!(unite.contains("Description=Demo (worker)"));
+        assert!(lire("conf/systemd.service").contains("ExecStart=__INSTALL_DIR__/demo\n"));
+        assert!(lire("scripts/install").contains(
+            r#"ynh_config_add_systemd --service="$app-worker" --template="worker.service""#
+        ));
+        assert!(lire("scripts/remove").contains(r#"ynh_config_remove_systemd "$app-worker""#));
+        assert!(lire("scripts/backup").contains("$app-worker.service"));
+        let _ = std::fs::remove_dir_all(&dossier);
+    }
 
     fn spec_minimale() -> AppSpec {
         AppSpec {
@@ -342,6 +394,32 @@ fn seaweedfs() -> Value {
     const TABLE: &str = include_str!("../../../assets/knowledge/stockage-objet.toml");
     let table: toml::Value = toml::from_str(TABLE).expect("stockage-objet.toml invalide");
     serde_json::to_value(&table["seaweedfs"]).expect("table convertible en JSON")
+}
+
+/// `php$PHP_VERSION` dans une etape : la version que le manifeste installe,
+/// que le script connait par `$php_version`. `ynh_exec_as_app` ne transmet
+/// que PATH.
+fn env_php(etape: &str) -> &'static str {
+    if etape.contains("PHP_VERSION") {
+        "env PHP_VERSION=\"$php_version\" "
+    } else {
+        ""
+    }
+}
+
+/// Une commande ecrite pour systemd (`/usr/bin/php__PHP_VERSION__ artisan
+/// migrate`), lancee depuis un script sous l'utilisateur de l'application.
+/// Les jetons que systemd recevait remplaces passent par l'environnement.
+fn commande_de_script(commande: &str) -> String {
+    let corps = commande
+        .replace("__PHP_VERSION__", "$PHP_VERSION")
+        .replace("__INSTALL_DIR__", "$INSTALL_DIR")
+        .replace("__DATA_DIR__", "$DATA_DIR");
+    format!(
+        "env PHP_VERSION=\"${{php_version:-}}\" INSTALL_DIR=\"$install_dir\" \
+         DATA_DIR=\"${{data_dir:-}}\" bash -c {}",
+        entre_apostrophes(&corps)
+    )
 }
 
 /// Les variables que Docker fournit a la construction d'une image

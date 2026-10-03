@@ -77,8 +77,17 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     // fichier, ce qui evite de refuser a tort un depot parfaitement libre.
     // Le texte de licence est recopie tel quel dans le paquet : le linter
     // officiel exige un fichier LICENSE, et resumer une licence n'a pas de sens.
-    if let Some((_, texte)) = tree.first_text(&["LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"])
-    {
+    if let Some((_, texte)) = tree.first_text(&[
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "LICENCE",
+        "LICENCE.md",
+        "LICENCE.txt",
+        "COPYING",
+        "COPYING.md",
+        "LICENSE.rst",
+    ]) {
         facts.meta.license_text = Some(texte.to_string());
         // La forge fait foi quand elle sait classer la licence ; sinon on
         // reconnait le fichier, ce qui evite de refuser a tort un depot libre.
@@ -211,6 +220,27 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         });
     if spring {
         facts.stack.cadre_web = Some("spring-boot".into());
+    }
+    facts.stack.dependances_ruby = tree
+        .text("Gemfile")
+        .map(|t| {
+            t.lines()
+                .filter_map(|l| l.trim().strip_prefix("gem "))
+                .filter_map(|r| {
+                    let r = r.trim_start();
+                    let q = r.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+                    r[1..].split(q).next().map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Rails : ActiveRecord lit `DATABASE_URL` et `rails server` lit `PORT`,
+    // dans toutes les applications, sans qu'aucune ne le repete.
+    let rails = facts.stack.primary == ynp_core::facts::Technology::Ruby
+        && facts.stack.dependances_ruby.iter().any(|g| g == "rails")
+        && tree.paths().iter().any(|p| p == "config/application.rb");
+    if rails {
+        facts.stack.cadre_web = Some("rails".into());
     }
     facts.stack.binaire_rust = binaire_rust(tree, &forge.source.repo);
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
@@ -496,7 +526,9 @@ pub fn ligne_exec_suivant_les_copies(
             continue;
         }
         if let Some(reste) = l.strip_prefix("exec ") {
-            let reste = reste.trim();
+            // `"${@}"` est `"$@"` (Rails l'ecrit ainsi).
+            let reste = reste.trim().replace("${@}", "$@");
+            let reste = reste.as_str();
             // Le script qui se relance lui-meme sous un autre utilisateur
             // (`exec gosu $PUID "$BASH_SOURCE" "$@"` chez Mealie) ne designe
             // pas le processus : c'est une re-entree.
@@ -1130,6 +1162,19 @@ exec node /app/apps/server/build/index.js
         // Un lancement en arriere-plan non plus.
         let arbre = RepoTree::from_pairs([("entrypoint.sh", "#!/bin/sh\nnode a.js &\n")]);
         assert_eq!(ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh"), None);
+        // Le script que Rails genere : `exec "${@}"`, et sa migration dans un
+        // `if`.
+        let rails = "#!/bin/bash -e\nif [ \"${1}\" == \"./bin/thrust\" ]; then\n  \
+                     MIGRATE=1 ./bin/rails db:prepare\nfi\n\nexec \"${@}\"\n";
+        let arbre = RepoTree::from_pairs([("bin/docker-entrypoint", rails)]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "/rails/bin/docker-entrypoint").as_deref(),
+            Some("\"$@\"")
+        );
+        assert_eq!(
+            migrations_du_script(&arbre, "/rails/bin/docker-entrypoint", &Default::default()),
+            vec!["MIGRATE=1 ./bin/rails db:prepare"]
+        );
     }
 
     #[test]

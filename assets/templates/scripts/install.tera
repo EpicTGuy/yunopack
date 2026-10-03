@@ -75,6 +75,21 @@ ynh_app_setting_set --key=redis_db --value="$redis_db"
 secret=$(ynh_string_random --length=64)
 ynh_app_setting_set --key=secret --value="$secret"
 {%- endif %}
+{%- if runtime.a_une_cle_32 %}
+
+# Une cle de chiffrement de 32 octets exactement (celle de Laravel), tiree
+# une fois : la changer rendrait illisibles les donnees deja chiffrees.
+cle_32=$(ynh_string_random --length=32)
+ynh_app_setting_set --key=cle_32 --value="$cle_32"
+{%- endif %}
+{%- if runtime.fichier_sqlite %}
+
+# La base SQLite vit dans le repertoire de donnees : la mise a jour remplace
+# le repertoire d'installation, et l'emporterait.
+touch "$data_dir/{{ runtime.fichier_sqlite }}"
+chown "$app:$app" "$data_dir/{{ runtime.fichier_sqlite }}"
+chmod 600 "$data_dir/{{ runtime.fichier_sqlite }}"
+{%- endif %}
 {% if runtime.has_config %}
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 
@@ -82,6 +97,27 @@ ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_di
 chmod 400 "$install_dir/{{ runtime.config_file }}"
 chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
 {%- endif %}
+{%- endif %}
+
+{%- if runtime.migrations_scripts | length > 0 %}
+
+#=================================================
+# MIGRATION DE LA BASE
+#=================================================
+ynh_script_progression "Migration de la base de $app..."
+
+pushd "$install_dir"
+{%- for m in runtime.migrations_scripts %}
+    ynh_exec_as_app {{ m }}
+{%- endfor %}
+popd
+{%- endif %}
+{%- if features.cron %}
+
+# Les taches planifiees de l'application.
+ynh_config_add --template="cron" --destination="/etc/cron.d/$app"
+chown root:root "/etc/cron.d/$app"
+chmod 644 "/etc/cron.d/$app"
 {%- endif %}
 
 #=================================================
@@ -98,6 +134,9 @@ ynh_config_add_nginx
 {%- if features.systemd %}
 
 ynh_config_add_systemd
+{%- for p in runtime.processus_annexes %}
+ynh_config_add_systemd --service="$app-{{ p.nom }}" --template="{{ p.nom }}.service"
+{%- endfor %}
 {%- endif %}
 {%- if features.logrotate %}
 
@@ -108,6 +147,9 @@ ynh_config_add_logrotate
 {%- if features.service_integration %}
 
 yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/$app.log"
+{%- for p in runtime.processus_annexes %}
+yunohost service add "$app-{{ p.nom }}" --description="{{ app.name }} ({{ p.nom }})" --log="/var/log/$app/$app.log"
+{%- endfor %}
 {%- endif %}
 {%- if features.systemd %}
 
@@ -117,6 +159,9 @@ yunohost service add "$app" --description="{{ app.name }}" --log="/var/log/$app/
 ynh_script_progression "Demarrage du service de $app..."
 
 ynh_systemctl --service="$app" --action="start"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="start"
+{%- endfor %}
 {%- endif %}
 
 #=================================================

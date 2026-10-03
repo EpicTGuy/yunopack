@@ -74,6 +74,17 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         for p in paquets_php(facts) {
             ajouter(&p);
         }
+        // composer, celui de Debian, pour les dependances du projet ; il
+        // decompresse les paquets par unzip.
+        if crate::php::etape_composer(facts).is_some()
+            || facts
+                .build
+                .as_ref()
+                .is_some_and(|b| b.build_steps.iter().any(|e| e.starts_with("composer ")))
+        {
+            ajouter("composer");
+            ajouter("unzip");
+        }
     }
 
     // 3. Les dependances cachees des modules npm a compilation native, qui
@@ -188,6 +199,15 @@ fn paquets_php(facts: &RepoFacts) -> Vec<String> {
         if let Some(paquet) = extension_php_en_paquet(e) {
             exts.push(paquet.to_string());
         }
+    }
+    // Le client Redis de PHP, quand l'application en utilise un : Laravel
+    // choisit `phpredis` par defaut.
+    if facts.services.needs_redis {
+        exts.push("redis".into());
+    }
+    // Ce que Laravel et Symfony exigent sans le declarer en `ext-*`.
+    if crate::php::cadre(facts).is_some() {
+        exts.extend(["bcmath", "intl", "gd", "sqlite3"].map(String::from));
     }
     let mut out: Vec<String> = Vec::new();
     for e in exts {

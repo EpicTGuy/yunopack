@@ -6,6 +6,9 @@ source /usr/share/yunohost/helpers
 {% if features.systemd %}
 ynh_script_progression "Arret du service de $app..."
 ynh_systemctl --service="$app" --action="stop"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="stop"
+{%- endfor %}
 {%- endif %}
 
 #=================================================
@@ -26,6 +29,9 @@ chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
 
 ynh_script_progression "Redemarrage du service de $app..."
 ynh_systemctl --service="$app" --action="start"
+{%- for p in runtime.processus_annexes %}
+ynh_systemctl --service="$app-{{ p.nom }}" --action="start"
+{%- endfor %}
 {%- endif %}
 
 #=================================================

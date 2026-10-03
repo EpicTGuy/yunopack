@@ -91,6 +91,10 @@ pub fn parse(path: &str, content: &str, repo_hint: Option<&str>) -> Option<Compo
                 .iter()
                 .filter_map(|v| named_volume_target(v))
                 .collect(),
+            command: svc.command.map(|c| match c {
+                Commande::Texte(t) => t.trim().to_string(),
+                Commande::Liste(l) => l.join(" "),
+            }),
             name,
         })
         .collect();
@@ -340,6 +344,16 @@ struct RawService {
     environment: Environment,
     #[serde(default)]
     volumes: Vec<String>,
+    #[serde(default)]
+    command: Option<Commande>,
+}
+
+/// `command:` s'ecrit en chaine ou en liste.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Commande {
+    Texte(String),
+    Liste(Vec<String>),
 }
 
 #[derive(Debug, Deserialize)]

@@ -34,6 +34,7 @@ pub fn deduite(facts: &RepoFacts) -> Option<Entree> {
         Technology::Go => go(facts),
         Technology::Rust => rust(facts),
         Technology::Python => python(facts),
+        Technology::NodeJs => node(facts),
         _ => None,
     }
 }
@@ -141,6 +142,62 @@ fn python(facts: &RepoFacts) -> Option<Entree> {
     })
 }
 
+/// Un projet Node se lance par le script `start` de son `package.json` :
+/// c'est ce que fait `npm start`, et ce que toute plateforme d'hebergement
+/// Node appelle. Le script est deplie jusqu'au vrai processus (`next start`
+/// chez fountain-ink), installe par le gestionnaire dont le depot porte le
+/// verrou, puis construit par son script de construction.
+///
+/// Un `start` qui lance un serveur de developpement (docusaurus, decap-cms :
+/// `develop`, `vite`, `--watch`) n'est pas un service : on ne le retient pas.
+fn node(facts: &RepoFacts) -> Option<Entree> {
+    if !facts.stack.scripts_npm.contains_key("start") {
+        return None;
+    }
+    let lance = crate::execstart::developper("npm start", facts);
+    if de_developpement(&lance) {
+        return None;
+    }
+    let commande = crate::execstart::traduire_avec("npm start", facts)?;
+    let a = |p: &str| facts.tree.iter().any(|x| x == p);
+    let (installer, outil) = if a("pnpm-lock.yaml") {
+        ("corepack pnpm install --frozen-lockfile", "corepack pnpm")
+    } else if a("yarn.lock") {
+        ("corepack yarn install --frozen-lockfile", "corepack yarn")
+    } else if a("package-lock.json") {
+        ("npm ci", "npm")
+    } else {
+        ("npm install", "npm")
+    };
+    let mut etapes = vec![installer.to_string()];
+    if let Some(b) = facts.stack.build_script.as_deref() {
+        etapes.push(b.replacen("npm", outil, 1));
+    }
+    Some(Entree {
+        binaire: String::new(),
+        etapes,
+        commande: Some(commande),
+        migrations: Vec::new(),
+    })
+}
+
+/// Une commande qui lance un serveur de developpement ou un mode de
+/// surveillance, et non l'application.
+pub(crate) fn de_developpement(commande: &str) -> bool {
+    let mots: Vec<&str> = commande.split_whitespace().collect();
+    let premier = mots.first().map(|m| m.rsplit('/').next().unwrap_or(m));
+    matches!(
+        premier,
+        Some("nodemon" | "vite" | "webpack-dev-server" | "run-s" | "run-p" | "concurrently")
+    ) || mots.iter().any(|m| {
+        matches!(*m, "dev" | "develop" | "serve" | "--watch" | "-w" | "watch")
+                // `bin/rails tailwindcss:watch`, `--watch=true`.
+                || m.ends_with(":watch")
+                || m.ends_with(":dev")
+                || m.starts_with("--watch")
+    }) || commande.contains("react-scripts start")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +250,45 @@ mod tests {
             Some("__INSTALL_DIR__/venv/bin/gunicorn pinry.wsgi:application --bind 127.0.0.1:__PORT__")
         );
         assert_eq!(e.migrations.len(), 1);
+    }
+
+    #[test]
+    fn un_projet_node_se_lance_par_son_script_start() {
+        let mut f = faits(
+            Technology::NodeJs,
+            "fountain",
+            &["package.json", "pnpm-lock.yaml"],
+        );
+        f.stack.scripts_npm = [("start", "next start"), ("build", "next build")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        f.stack.build_script = Some("npm run build".into());
+        f.stack.dependances_npm = vec!["next".into()];
+        let e = deduite(&f).unwrap();
+        assert_eq!(
+            e.etapes,
+            vec![
+                "corepack pnpm install --frozen-lockfile",
+                "corepack pnpm run build"
+            ]
+        );
+        assert_eq!(
+            e.commande.as_deref(),
+            Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
+        );
+
+        // Un serveur de developpement n'est pas un service.
+        f.stack
+            .scripts_npm
+            .insert("start".into(), "run-s clean build develop".into());
+        assert_eq!(deduite(&f), None);
+        f.stack
+            .scripts_npm
+            .insert("start".into(), "yarn build && yarn start:website".into());
+        f.stack
+            .scripts_npm
+            .insert("start:website".into(), "docusaurus start --watch".into());
+        assert_eq!(deduite(&f), None);
     }
 }

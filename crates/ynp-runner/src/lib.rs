@@ -287,6 +287,25 @@ async fn verifier_le_service(
             format!("etat : {}\n{}", etat.texte(), journal.diagnostic())
         };
         etapes.push(chrono.etape("service actif", actif, detail));
+        // Chaque processus annexe aussi : un worker qui redemarre en boucle
+        // laisse l'application servir ses pages sans jamais executer ses
+        // taches.
+        for p in &spec.runtime.processus_annexes {
+            let service = format!("{app}-{}", p.nom);
+            let etat = hote
+                .executer(&format!("systemctl is-active {service}"))
+                .await?;
+            let actif = etat.texte() == "active";
+            let detail = if actif {
+                String::new()
+            } else {
+                let journal = hote
+                    .executer(&format!("journalctl -u {service} -n 15 --no-pager -o cat"))
+                    .await?;
+                format!("etat : {}\n{}", etat.texte(), journal.diagnostic())
+            };
+            etapes.push(chrono.etape(&format!("service {} actif", p.nom), actif, detail));
+        }
     }
 
     // Un binaire compile ailleurs peut exiger une bibliotheque absente de la

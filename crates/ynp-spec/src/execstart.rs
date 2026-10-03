@@ -139,7 +139,10 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
     };
     let Some(commande) = build.start_command() else {
         let django = crate::entree::django(facts).map(|(c, _)| c);
-        return match declaree.or(django) {
+        let (du_compose, autres) = commande_du_compose(facts);
+        let mut proposee = proposee;
+        proposee.extend(autres);
+        return match declaree.or(django).or(du_compose) {
             Some(execstart) => Known::resolved(execstart),
             None => Known::unresolved_avec(
                 "le Dockerfile ne declare ni CMD ni ENTRYPOINT",
@@ -239,6 +242,13 @@ fn chemin_etranger(commande: &str) -> Option<String> {
         "/home/",
         "/config/",
         "/app/",
+        // Les sources rangees par l'image hors de `/usr/src/app` :
+        // bitmessage lancait `/usr/src/PyBitmessage/src/bitmessagemain.py`.
+        "/usr/src/",
+        "/root/",
+        "/code/",
+        "/workspace/",
+        "/var/www/",
     ];
     commande
         .split(|c: char| c.is_whitespace() || matches!(c, '=' | ':' | '"' | '\''))
@@ -266,6 +276,46 @@ fn hote_du_conteneur(commande: &str) -> Option<String> {
     })
 }
 
+/// La commande que le compose donne au service applicatif, quand l'image
+/// n'en a pas (`command: bundle exec rails s -p 3000` chez chatwoot).
+///
+/// Retenue seulement si un seul service applicatif en porte une : plusieurs
+/// (un serveur web et un `sidekiq`) sont autant de processus, et n'en lancer
+/// qu'un ferait un paquet qui a l'air fini sans l'etre. Elles sont alors
+/// proposees, sans etre retenues.
+fn commande_du_compose(facts: &RepoFacts) -> (Option<String>, Vec<Candidate>) {
+    let Some(c) = &facts.compose else {
+        return (None, Vec::new());
+    };
+    let commandes: Vec<(&str, &str)> = c
+        .services
+        .iter()
+        .filter(|s| s.is_app)
+        .filter_map(|s| s.command.as_deref().map(|cmd| (s.name.as_str(), cmd)))
+        .collect();
+    match commandes.as_slice() {
+        [(_, cmd)] => (traduire_avec(cmd, facts), Vec::new()),
+        _ => (
+            None,
+            commandes
+                .iter()
+                .filter_map(|(nom, cmd)| {
+                    traduire_avec(cmd, facts).map(|t| {
+                        Candidate::new(
+                            t,
+                            format!(
+                                "service « {nom} » de {} — un processus parmi {}",
+                                c.path,
+                                commandes.len()
+                            ),
+                        )
+                    })
+                })
+                .collect(),
+        ),
+    }
+}
+
 /// Ce qu'une declaration du projet donne comme `ExecStart`.
 ///
 /// Un Procfile enonce une vraie ligne de commande : elle passe par la meme
@@ -287,6 +337,17 @@ fn depuis_declaration(d: &CommandeDeclaree, facts: &RepoFacts) -> Option<String>
 /// service. `npm start`, lui, ne s'ecrit pas dans un service, mais ce qu'il
 /// lance si : le `package.json` du projet le dit.
 pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String> {
+    // Une image qui construit puis s'arrete (`yarn build --prod` chez
+    // apertium-html-tools) : son script de construction n'est pas un service.
+    if script_npm_appele(&derniere_etape(commande)).is_some_and(|nom| {
+        let racine = nom.split(':').next().unwrap_or(nom);
+        matches!(
+            racine,
+            "build" | "compile" | "prepare" | "test" | "lint" | "tsc" | "verify" | "check"
+        )
+    }) {
+        return None;
+    }
     let c = developper(commande, facts);
 
     // Un executable que le `pyproject.toml` declare vit dans l'environnement
@@ -329,7 +390,13 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
     }
     let c = substituer_l_environnement(&c, facts);
     let c = ramener_les_volumes(&c, facts);
-    let traduite = traduire(&c, facts.stack.primary, &facts.source.repo)?;
+    let gem = (facts.stack.primary == Technology::Ruby)
+        .then(|| executable_d_une_gem(&c, facts))
+        .flatten();
+    let traduite = match gem {
+        Some(t) => t,
+        None => traduire(&c, facts.stack.primary, &facts.source.repo)?,
+    };
     let traduite = lier_les_options_d_ecoute(&traduite, &crate::ports_exposes(facts));
     // Une variable que rien ne definit ferait demarrer le service avec une
     // valeur vide a sa place. InvenTree en portait une, `$APP_HOME`, que son
@@ -338,6 +405,53 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
         return None;
     }
     Some(traduite)
+}
+
+/// L'executable d'une gem s'installe dans le PATH de l'image (`/usr/bin/
+/// gollum`) ; le depot le porte sous `bin/` ou `exe/`, et bundler le lance
+/// avec les dependances du Gemfile. Ecrit `__INSTALL_DIR__/gollum`, il
+/// designait un fichier que rien ne cree.
+fn executable_d_une_gem(c: &str, facts: &RepoFacts) -> Option<String> {
+    let c = guillemets_du_shell(c);
+    // `MIGRATE=1 ./bin/rails db:prepare` : l'affectation vaut pour la
+    // commande, et passe par `env`.
+    let n = affectations_de_tete(&c).len();
+    let tete: Vec<&str> = c.split_whitespace().take(n).collect();
+    let sans_tete = sans_affectations_de_tete(&c);
+    let mots = sans_enveloppe(&mots_de(&sans_tete));
+    if let Some(premier) = mots.first() {
+        let nom = nom_de_fichier(premier);
+        let dans_le_depot = ["bin", "exe"]
+            .iter()
+            .map(|d| format!("{d}/{nom}"))
+            .find(|p| facts.tree.iter().any(|x| x == p));
+        // `./bin/rails`, relatif au repertoire de l'application, est le
+        // binstub du depot lui-meme.
+        let relatif = premier.trim_start_matches("./").starts_with("bin/")
+            || premier.trim_start_matches("./").starts_with("exe/");
+        let du_systeme = !premier.contains('/')
+            || relatif
+            || premier.starts_with("/usr/bin/")
+            || premier.starts_with("/usr/local/bin/")
+            || premier.starts_with("/usr/local/bundle/bin/");
+        // `bundle` et `ruby` sont les lanceurs eux-memes (helpy porte un
+        // binstub `bin/bundle`) : leur traduction est plus bas.
+        let lanceur = matches!(nom, "bundle" | "ruby" | "gem");
+        if let (Some(p), true, false) = (dans_le_depot, du_systeme, lanceur) {
+            let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
+            let env = if tete.is_empty() {
+                String::new()
+            } else {
+                format!("/usr/bin/env {} ", tete.join(" "))
+            };
+            let c = format!(
+                "{env}__RUBY_DIR__/bundle exec __INSTALL_DIR__/{p} {}",
+                args.join(" ")
+            );
+            return Some(lier_le_port(c.trim()));
+        }
+    }
+    None
 }
 
 /// Un chemin sous un `VOLUME` du Dockerfile va dans le repertoire de donnees.
@@ -508,7 +622,7 @@ fn guillemets_du_shell(commande: &str) -> String {
 
 /// Ce qu'une commande lance vraiment, une fois retires les preparatifs et
 /// deplies les scripts npm.
-fn developper(commande: &str, facts: &RepoFacts) -> String {
+pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
     let mut c = derniere_etape(commande);
     // Un script npm peut en appeler un autre (`start` -> `serve`) : deux
     // niveaux suffisent, et bornent une boucle entre scripts.
@@ -795,6 +909,9 @@ fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
         "ash",
         "dash",
         "zsh",
+        // Thruster, le mandataire HTTP que Rails place devant puma depuis sa
+        // version 8 : nginx tient ce role chez YunoHost.
+        "thrust",
     ];
 
     let mut reste = mots;
@@ -921,6 +1038,7 @@ mod tests {
             chemin_etranger("/usr/bin/java -jar __INSTALL_DIR__/a.jar"),
             None
         );
+        assert!(chemin_etranger("python2 /usr/src/PyBitmessage/src/main.py").is_some());
     }
 
     #[test]
@@ -1120,6 +1238,86 @@ mod tests {
         assert_eq!(
             derive(&f, "x").value().map(String::as_str),
             Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
+        );
+    }
+
+    #[test]
+    fn le_compose_donne_la_commande_que_l_image_tait() {
+        use ynp_core::facts::{ComposeFacts, ComposeService};
+        let service = |nom: &str, cmd: &str| ComposeService {
+            name: nom.into(),
+            is_app: true,
+            command: Some(cmd.into()),
+            ..Default::default()
+        };
+        let mut f = facts_avec(None, Technology::Python);
+        f.compose = Some(ComposeFacts {
+            path: "docker-compose.yml".into(),
+            services: vec![service("web", "gunicorn app:app")],
+        });
+        assert_eq!(
+            derive(&f, "x").value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/gunicorn app:app")
+        );
+
+        // Deux processus : aucun n'est retenu, les deux sont proposes.
+        f.compose
+            .as_mut()
+            .unwrap()
+            .services
+            .push(service("worker", "celery -A app worker"));
+        let e = derive(&f, "x");
+        assert!(e.value().is_none());
+        assert_eq!(e.candidates().len(), 2);
+    }
+
+    #[test]
+    fn un_script_de_construction_n_est_pas_un_service() {
+        let f = facts_node(
+            "yarn build --prod",
+            &[("build", "ts-node build.ts")],
+            &["ts-node"],
+        );
+        assert!(derive(&f, "x").value().is_none());
+    }
+
+    #[test]
+    fn l_executable_d_une_gem_se_lance_depuis_le_depot() {
+        let mut f = cmd(&["/usr/bin/gollum"], Technology::Ruby);
+        f.tree = vec!["Gemfile".into(), "bin/gollum".into()];
+        assert_eq!(
+            derive(&f, "gollum").value().map(String::as_str),
+            Some("__RUBY_DIR__/bundle exec __INSTALL_DIR__/bin/gollum")
+        );
+    }
+
+    #[test]
+    fn le_point_d_entree_de_rails_se_transpose() {
+        // Le Dockerfile que Rails genere (fizzy) : un script qui prepare la
+        // base puis `exec "${@}"`, et Thruster devant puma.
+        let mut f = facts_avec_script(
+            vec![
+                "/rails/bin/docker-entrypoint",
+                "./bin/thrust",
+                "./bin/rails",
+                "server",
+            ],
+            "\"$@\"",
+            Technology::Ruby,
+        );
+        f.tree = vec!["Gemfile".into(), "bin/rails".into(), "bin/thrust".into()];
+        assert_eq!(
+            derive(&f, "fizzy").value().map(String::as_str),
+            Some("__RUBY_DIR__/bundle exec __INSTALL_DIR__/bin/rails server")
+        );
+        f.tree.push("bin/bundle".into());
+        assert_eq!(
+            traduire_avec("bundle exec puma -C config/puma.rb", &f).as_deref(),
+            Some("__RUBY_DIR__/bundle exec puma -C config/puma.rb")
+        );
+        assert_eq!(
+            traduire_avec("MIGRATE=1 ./bin/rails db:prepare", &f).as_deref(),
+            Some("/usr/bin/env MIGRATE=1 __RUBY_DIR__/bundle exec __INSTALL_DIR__/bin/rails db:prepare")
         );
     }
 

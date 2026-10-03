@@ -193,10 +193,34 @@ impl Knowledge {
             .collect::<Vec<_>>()
             .join(" ")
             .to_lowercase();
-        self.licenses
+        if let Some(l) = self
+            .licenses
             .iter()
             .find(|l| l.marqueurs.iter().all(|m| entete.contains(m.as_str())))
-            .map(|l| l.spdx.as_str())
+        {
+            return Some(l.spdx.as_str());
+        }
+        // Puis plus loin, quand l'en-tete n'est qu'un preambule : Semantic
+        // MediaWiki presente le projet avant le texte de la GPL. Seul compte
+        // alors un titre de licence en debut de ligne, suivi de ses autres
+        // marqueurs — pas une mention au fil d'une phrase.
+        let lignes: Vec<String> = text
+            .lines()
+            .take(60)
+            .map(|l| l.trim().to_lowercase())
+            .collect();
+        lignes.iter().enumerate().skip(12).find_map(|(i, ligne)| {
+            let suite = lignes[i..(i + 3).min(lignes.len())].join(" ");
+            self.licenses
+                .iter()
+                .find(|l| {
+                    l.marqueurs
+                        .first()
+                        .is_some_and(|m| ligne.starts_with(m.as_str()))
+                        && l.marqueurs.iter().all(|m| suite.contains(m.as_str()))
+                })
+                .map(|l| l.spdx.as_str())
+        })
     }
 
     /// Forme actuelle d'un identifiant SPDX que GitHub rend encore sous sa
@@ -355,6 +379,27 @@ mod licences {
     }
 
     #[test]
+    fn les_licences_non_libres_et_composites_sont_nommees() {
+        let k = get();
+        // Une BSL cite l'AGPL comme licence future : la BSL l'emporte.
+        let bsl = "Business Source License 1.1\n\nLicensor: X\nChange Date: 2075-01-01\n\
+                   Change License: GNU Affero General Public License v3.0 only";
+        assert_eq!(k.license_from_text(bsl), Some("BUSL-1.1"));
+        assert_eq!(
+            k.license_from_text("LICENSE.agpl (AGPL-3.0) applies to all files in this repository, except for files that contain \".ee.\" in their name which are covered by LICENSE.enterprise."),
+            Some("LicenseRef-open-core")
+        );
+        assert_eq!(
+            k.license_from_text("This is free software; you can redistribute it and/or modify it under the same terms as the Perl 5 programming language system itself."),
+            Some("Artistic-1.0-Perl OR GPL-1.0-or-later")
+        );
+        // Le texte de la GPL apres un preambule de quinze lignes.
+        let preambule =
+            "Le projet.\n".repeat(15) + "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991";
+        assert_eq!(k.license_from_text(&preambule), Some("GPL-2.0-or-later"));
+    }
+
+    #[test]
     fn un_texte_qui_n_est_pas_une_licence_ne_produit_rien() {
         let k = get();
         assert_eq!(
@@ -369,7 +414,7 @@ mod licences {
         // Le corps d'une licence cite souvent d'autres licences : chercher dans
         // le texte entier produirait des faux positifs.
         let k = get();
-        let faux = "Mon super projet\n".repeat(20) + "MIT License";
+        let faux = "Mon super projet\n".repeat(20) + "Compatible with the MIT License.";
         assert_eq!(k.license_from_text(&faux), None);
     }
 }
