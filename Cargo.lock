@@ -2411,6 +2411,7 @@ name = "ynp-analyze"
 version = "0.8.1"
 dependencies = [
  "indexmap",
+ "regex",
  "serde",
  "serde_json",
  "toml",
@@ -2447,6 +2448,7 @@ version = "0.8.1"
 dependencies = [
  "flate2",
  "hex",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

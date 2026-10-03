@@ -144,6 +144,23 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
             .unwrap_or_default();
         facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
         facts.stack.migrations_du_point_d_entree = migrations_du_script(tree, &script, &copies);
+        // Un script qui lance un autre script (`exec bash /entrypoint.sh`
+        // chez fireshare) : on suit le second, un niveau seulement.
+        if let Some(second) = facts
+            .stack
+            .exec_du_point_d_entree
+            .as_deref()
+            .and_then(premier_mot_de_script)
+            .filter(|s| s.rsplit('/').next() != script.rsplit('/').next())
+        {
+            if let Some(e) = ligne_exec_suivant_les_copies(tree, &second, &copies) {
+                facts.stack.exec_du_point_d_entree = Some(e);
+                facts
+                    .stack
+                    .migrations_du_point_d_entree
+                    .extend(migrations_du_script(tree, &second, &copies));
+            }
+        }
     }
     // Spring Boot lit SERVER_PORT et SPRING_DATASOURCE_URL quelle que soit
     // l'application : le reconnaitre suffit a lier le port et la base. Seuls
@@ -556,7 +573,12 @@ fn lance_une_application(ligne: &str) -> bool {
     let compose = ["&&", "||", ";", "|", ">", "<", "$(", "`", "&"]
         .iter()
         .any(|m| ligne.contains(m));
-    let premier = ligne.split_whitespace().next().unwrap_or("");
+    // Les affectations de tete ne comptent pas : documenso termine par
+    // `HOSTNAME=0.0.0.0 node build/server/main.js`.
+    let premier = ligne
+        .split_whitespace()
+        .find(|m| !m.contains('=') || m.starts_with('-'))
+        .unwrap_or("");
     let nom = premier.rsplit('/').next().unwrap_or(premier);
     !compose && LANCEURS.contains(&nom)
 }
@@ -1048,6 +1070,15 @@ exec node /app/apps/server/build/index.js
         assert_eq!(
             ligne_exec_du_point_d_entree(&arbre, "/entrypoint.sh").as_deref(),
             Some("node build/server.js")
+        );
+        // Une affectation de tete ne l'empeche pas : cas de documenso.
+        let arbre = RepoTree::from_pairs([(
+            "docker/start.sh",
+            "#!/bin/sh\nnpx prisma migrate deploy\nHOSTNAME=0.0.0.0 node build/server/main.js\n",
+        )]);
+        assert_eq!(
+            ligne_exec_du_point_d_entree(&arbre, "start.sh").as_deref(),
+            Some("HOSTNAME=0.0.0.0 node build/server/main.js")
         );
         // Une derniere ligne de nettoyage ne dit rien.
         let arbre =

@@ -537,6 +537,10 @@ pub struct Runtime {
     /// script d'entree de l'image le faisait avant son `exec`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub migrations: Vec<String>,
+    /// Sous-repertoire de l'installation ou le service travaille, quand
+    /// l'image travaille dans un sous-repertoire du depot (`apps/remix`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repertoire_de_travail: Option<String>,
     /// Variable par laquelle l'app apprend son port. Cable sur `$port`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port_env_var: Option<String>,

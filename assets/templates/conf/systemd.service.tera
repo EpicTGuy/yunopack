@@ -13,7 +13,7 @@ Wants=__APP__-seaweedfs.service
 Type=simple
 User=__APP__
 Group=__APP__
-WorkingDirectory=__INSTALL_DIR__/
+WorkingDirectory=__INSTALL_DIR__/{% if runtime.repertoire_de_travail %}{{ runtime.repertoire_de_travail }}/{% endif %}
 {%- if runtime.has_config %}
 # Sans cette ligne, le fichier de configuration est ecrit mais jamais lu :
 # l'application demarre avec ses valeurs par defaut et echoue a joindre sa base.

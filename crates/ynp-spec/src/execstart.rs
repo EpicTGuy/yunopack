@@ -583,6 +583,9 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
     let traduite = match nom {
         // L'interprete vient de la resource du manifest, pas du systeme.
         "node" => Some(format!("__NODEJS_DIR__/node {}", reste(1))),
+        // npx vit a cote de node ; il sert surtout aux migrations
+        // (`npx prisma migrate deploy` chez documenso).
+        "npx" => Some(format!("__NODEJS_DIR__/npx {}", reste(1))),
         "npm" | "yarn" | "pnpm" => None, // demarrer par un gestionnaire de paquets est deconseille
         "ruby" | "bundle" => Some(format!("__RUBY_DIR__/{nom} {}", reste(1))),
         // Java vient du paquet Debian ou du depot Adoptium que le manifeste

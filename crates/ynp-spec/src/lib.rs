@@ -450,7 +450,13 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // configuration : cap lance `HOSTNAME="0.0.0.0" node apps/web/server.js`.
     // Une ecoute sur toutes les interfaces se ramene sur la boucle locale,
     // nginx etant devant.
-    if let Some(c) = facts.build.as_ref().and_then(|b| b.start_command()) {
+    let commandes = facts
+        .build
+        .as_ref()
+        .and_then(|b| b.start_command())
+        .into_iter()
+        .chain(facts.stack.exec_du_point_d_entree.clone());
+    for c in commandes {
         for (nom, valeur) in execstart::affectations_de_tete(&c) {
             let valeur = if matches!(valeur.as_str(), "0.0.0.0" | "::" | "[::]") {
                 "127.0.0.1".to_string()
@@ -567,6 +573,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
         execstart,
         migrations,
+        repertoire_de_travail: repertoire_de_travail(facts),
         database_binding: liaison_base(facts),
         // Un fichier de configuration est necessaire des qu'il y a quelque
         // chose a transmettre a l'application, meme si l'amont n'en publie
@@ -872,6 +879,47 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
         ajouter(valeur.to_string(), pourquoi.to_string());
     }
     out
+}
+
+/// Le sous-repertoire du depot ou l'image travaille, s'il y en a un.
+///
+/// documenso travaille dans `/app/apps/remix`, gladys dans `/src/server` :
+/// leurs commandes (`node build/server/main.js`, `node index.js`) et leurs
+/// migrations (`../../packages/prisma/...`) se lisent depuis la. Le service
+/// travaillait a la racine de l'installation, ou ces chemins ne designent
+/// rien. Le repertoire n'est retenu que s'il existe dans le depot.
+fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
+    const RACINES: &[&str] = &[
+        "/app/",
+        "/usr/src/app/",
+        "/srv/app/",
+        "/srv/",
+        "/opt/app/",
+        "/code/",
+        "/home/app/",
+        "/var/www/html/",
+        "/var/www/",
+        "/workspace/",
+        "/src/",
+    ];
+    let w = format!(
+        "{}/",
+        facts
+            .build
+            .as_ref()?
+            .workdir
+            .as_deref()?
+            .trim_end_matches('/')
+    );
+    let racine = RACINES
+        .iter()
+        .find(|r| w.starts_with(**r) && w.len() > r.len())?;
+    let sous = w[racine.len()..].trim_end_matches('/').to_string();
+    facts
+        .tree
+        .iter()
+        .any(|p| p.starts_with(&format!("{sous}/")))
+        .then_some(sous)
 }
 
 /// L'adresse de la base, sous le schema que l'application attend.
@@ -1502,6 +1550,20 @@ mod propositions {
         let mut d = var("DATABASE_URL", None, ".env");
         d.role = ConfigRole::DatabaseUrl;
         assert_eq!(avec_le_schema_attendu(a, &d, Database::PostgreSql), a);
+    }
+
+    #[test]
+    fn le_service_travaille_ou_travaille_l_image() {
+        let mut f = faits(vec![], vec![3000]);
+        f.build.as_mut().unwrap().workdir = Some("/app/apps/remix".into());
+        f.tree = vec!["apps/remix/package.json".into()];
+        assert_eq!(repertoire_de_travail(&f).as_deref(), Some("apps/remix"));
+        // Un repertoire absent du depot ne se retient pas.
+        f.tree = vec!["package.json".into()];
+        assert_eq!(repertoire_de_travail(&f), None);
+        // La racine de l'image non plus.
+        f.build.as_mut().unwrap().workdir = Some("/app".into());
+        assert_eq!(repertoire_de_travail(&f), None);
     }
 
     #[test]
