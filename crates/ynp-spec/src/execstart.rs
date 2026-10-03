@@ -59,6 +59,33 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
         if sel.prebuilt.iter().any(|a| !a.extract) {
             return Known::resolved(format!("__INSTALL_DIR__/{app_id}"));
         }
+        // Une archive publiee : l'executable qui porte le nom du depot, ou le
+        // seul qu'elle contient. Seulement sans commande d'image a traduire.
+        let sans_commande = facts
+            .build
+            .as_ref()
+            .and_then(|b| b.start_command())
+            .is_none();
+        if sans_commande {
+            if let Some(a) = sel
+                .prebuilt
+                .iter()
+                .find(|a| a.extract && !a.executables.is_empty())
+            {
+                let depot = facts.source.repo.to_lowercase();
+                let porte_le_nom = a.executables.iter().find(|e| {
+                    let base = e.rsplit('/').next().unwrap_or(e).to_lowercase();
+                    base == depot || base == app_id
+                });
+                let choisi = porte_le_nom.or(match a.executables.as_slice() {
+                    [seul] => Some(seul),
+                    _ => None,
+                });
+                if let Some(e) = choisi {
+                    return Known::resolved(format!("__INSTALL_DIR__/{e}"));
+                }
+            }
+        }
     }
 
     // Sans Dockerfile, le projet peut tout de meme avoir enonce sa commande :
@@ -90,7 +117,11 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
     let proposee = proposee.unwrap_or_default();
 
     let Some(build) = &facts.build else {
-        return match declaree {
+        // Le programme principal d'un projet Go ou Rust, d'apres la
+        // convention de son langage (voir `entree`).
+        let deduite =
+            crate::entree::deduite(facts).map(|e| format!("__INSTALL_DIR__/{}", e.binaire));
+        return match declaree.or(deduite) {
             Some(execstart) => Known::resolved(execstart),
             None => Known::unresolved_avec(
                 "aucun Dockerfile ni commande de demarrage declaree par le projet",

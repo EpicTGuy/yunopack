@@ -196,6 +196,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     if spring {
         facts.stack.cadre_web = Some("spring-boot".into());
     }
+    facts.stack.binaire_rust = binaire_rust(tree, &forge.source.repo);
     facts.config = config::detect_avec_build(tree, facts.compose.as_ref(), facts.build.as_ref());
     config::ajouter_les_lectures(&mut facts.config, tree, &forge.source.repo);
     facts.config.moteurs_cites = tree.moteurs_cites().clone();
@@ -413,6 +414,32 @@ mod readme {
         let arbre = RepoTree::from_pairs([("README.md", "# Projet\n\n- a\n- b\n")]);
         assert_eq!(resume_du_readme(&arbre), None);
     }
+}
+
+/// Le binaire que produit un projet Rust : le premier `[[bin]]` ou le paquet
+/// du Cargo.toml racine ; dans un espace de travail, le membre qui porte le
+/// nom du depot (fx). Sans eux, on ne devine pas.
+fn binaire_rust(tree: &RepoTree, depot: &str) -> Option<String> {
+    let nom_du_paquet = |chemin: &str| -> Option<String> {
+        let doc: toml::Value = toml::from_str(tree.text(chemin)?).ok()?;
+        let paquet = doc.get("package")?.get("name")?.as_str()?.to_string();
+        let bin = doc
+            .get("bin")
+            .and_then(|b| b.as_array())
+            .and_then(|b| b.first())
+            .and_then(|b| b.get("name"))
+            .and_then(|n| n.as_str())
+            .map(str::to_string);
+        Some(bin.unwrap_or(paquet))
+    };
+    let depot = depot.to_lowercase();
+    nom_du_paquet("Cargo.toml").or_else(|| {
+        tree.paths()
+            .into_iter()
+            .filter(|p| p.ends_with("/Cargo.toml") && p.matches('/').count() == 1)
+            .filter_map(|p| nom_du_paquet(&p))
+            .find(|n| n.to_lowercase() == depot)
+    })
 }
 
 /// La commande que lance un script d'entree, lue sur sa ligne `exec`.

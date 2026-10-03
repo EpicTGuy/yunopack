@@ -58,6 +58,7 @@ pub fn select(release: &Release) -> Vec<ArchAsset> {
                 empreinte_publiee: asset.sha256.clone(),
                 taille: asset.size,
                 sous_repertoire: None,
+                executables: Vec::new(),
                 extract: ARCHIVES
                     .iter()
                     .any(|e| asset.name.to_lowercase().ends_with(e)),
@@ -103,10 +104,36 @@ fn convient(name: &str, graphies: &[&str]) -> bool {
         return false;
     }
     if [
-        ".sha256", ".asc", ".sig", ".md5", ".txt", ".json", ".yml", ".yaml",
+        ".sha256",
+        ".asc",
+        ".sig",
+        ".md5",
+        ".txt",
+        ".json",
+        ".yml",
+        ".yaml",
+        ".changes",
+        ".deb",
+        ".rpm",
+        ".dsc",
+        ".buildinfo",
+        ".sbom",
+        ".spdx",
+        ".pem",
+        ".crt",
+        ".intoto.jsonl",
     ]
     .iter()
     .any(|e| n.ends_with(e))
+    {
+        return false;
+    }
+    // Un installeur n'est pas le serveur : pangolin publie
+    // `installer_linux_amd64`, qui deploie l'application par Docker.
+    let nom_seul = n.rsplit('/').next().unwrap_or(&n);
+    if nom_seul.starts_with("installer")
+        || nom_seul.contains("-installer")
+        || nom_seul.contains("_installer")
     {
         return false;
     }
@@ -115,7 +142,9 @@ fn convient(name: &str, graphies: &[&str]) -> bool {
     let derniere_partie = n.rsplit('/').next().unwrap_or(&n).to_string();
     let a_une_extension = derniere_partie.rsplit_once('.').is_some_and(|(_, ext)| {
         // `miniflux-linux-amd64` n'a pas d'extension ; `app.tar.gz` si.
-        ext.len() <= 4 && ext.chars().all(|c| c.is_ascii_alphabetic())
+        // Jusqu'a huit lettres : `.changes` (metadonnees d'un paquet Debian,
+        // retenues chez zoneminder) n'est pas un binaire sans extension.
+        ext.len() <= 8 && ext.chars().all(|c| c.is_ascii_alphabetic())
     });
     if a_une_extension && !ARCHIVES.iter().any(|e| n.ends_with(e)) {
         return false;
@@ -280,6 +309,19 @@ mod tests {
     #[test]
     fn les_binaires_windows_et_macos_sont_ecartes() {
         let r = release(&["app-windows-amd64.zip", "app-darwin-arm64.tar.gz"]);
+        assert!(select(&r).is_empty());
+    }
+
+    #[test]
+    fn metadonnees_de_paquet_et_installeurs_ne_sont_pas_des_binaires() {
+        // zoneminder : fichiers .changes de paquets Debian.
+        let r = release(&[
+            "zoneminder_1.38.4+trixie1_amd64.changes",
+            "zoneminder_1.38.4+trixie1_arm64.changes",
+        ]);
+        assert!(select(&r).is_empty());
+        // pangolin : l'installeur, pas le serveur.
+        let r = release(&["installer_linux_amd64", "installer_linux_arm64"]);
         assert!(select(&r).is_empty());
     }
 

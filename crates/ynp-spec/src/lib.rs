@@ -9,6 +9,7 @@
 //! soit il pointe precisement ce qu'il ignore.
 
 pub mod apt;
+mod entree;
 pub mod execstart;
 mod java;
 
@@ -211,6 +212,34 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         go_version: version_de_resource(facts, Technology::Go),
         composer_version: None,
     }
+}
+
+/// Retire le clone du depot lui-meme : wrp construit son image par
+/// `git clone https://github.com/tenox7/wrp.git`, puis travaille dans ce
+/// clone. Sous YunoHost, les sources sont deja en place, a la racine de
+/// l'installation ; le clone les dupliquerait dans un sous-repertoire.
+fn sans_clone_du_depot(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
+    let depot = facts.source.repo.to_lowercase();
+    let hote = facts
+        .source
+        .url
+        .split("://")
+        .nth(1)
+        .and_then(|r| r.split('/').next())
+        .unwrap_or("")
+        .to_lowercase();
+    etapes
+        .into_iter()
+        .filter(|e| {
+            let b = e.trim().to_lowercase();
+            let clone = b.starts_with("git clone")
+                && !hote.is_empty()
+                && b.contains(&hote)
+                && b.split_whitespace()
+                    .any(|m| m.trim_end_matches(".git").rsplit('/').next() == Some(depot.as_str()));
+            !clone
+        })
+        .collect()
 }
 
 /// `corepack enable` ecrit ses raccourcis dans le repertoire de Node, qui
@@ -564,9 +593,10 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .build
                 .as_ref()
                 .map(|b| b.build_steps.clone())
+                .or_else(|| entree::deduite(facts).map(|e| e.etapes))
                 .unwrap_or_default();
             etapes.extend(copies_apres_construction(facts));
-            sans_activation_de_corepack(etapes)
+            sans_activation_de_corepack(sans_clone_du_depot(etapes, facts))
         },
         rust_toolchain: chaine_rust(facts),
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),

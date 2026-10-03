@@ -53,6 +53,7 @@ fn depot_go_avec_binaires() -> RepoFacts {
                 empreinte_publiee: None,
                 taille: 0,
                 sous_repertoire: None,
+                executables: Vec::new(),
                 pattern: "^miniflux-linux-amd64$".into(),
                 extract: false,
             }],

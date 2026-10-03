@@ -215,10 +215,10 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
         if let Some(empreinte) = asset.empreinte_publiee.clone() {
             asset.sha256 = empreinte;
             if asset.extract && tar_gz {
-                asset.sous_repertoire = client
-                    .debut(&asset.url, 64 * 1024)
-                    .await
-                    .and_then(|d| archive::repertoire_racine(&d));
+                if let Some(d) = client.debut(&asset.url, 64 * 1024).await {
+                    asset.sous_repertoire = archive::repertoire_racine(&d);
+                    asset.executables = archive::executables(&d);
+                }
             }
             retenus.push(asset);
             continue;
@@ -234,6 +234,7 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
                 asset.sha256 = sources::sha256(&bytes);
                 if asset.extract && tar_gz {
                     asset.sous_repertoire = archive::repertoire_racine(&bytes);
+                    asset.executables = archive::executables(&bytes);
                 }
                 retenus.push(asset);
             }

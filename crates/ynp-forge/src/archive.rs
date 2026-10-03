@@ -335,6 +335,49 @@ mod licence_conservee {
 /// de ne pas rapatrier des centaines de megaoctets pour cela.
 ///
 /// Rend `None` quand le debut ne permet pas de conclure.
+/// Les fichiers executables d'une archive tar.gz, meme lue en partie, avec
+/// le repertoire racine retire s'il enveloppe tout.
+///
+/// Une release Go ou Rust publie souvent une archive (`farside_linux_amd64
+/// .tar.gz`) dont le binaire porte le nom du projet ; sans le lire, l'outil
+/// ne savait pas quoi lancer.
+pub fn executables(debut: &[u8]) -> Vec<String> {
+    let mut noms: Vec<String> = Vec::new();
+    let mut tous: Vec<String> = Vec::new();
+    let mut archive = Archive::new(GzDecoder::new(debut));
+    if let Ok(entrees) = archive.entries() {
+        for entree in entrees {
+            let Ok(entree) = entree else { break };
+            let Ok(chemin) = entree.path() else { break };
+            let nom = chemin
+                .to_string_lossy()
+                .trim_start_matches("./")
+                .to_string();
+            let fichier = entree.header().entry_type().is_file();
+            let mode = entree.header().mode().unwrap_or(0);
+            if !nom.is_empty() {
+                tous.push(nom.clone());
+            }
+            if fichier && mode & 0o111 != 0 {
+                noms.push(nom);
+            }
+            if tous.len() >= 50 {
+                break;
+            }
+        }
+    }
+    let racine = |n: &String| n.split('/').next().unwrap_or_default().to_string();
+    let enveloppe = !tous.is_empty()
+        && tous.iter().all(|n| n.contains('/') || n.ends_with('/'))
+        && tous.iter().all(|n| racine(n) == racine(&tous[0]));
+    noms.into_iter()
+        .map(|n| match (enveloppe, n.split_once('/')) {
+            (true, Some((_, reste))) => reste.to_string(),
+            _ => n,
+        })
+        .collect()
+}
+
 pub fn repertoire_racine(debut: &[u8]) -> Option<bool> {
     let mut noms: Vec<String> = Vec::new();
     let mut archive = Archive::new(GzDecoder::new(debut));

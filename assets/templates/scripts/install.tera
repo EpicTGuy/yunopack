@@ -29,7 +29,7 @@ pushd "$install_dir"
     ynh_exec_as_app bash -c {{ runtime.installer_rust }}
 {%- endif %}
 {%- for etape in runtime.build_steps %}
-    ynh_exec_as_app bash -c {{ etape }}
+    ynh_exec_as_app {{ etape }}
 {%- endfor %}
 popd
 {%- if runtime.rust_toolchain %}

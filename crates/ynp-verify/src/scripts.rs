@@ -126,6 +126,31 @@ pub fn verifier(nom: &str, contenu: &str) -> Vec<Finding> {
             }
         }
 
+        // Une compilation qui ecrit son resultat hors de l'installation : dans
+        // l'image, `go build -o /wrp-amd64` ou `dotnet publish -o /app/publish`
+        // ecrit ou il veut ; sous YunoHost, l'utilisateur de l'application n'a
+        // pas le droit d'ecrire a la racine, et le service ne trouverait pas
+        // le binaire la ou il le cherche.
+        if code.contains("ynh_exec_as_app") && sortie_hors_installation(code) {
+            out.push(
+                Finding::new(
+                    "LINT006",
+                    Severity::Blocker,
+                    "Construction qui ecrit hors du repertoire d'installation",
+                )
+                .detail(
+                    "L'etape reprise du Dockerfile ecrit son resultat a un chemin absolu de \
+                     l'image. Sous YunoHost, elle echouerait ou produirait un binaire que le \
+                     service ne trouve pas.",
+                )
+                .remediation(
+                    "Ecrire le resultat dans le repertoire d'installation (chemin relatif), \
+                     ou corriger `runtime.build_steps` dans appspec.toml.",
+                )
+                .evidence(Evidence::at(nom, ligne_num, ligne.trim())),
+            );
+        }
+
         // `rm -rf` sur un chemin issu d'une variable peut effacer la racine si
         // la variable est vide. Le helper refuse les chemins hors du perimetre.
         if code.contains("rm -rf") && code.contains('$') && !code.contains("ynh_safe_rm") {
@@ -192,6 +217,36 @@ fn contient_appel(ligne: &str, fonction: &str) -> bool {
     !matches!(suivant, Some(c) if c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Vrai pour une compilation dont la sortie est un chemin absolu hors de
+/// l'installation (`/tmp` excepte).
+fn sortie_hors_installation(code: &str) -> bool {
+    const COMPILATEURS: &[&str] = &[
+        "go build",
+        "dotnet publish",
+        "cargo build",
+        "gcc ",
+        "tsc ",
+        "esbuild",
+    ];
+    if !COMPILATEURS.iter().any(|c| code.contains(c)) {
+        return false;
+    }
+    let mots: Vec<&str> = code.split_whitespace().collect();
+    mots.iter().enumerate().any(|(i, m)| {
+        let valeur = match m.split_once('=') {
+            Some(("-o" | "--output" | "--out-dir" | "--outdir", v)) => Some(v),
+            _ if matches!(*m, "-o" | "--output" | "--out-dir" | "--outdir") => {
+                mots.get(i + 1).copied()
+            }
+            _ => None,
+        };
+        valeur.is_some_and(|v| {
+            let v = v.trim_matches(|c| c == '"' || c == '\'');
+            v.starts_with('/') && !v.starts_with("/tmp")
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,6 +308,10 @@ mod tests {
     fn un_rm_rf_sur_variable_est_signale_mais_pas_le_helper() {
         let s = format!("{ENTETE}rm -rf \"$install_dir\"\n");
         assert!(ids(&verifier("remove", &s)).contains(&"LINT003"));
+        let i = "ynh_exec_as_app bash -c 'go build -o /wrp-amd64'\n";
+        assert!(ids(&verifier("install", i)).contains(&"LINT006"));
+        let i = "ynh_exec_as_app bash -c 'go build -o wrp .'\n";
+        assert!(!ids(&verifier("install", i)).contains(&"LINT006"));
 
         let s = format!("{ENTETE}ynh_safe_rm \"$install_dir\"\n");
         assert!(!ids(&verifier("remove", &s)).contains(&"LINT003"));

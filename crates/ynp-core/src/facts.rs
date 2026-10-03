@@ -399,6 +399,10 @@ pub struct StackFacts {
     /// base : `spring-boot`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cadre_web: Option<String>,
+    /// Le binaire Rust du projet : `[[bin]]` ou paquet du Cargo.toml racine,
+    /// ou membre d'un espace de travail qui porte le nom du depot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binaire_rust: Option<String>,
     /// La contrainte PHP de `composer.json`, telle quelle : `^7.4` n'admet
     /// que PHP 7, `>=7.4` admet aussi PHP 8. La version seule ne le dit pas.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -716,6 +720,10 @@ pub struct ArchAsset {
     /// elle est plate, absent si on n'a pas pu le lire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sous_repertoire: Option<bool>,
+    /// Les executables que l'archive contient, chemin relatif a son contenu
+    /// (repertoire racine retire) : `farside`, `x-ui/x-ui`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executables: Vec<String>,
     /// Taille annoncee, pour pouvoir dire ce qu'on telecharge.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub taille: u64,

@@ -152,9 +152,12 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .runtime
                 .build_steps
                 .iter()
-                .map(|e| match &spec.runtime.rust_toolchain {
-                    Some(_) => entre_apostrophes(&format!("{ENV_RUST}{e}")),
-                    None => entre_apostrophes(e),
+                .map(|e| {
+                    let corps = match &spec.runtime.rust_toolchain {
+                        Some(_) => entre_apostrophes(&format!("{ENV_RUST}{e}")),
+                        None => entre_apostrophes(e),
+                    };
+                    format!("{}bash -c {corps}", env_docker(e))
                 })
                 .collect::<Vec<_>>(),
             "rust_toolchain": spec.runtime.rust_toolchain,
@@ -329,4 +332,30 @@ fn seaweedfs() -> Value {
     const TABLE: &str = include_str!("../../../assets/knowledge/stockage-objet.toml");
     let table: toml::Value = toml::from_str(TABLE).expect("stockage-objet.toml invalide");
     serde_json::to_value(&table["seaweedfs"]).expect("table convertible en JSON")
+}
+
+/// Les variables que Docker fournit a la construction d'une image
+/// multi-architecture, pour une etape qui les utilise.
+///
+/// `go build -o fit-tool` avec `GOARCH=${TARGETARCH}` chez dreeve,
+/// `case "$TARGETARCH"` chez dawarich ou duplicati : sous YunoHost ces
+/// variables sont vides, et l'etape se trompe d'architecture ou echoue.
+/// `ynh_exec_as_app` ne transmet que PATH : elles passent par `env`, le
+/// script d'installation les remplissant d'apres `$YNH_ARCH` avant de
+/// changer d'utilisateur.
+fn env_docker(etape: &str) -> &'static str {
+    const NOMS: &[&str] = &[
+        "TARGETARCH",
+        "TARGETOS",
+        "TARGETPLATFORM",
+        "TARGETVARIANT",
+        "BUILDPLATFORM",
+        "BUILDARCH",
+    ];
+    if NOMS.iter().any(|n| etape.contains(n)) {
+        "env TARGETARCH=\"$YNH_ARCH\" TARGETOS=linux TARGETPLATFORM=\"linux/$YNH_ARCH\" \
+         TARGETVARIANT= BUILDPLATFORM=\"linux/$YNH_ARCH\" BUILDARCH=\"$YNH_ARCH\" "
+    } else {
+        ""
+    }
 }
