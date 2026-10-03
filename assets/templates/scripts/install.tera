@@ -28,6 +28,10 @@ pushd "$install_dir"
     # construction, puis retiree.
     ynh_exec_as_app bash -c {{ runtime.installer_rust }}
 {%- endif %}
+{%- if runtime.installer_venv %}
+    # L'application Python s'installe dans son propre environnement.
+    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
+{%- endif %}
 {%- for etape in runtime.build_steps %}
     ynh_exec_as_app {{ etape }}
 {%- endfor %}

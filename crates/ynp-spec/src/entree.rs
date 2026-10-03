@@ -14,6 +14,10 @@ use ynp_core::facts::{RepoFacts, Technology};
 pub struct Entree {
     pub binaire: String,
     pub etapes: Vec<String>,
+    /// La commande complete, quand elle ne se reduit pas au binaire.
+    pub commande: Option<String>,
+    /// Migrations a lancer avant chaque demarrage.
+    pub migrations: Vec<String>,
 }
 
 /// Seulement sans Dockerfile ni binaire publie : sinon, la recette existe.
@@ -29,6 +33,7 @@ pub fn deduite(facts: &RepoFacts) -> Option<Entree> {
     match facts.stack.primary {
         Technology::Go => go(facts),
         Technology::Rust => rust(facts),
+        Technology::Python => python(facts),
         _ => None,
     }
 }
@@ -60,6 +65,8 @@ fn go(facts: &RepoFacts) -> Option<Entree> {
     Some(Entree {
         etapes: vec![format!("go build -o {binaire} {paquet}")],
         binaire,
+        commande: None,
+        migrations: Vec::new(),
     })
 }
 
@@ -76,6 +83,61 @@ fn rust(facts: &RepoFacts) -> Option<Entree> {
             format!("cp target/release/{nom} {nom}"),
         ],
         binaire: nom,
+        commande: None,
+        migrations: Vec::new(),
+    })
+}
+
+/// La commande et la migration d'un projet Django, d'apres la convention du
+/// cadre : `manage.py` et un unique module `<projet>/wsgi.py`. Vaut aussi
+/// quand un Dockerfile existe sans dire quoi lancer (pinry).
+pub fn django(facts: &RepoFacts) -> Option<(String, Vec<String>)> {
+    if facts.stack.primary != Technology::Python || !facts.tree.iter().any(|p| p == "manage.py") {
+        return None;
+    }
+    let wsgi: Vec<&String> = facts
+        .tree
+        .iter()
+        .filter(|p| p.ends_with("/wsgi.py") && p.matches('/').count() == 1)
+        .collect();
+    let [module] = wsgi.as_slice() else {
+        return None;
+    };
+    let projet = module.split('/').next().unwrap_or_default();
+    Some((
+        format!(
+            "__INSTALL_DIR__/venv/bin/gunicorn {projet}.wsgi:application --bind 127.0.0.1:__PORT__"
+        ),
+        vec!["__INSTALL_DIR__/venv/bin/python manage.py migrate --noinput".to_string()],
+    ))
+}
+
+/// Un projet Python s'installe dans son environnement virtuel, par ses
+/// dependances declarees. Un projet Django (`manage.py` et un module
+/// `<projet>/wsgi.py`) se lance par gunicorn et se migre par manage.py :
+/// c'est la convention du cadre, qu'aucun projet ne repete.
+fn python(facts: &RepoFacts) -> Option<Entree> {
+    let a = |p: &str| facts.tree.iter().any(|x| x == p);
+    let mut etapes = vec!["pip install --upgrade pip".to_string()];
+    if a("requirements.txt") {
+        etapes.push("pip install -r requirements.txt".into());
+    } else if a("pyproject.toml") || a("setup.py") {
+        etapes.push("pip install .".into());
+    } else {
+        return None;
+    }
+    let (commande, migrations) = match django(facts) {
+        Some((c, m)) => {
+            etapes.push("pip install gunicorn".into());
+            (Some(c), m)
+        }
+        None => (None, Vec::new()),
+    };
+    Some(Entree {
+        binaire: String::new(),
+        etapes,
+        commande,
+        migrations,
     })
 }
 
@@ -113,5 +175,23 @@ mod tests {
         // devine pas.
         let f = faits(Technology::Go, "x", &["cmd/a/main.go", "cmd/b/main.go"]);
         assert_eq!(deduite(&f), None);
+    }
+
+    #[test]
+    fn un_projet_django_se_lance_par_gunicorn_et_se_migre() {
+        let f = faits(
+            Technology::Python,
+            "pinry",
+            &["manage.py", "pinry/wsgi.py", "requirements.txt"],
+        );
+        let e = deduite(&f).unwrap();
+        assert!(e
+            .etapes
+            .contains(&"pip install -r requirements.txt".to_string()));
+        assert_eq!(
+            e.commande.as_deref(),
+            Some("__INSTALL_DIR__/venv/bin/gunicorn pinry.wsgi:application --bind 127.0.0.1:__PORT__")
+        );
+        assert_eq!(e.migrations.len(), 1);
     }
 }

@@ -55,6 +55,12 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         ajouter(&p);
     }
 
+    // 2 quinquies. Le venv d'une application Python.
+    if facts.stack.primary == ynp_core::facts::Technology::Python {
+        ajouter("python3-venv");
+        ajouter("python3-dev");
+    }
+
     // 2 ter. Redis, que YunoHost ne fournit pas de lui-meme.
     if facts.services.needs_redis {
         ajouter("redis-server");

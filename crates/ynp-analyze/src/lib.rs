@@ -103,6 +103,22 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         facts.stack.commande_declaree = commande_d_unite_systemd(tree, &forge.source.repo)
             .map(|(commande, ou)| ynp_core::facts::CommandeDeclaree { commande, ou });
     }
+    // Une commande declaree qui lance un script (`web: bash Procfile.sh`
+    // chez babybuddy) : on suit le script, comme celui d'une image, pour en
+    // tirer le vrai processus et ses migrations.
+    if let Some(d) = facts.stack.commande_declaree.clone() {
+        if let Some(script) = premier_mot_de_script(&d.commande) {
+            let aucune = indexmap::IndexMap::new();
+            if let Some(e) = ligne_exec_suivant_les_copies(tree, &script, &aucune) {
+                facts.stack.migrations_du_point_d_entree =
+                    migrations_du_script(tree, &script, &aucune);
+                facts.stack.commande_declaree = Some(ynp_core::facts::CommandeDeclaree {
+                    commande: e,
+                    ou: format!("{} ({})", d.ou, script),
+                });
+            }
+        }
+    }
 
     // Apres `detect`, qui remplace la structure entiere : le script d'entree,
     // s'il y en a un. Sa ligne `exec` nomme le vrai processus, et c'est le

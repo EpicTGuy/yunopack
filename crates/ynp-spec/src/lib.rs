@@ -524,7 +524,18 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // traduisent comme la commande. Une seule qui ne se traduit pas, et la
     // commande redevient une question : demarrer sur une base jamais migree
     // serait un paquet qui a l'air fini sans l'etre.
-    let mut migrations = Vec::new();
+    let sans_commande_d_image = facts
+        .build
+        .as_ref()
+        .is_some_and(|b| b.start_command().is_none());
+    let mut migrations: Vec<String> = entree::deduite(facts)
+        .map(|e| e.migrations)
+        .or_else(|| {
+            sans_commande_d_image
+                .then(|| entree::django(facts).map(|(_, m)| m))
+                .flatten()
+        })
+        .unwrap_or_default();
     let mut intraduisible = None;
     for m in &facts.stack.migrations_du_point_d_entree {
         match execstart::traduire_avec(m, facts) {
@@ -596,9 +607,26 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .or_else(|| entree::deduite(facts).map(|e| e.etapes))
                 .unwrap_or_default();
             etapes.extend(copies_apres_construction(facts));
+            // La convention Django lance gunicorn : un Dockerfile sans
+            // commande ne l'installe pas forcement.
+            let sans_cmd = facts
+                .build
+                .as_ref()
+                .is_some_and(|b| b.start_command().is_none());
+            if sans_cmd
+                && entree::django(facts).is_some()
+                && !etapes.iter().any(|e| e.contains("gunicorn"))
+            {
+                etapes.push("pip install gunicorn".into());
+            }
             sans_activation_de_corepack(sans_clone_du_depot(etapes, facts))
         },
         rust_toolchain: chaine_rust(facts),
+        // Toute application Python, et toute commande qui appelle le venv.
+        venv_python: facts.stack.primary == Technology::Python
+            || execstart
+                .value()
+                .is_some_and(|c| c.contains("__INSTALL_DIR__/venv/")),
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
         port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
         execstart,
@@ -637,6 +665,26 @@ fn avec_l_option_de_port(facts: &RepoFacts, execstart: Known<String>) -> Known<S
     let Some(commande) = execstart.value() else {
         return execstart;
     };
+    // Un serveur d'application Python lance sans adresse : gunicorn ecoute
+    // alors sur 127.0.0.1:8000, ou sur $PORT et toutes les interfaces sous un
+    // Procfile ; uvicorn sur 127.0.0.1:8000. On lui donne le port reserve,
+    // sur la boucle locale. babybuddy lance `gunicorn babybuddy.wsgi` ainsi.
+    let premier = commande.split_whitespace().next().unwrap_or("");
+    let serveur = premier.rsplit('/').next().unwrap_or(premier);
+    if !commande.contains("__PORT__") {
+        let a = |o: &str| {
+            commande
+                .split_whitespace()
+                .any(|m| m == o || m.starts_with(&format!("{o}=")))
+        };
+        if serveur == "gunicorn" && !a("-b") && !a("--bind") {
+            return Known::resolved(format!("{commande} --bind 127.0.0.1:__PORT__"));
+        }
+        if serveur == "uvicorn" && !a("--port") && !a("--uds") && !a("--fd") {
+            let hote = if a("--host") { "" } else { " --host 127.0.0.1" };
+            return Known::resolved(format!("{commande}{hote} --port __PORT__"));
+        }
+    }
     let option = facts
         .ecoute
         .options
@@ -1684,6 +1732,37 @@ mod propositions {
             b.apt_packages = vec!["nginx".into()];
         }
         assert_eq!(port_fixe_du_code(&f), None);
+    }
+
+    #[test]
+    fn gunicorn_et_uvicorn_sans_adresse_recoivent_le_port() {
+        let mut f = faits(vec![], vec![]);
+        f.stack.primary = Technology::Python;
+        let e = avec_l_option_de_port(
+            &f,
+            Known::resolved(
+                "__INSTALL_DIR__/venv/bin/gunicorn babybuddy.wsgi:application --timeout 30".into(),
+            ),
+        );
+        assert!(e
+            .value()
+            .is_some_and(|c| c.ends_with("--bind 127.0.0.1:__PORT__")));
+        let e = avec_l_option_de_port(
+            &f,
+            Known::resolved("__INSTALL_DIR__/venv/bin/uvicorn main:app".into()),
+        );
+        assert_eq!(
+            e.value().map(String::as_str),
+            Some("__INSTALL_DIR__/venv/bin/uvicorn main:app --host 127.0.0.1 --port __PORT__")
+        );
+        // Une adresse deja donnee ne change pas.
+        let c = "__INSTALL_DIR__/venv/bin/gunicorn a.wsgi -b 127.0.0.1:__PORT__";
+        assert_eq!(
+            avec_l_option_de_port(&f, Known::resolved(c.into()))
+                .value()
+                .map(String::as_str),
+            Some(c)
+        );
     }
 
     #[test]

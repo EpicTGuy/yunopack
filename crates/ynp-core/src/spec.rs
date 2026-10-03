@@ -531,6 +531,10 @@ pub struct Runtime {
     /// retiree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rust_toolchain: Option<String>,
+    /// L'application tourne dans un environnement virtuel Python, cree dans
+    /// le repertoire d'installation avant la construction.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub venv_python: bool,
     /// Valeur de `ExecStart=` de l'unite systemd.
     pub execstart: Known<String>,
     /// Migrations a lancer avant chaque demarrage (`ExecStartPre=`), comme le

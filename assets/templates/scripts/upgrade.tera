@@ -25,6 +25,10 @@ pushd "$construction"
     # construction, puis retiree.
     ynh_exec_as_app bash -c {{ runtime.installer_rust }}
 {%- endif %}
+{%- if runtime.installer_venv %}
+    # L'application Python s'installe dans son propre environnement.
+    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
+{%- endif %}
 {%- for etape in runtime.build_steps %}
     ynh_exec_as_app {{ etape }}
 {%- endfor %}
@@ -95,6 +99,10 @@ pushd "$install_dir"
     # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
     # construction, puis retiree.
     ynh_exec_as_app bash -c {{ runtime.installer_rust }}
+{%- endif %}
+{%- if runtime.installer_venv %}
+    # L'application Python s'installe dans son propre environnement.
+    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
 {%- endif %}
 {%- for etape in runtime.build_steps %}
     ynh_exec_as_app {{ etape }}

@@ -119,8 +119,11 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
     let Some(build) = &facts.build else {
         // Le programme principal d'un projet Go ou Rust, d'apres la
         // convention de son langage (voir `entree`).
-        let deduite =
-            crate::entree::deduite(facts).map(|e| format!("__INSTALL_DIR__/{}", e.binaire));
+        let deduite = crate::entree::deduite(facts).and_then(|e| {
+            e.commande.or_else(|| {
+                (!e.binaire.is_empty()).then(|| format!("__INSTALL_DIR__/{}", e.binaire))
+            })
+        });
         return match declaree.or(deduite) {
             Some(execstart) => Known::resolved(execstart),
             None => Known::unresolved_avec(
@@ -135,7 +138,8 @@ fn derive_sans_garde(facts: &RepoFacts, app_id: &str) -> Known<String> {
         };
     };
     let Some(commande) = build.start_command() else {
-        return match declaree {
+        let django = crate::entree::django(facts).map(|(c, _)| c);
+        return match declaree.or(django) {
             Some(execstart) => Known::resolved(execstart),
             None => Known::unresolved_avec(
                 "le Dockerfile ne declare ni CMD ni ENTRYPOINT",

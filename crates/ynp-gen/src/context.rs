@@ -153,14 +153,18 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .build_steps
                 .iter()
                 .map(|e| {
-                    let corps = match &spec.runtime.rust_toolchain {
-                        Some(_) => entre_apostrophes(&format!("{ENV_RUST}{e}")),
-                        None => entre_apostrophes(e),
-                    };
+                    let venv = if spec.runtime.venv_python { ENV_VENV } else { "" };
+                    let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
+                    let corps = entre_apostrophes(&format!("{rust}{venv}{e}"));
                     format!("{}bash -c {corps}", env_docker(e))
                 })
                 .collect::<Vec<_>>(),
             "rust_toolchain": spec.runtime.rust_toolchain,
+            // Le venv se cree avant toute etape : pip et python y sont pris.
+            "installer_venv": spec
+                .runtime
+                .venv_python
+                .then(|| entre_apostrophes("python3 -m venv venv")),
             "installer_rust": spec.runtime.rust_toolchain.as_ref().map(|v| {
                 entre_apostrophes(&format!(
                     "{ENV_RUST}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -289,6 +293,12 @@ mod tests {
 
 /// L'environnement d'une chaine Rust posee dans le repertoire d'installation.
 /// Les etapes s'executent depuis ce repertoire : `$PWD` le designe.
+/// Les etapes d'une application Python tournent dans son venv : sans lui,
+/// `pip install` vise le Python du systeme, que Debian 12 refuse
+/// (« externally-managed-environment ») et que l'utilisateur de l'application
+/// n'a pas le droit de modifier.
+const ENV_VENV: &str = "export VIRTUAL_ENV=\"$PWD/venv\" PATH=\"$PWD/venv/bin:$PATH\"; ";
+
 const ENV_RUST: &str = "export CARGO_HOME=\"$PWD/.cargo\" RUSTUP_HOME=\"$PWD/.rustup\" \
                         PATH=\"$PWD/.cargo/bin:$PATH\"; ";
 
