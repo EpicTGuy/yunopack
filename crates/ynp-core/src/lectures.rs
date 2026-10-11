@@ -111,6 +111,11 @@ fn motifs() -> &'static [Regex] {
             r#"\benv(?:\.\w+)?\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
             // AdonisJS.
             r#"\bEnv\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"#,
+            // Une fonction de l'application qui enveloppe la lecture :
+            // `envDefault("WEBSTATS_BIND", ":8000")` chez counter.dev,
+            // `getEnv`, `get_env`, `mustEnv`... Le nom en majuscules, passe en
+            // premier argument, ne laisse guere de doute.
+            r#"\b[A-Za-z_]*[Ee]nv[A-Za-z_]*\(\s*["']([A-Z][A-Z0-9]*_[A-Z0-9_]+)["']"#,
             // Symfony, dans config/ : `%env(resolve:DATABASE_URL)%`.
             r#"%env\((?:[a-z_]+:)*([A-Z][A-Z0-9_]*)\)%"#,
         ]
@@ -132,6 +137,8 @@ pub fn defauts_lus(contenu: &str) -> Vec<(String, String)> {
             r#"os\.(?:getenv|environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"ENV\.fetch\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"process\.env\.([A-Z][A-Z0-9_]*)\s*(?:\|\||\?\?)\s*['"]([^'"]*)['"]"#,
+            // La meme fonction d'enveloppe, avec sa valeur par defaut.
+            r#"\b[A-Za-z_]*[Ee]nv[A-Za-z_]*\(\s*["']([A-Z][A-Z0-9]*_[A-Z0-9_]+)["']\s*,\s*["']([^"']*)["']"#,
         ]
         .iter()
         .map(|m| Regex::new(m).expect("motif de valeur par defaut invalide"))
@@ -275,6 +282,14 @@ mod tests {
             vec![("api".to_string(), "FastAPI".to_string())]
         );
         assert!(applications_web("    app = Flask(__name__)").is_empty());
+        assert_eq!(
+            variables_lues(r#"Bind: envDefault("WEBSTATS_BIND", ":8000"),"#),
+            vec!["WEBSTATS_BIND"]
+        );
+        assert_eq!(
+            defauts_lus(r#"Bind: envDefault("WEBSTATS_BIND", ":8000"),"#),
+            vec![("WEBSTATS_BIND".to_string(), ":8000".to_string())]
+        );
         assert!(est_un_source_de_production("bin/gollum"));
         assert!(est_un_source_de_production("config/packages/doctrine.yaml"));
         assert_eq!(

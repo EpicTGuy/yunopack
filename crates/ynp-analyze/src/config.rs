@@ -129,16 +129,34 @@ pub fn ajouter_les_lectures(facts: &mut ConfigFacts, tree: &RepoTree, depot: &st
     let prefixe = format!("{}_", depot.to_uppercase().replace(['-', '.'], "_"));
     for (nom, chemin) in tree.lectures() {
         let connu = knowledge::get().role_of(nom) != ConfigRole::Other;
-        if !connu && !nom.starts_with(&prefixe) {
-            continue;
-        }
         let defaut = tree
             .defauts_lus()
             .get(nom)
             .filter(|v| !v.is_empty())
             .cloned();
+        // Une adresse d'ecoute comme valeur par defaut (`:8000`) designe le
+        // port de l'application, quel que soit son prefixe.
+        let ecoute = defaut.as_deref().is_some_and(est_une_adresse_d_ecoute);
+        if !connu && !ecoute && !nom.starts_with(&prefixe) {
+            continue;
+        }
         ajouter_facultative(facts, nom, defaut, &format!("lu par le code, {chemin}"));
     }
+}
+
+/// `:8000`, `0.0.0.0:8080`, `127.0.0.1:3000`, `[::]:80` : une adresse ou
+/// ecouter.
+pub fn est_une_adresse_d_ecoute(v: &str) -> bool {
+    let Some((hote, port)) = v.rsplit_once(':') else {
+        return false;
+    };
+    !port.is_empty()
+        && port.len() <= 5
+        && port.chars().all(|c| c.is_ascii_digit())
+        && matches!(
+            hote,
+            "" | "0.0.0.0" | "127.0.0.1" | "localhost" | "[::]" | "::" | "*"
+        )
 }
 
 /// Reconnait le port d'une application dans une variable prefixee de son nom.
@@ -178,6 +196,25 @@ pub fn reconnaitre_le_port_prefixe(facts: &mut ConfigFacts, depot: &str) {
             v.role = ConfigRole::Port;
             return;
         }
+    }
+    // Faute de prefixe reconnu : la seule variable d'ecoute dont la valeur
+    // par defaut est une adresse. counter.dev ecoute sur WEBSTATS_BIND,
+    // `:8000` par defaut.
+    let ecoutes: Vec<usize> = facts
+        .variables
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| {
+            v.role == ConfigRole::Other
+                && v.default.as_deref().is_some_and(est_une_adresse_d_ecoute)
+                && ["BIND", "ADDR", "ADDRESS", "LISTEN"]
+                    .iter()
+                    .any(|s| v.name.ends_with(s))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if let [i] = ecoutes.as_slice() {
+        facts.variables[*i].role = ConfigRole::Port;
     }
 }
 

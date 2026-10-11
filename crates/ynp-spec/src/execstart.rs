@@ -625,7 +625,7 @@ fn guillemets_du_shell(commande: &str) -> String {
 /// Ce qu'une commande lance vraiment, une fois retires les preparatifs et
 /// deplies les scripts npm.
 pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
-    let mut c = derniere_etape(commande);
+    let mut c = sans_cross_env(&derniere_etape(commande));
     // Un script npm peut en appeler un autre (`start` -> `serve`) : deux
     // niveaux suffisent, et bornent une boucle entre scripts.
     for _ in 0..2 {
@@ -635,9 +635,19 @@ pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
         let Some(corps) = facts.stack.scripts_npm.get(nom) else {
             break;
         };
-        c = derniere_etape(corps);
+        c = sans_cross_env(&derniere_etape(corps));
     }
     c
+}
+
+/// `cross-env NODE_ENV=production node index` est, hors de Windows,
+/// `NODE_ENV=production node index` : des affectations de tete.
+fn sans_cross_env(commande: &str) -> String {
+    let c = commande.trim();
+    c.strip_prefix("cross-env ")
+        .or_else(|| c.strip_prefix("npx cross-env "))
+        .map(|r| r.trim().to_string())
+        .unwrap_or_else(|| c.to_string())
 }
 
 /// La derniere etape d'un enchainement, hors maintien artificiel en vie.

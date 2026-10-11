@@ -33,7 +33,18 @@ pub struct ForgeData {
 ///
 /// L'ordre des appels n'est pas arbitraire : le Dockerfile et le compose
 /// alimentent la detection de stack, qui alimente celle des services.
-pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
+pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
+    // Le serveur d'un monorepo, quand la racine ne dit rien d'autre : tout
+    // s'analyse dans son repertoire, et le paquet y construit et y lance.
+    let sous_repertoire = repertoire_du_serveur(racine);
+    let arbre_du_serveur;
+    let tree: &RepoTree = match &sous_repertoire {
+        Some(d) => {
+            arbre_du_serveur = racine.sous_arbre(d);
+            &arbre_du_serveur
+        }
+        None => racine,
+    };
     let mut facts = RepoFacts::new(forge.source.clone());
     facts.schema_version = FACTS_SCHEMA_VERSION;
     facts.meta = forge.meta;
@@ -58,7 +69,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
         .as_deref()
         .is_some_and(|d| !d.trim().is_empty())
     {
-        facts.meta.description_readme = resume_du_readme(tree);
+        facts.meta.description_readme = resume_du_readme(racine);
     }
 
     let dockerfile = ynp_dockerfile::choose_dockerfile(tree);
@@ -77,7 +88,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     // fichier, ce qui evite de refuser a tort un depot parfaitement libre.
     // Le texte de licence est recopie tel quel dans le paquet : le linter
     // officiel exige un fichier LICENSE, et resumer une licence n'a pas de sens.
-    if let Some((_, texte)) = tree.first_text(&[
+    if let Some((_, texte)) = racine.first_text(&[
         "LICENSE",
         "LICENSE.md",
         "LICENSE.txt",
@@ -105,6 +116,7 @@ pub fn analyze(forge: ForgeData, tree: &RepoTree) -> RepoFacts {
     }
 
     facts.stack = stack::detect(tree, facts.build.as_ref());
+    facts.stack.sous_repertoire = sous_repertoire.clone();
 
     // Une unite systemd livree par le projet, faute de Procfile ou de point
     // d'entree declare.
@@ -376,6 +388,27 @@ mod tests {
         let back: RepoFacts = serde_json::from_str(&text).unwrap();
         assert_eq!(f, back);
     }
+}
+
+/// Le repertoire du serveur d'un monorepo : la racine ne porte aucun projet
+/// ni Dockerfile, et un seul repertoire de premier niveau au nom de serveur
+/// en porte un. counter range son serveur Go dans `backend/`, digishare son
+/// serveur Node dans `server/`, a cote d'un client statique.
+fn repertoire_du_serveur(racine: &RepoTree) -> Option<String> {
+    const SERVEURS: &[&str] = &["backend", "server", "api", "app", "service", "src"];
+    if ynp_dockerfile::choose_dockerfile(racine).is_some()
+        || stack::detect(racine, None).primary != ynp_core::facts::Technology::Unknown
+    {
+        return None;
+    }
+    let pistes = stack::pistes_de_technologie(racine);
+    let [(_, ou)] = pistes.as_slice() else {
+        return None;
+    };
+    let premier = ou.split_whitespace().next()?;
+    let (dossier, fichier) = premier.split_once('/')?;
+    (!fichier.contains('/') && SERVEURS.contains(&dossier) && !ou.contains(" et "))
+        .then(|| dossier.to_string())
 }
 
 /// La premiere phrase de prose d'un README.

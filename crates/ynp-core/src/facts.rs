@@ -438,6 +438,10 @@ pub struct StackFacts {
     /// quand l'application est ecrite dans un autre langage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_node: Option<String>,
+    /// Le repertoire du serveur dans un monorepo (`backend`), quand tout
+    /// s'y analyse ; les chemins des faits lui sont relatifs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sous_repertoire: Option<String>,
     /// Le champ `main` du `package.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_npm: Option<String>,

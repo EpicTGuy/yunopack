@@ -252,12 +252,13 @@ fn rails(facts: &RepoFacts) -> Option<Entree> {
 /// Un `start` qui lance un serveur de developpement (docusaurus, decap-cms :
 /// `develop`, `vite`, `--watch`) n'est pas un service : on ne le retient pas.
 fn node(facts: &RepoFacts) -> Option<Entree> {
-    let commande = if facts.stack.scripts_npm.contains_key("start") {
-        let lance = crate::execstart::developper("npm start", facts);
+    let commande = if let Some(script) = script_de_production(facts) {
+        let appel = format!("npm run {script}");
+        let lance = crate::execstart::developper(&appel, facts);
         if de_developpement(&lance) {
             return None;
         }
-        crate::execstart::traduire_avec("npm start", facts)?
+        crate::execstart::traduire_avec(&appel, facts)?
     } else {
         format!("__NODEJS_DIR__/node {}", point_d_entree_node(facts)?)
     };
@@ -281,6 +282,27 @@ fn node(facts: &RepoFacts) -> Option<Entree> {
         commande: Some(commande),
         migrations: Vec::new(),
     })
+}
+
+/// Le script qui demarre l'application : `start`, sinon le script de
+/// production que le projet nomme a sa facon (`server:prod` chez digishare).
+pub fn script_de_production(facts: &RepoFacts) -> Option<&'static str> {
+    const PRODUCTION: &[&str] = &[
+        "start",
+        "start:prod",
+        "start:production",
+        "server:prod",
+        "serve:prod",
+        "prod",
+        "production",
+    ];
+    if facts.stack.primary != Technology::NodeJs {
+        return None;
+    }
+    PRODUCTION
+        .iter()
+        .find(|s| facts.stack.scripts_npm.contains_key(**s))
+        .copied()
 }
 
 /// Sans script `start` : `server.js` a la racine, que `npm start` lance

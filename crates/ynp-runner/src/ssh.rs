@@ -109,6 +109,86 @@ impl Hote {
         })
     }
 
+    /// Execute une operation longue (installation, mise a jour, sauvegarde)
+    /// detachee de la session SSH : elle tourne sur l'hote jusqu'au bout,
+    /// et l'on relit son code de sortie a intervalles reguliers. Une coupure
+    /// de la connexion pendant une installation de vingt minutes laissait
+    /// sinon le test sans verdict — et l'hote au milieu d'une operation.
+    pub async fn executer_detache(&self, commande: &str) -> Result<Sortie, SshError> {
+        let id = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
+        let base = format!("/tmp/yunopack/operations/{id}");
+        // Le script passe en base64 : aucune citation a echapper.
+        let lancement = format!(
+            "mkdir -p /tmp/yunopack/operations && echo {} | base64 -d > {base}.sh && \
+             setsid nohup bash -c 'bash {base}.sh > {base}.out 2> {base}.err; echo $? > {base}.code' \
+             > /dev/null 2>&1 < /dev/null &",
+            base64(commande.as_bytes())
+        );
+        // Le lancement lui-meme peut tomber sur une coupure : on reessaie,
+        // sans relancer une operation qui aurait demarre.
+        let mut lance = false;
+        for _ in 0..30 {
+            if self.executer(&format!("test -e {base}.sh")).await?.ok() {
+                lance = true;
+                break;
+            }
+            if self.executer(&lancement).await?.code != 255 {
+                lance = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        }
+        if !lance {
+            return Err(SshError::Injoignable {
+                hote: self.alias.clone(),
+            });
+        }
+        // Au plus trois heures ; une heure sans reponse de l'hote met fin a
+        // l'attente.
+        let debut = std::time::Instant::now();
+        let mut derniere_reponse = std::time::Instant::now();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            let s = self
+                .executer(&format!("cat {base}.code 2>/dev/null"))
+                .await?;
+            if s.code == 255 {
+                if derniere_reponse.elapsed() > std::time::Duration::from_secs(3600) {
+                    return Err(SshError::Injoignable {
+                        hote: self.alias.clone(),
+                    });
+                }
+                continue;
+            }
+            derniere_reponse = std::time::Instant::now();
+            if let Ok(code) = s.stdout.trim().parse::<i32>() {
+                let lire = |f: &str| format!("cat {base}.{f} 2>/dev/null");
+                let stdout = self.executer(&lire("out")).await?.stdout;
+                let stderr = self.executer(&lire("err")).await?.stdout;
+                let _ = self.executer(&format!("rm -f {base}.*")).await;
+                return Ok(Sortie {
+                    code,
+                    stdout,
+                    stderr,
+                });
+            }
+            if debut.elapsed() > std::time::Duration::from_secs(3 * 3600) {
+                return Ok(Sortie {
+                    code: 124,
+                    stdout: String::new(),
+                    stderr: "operation interrompue apres trois heures".into(),
+                });
+            }
+        }
+    }
+
     /// Vrai si la commande reussit, sans se soucier de sa sortie.
     pub async fn reussit(&self, commande: &str) -> bool {
         self.executer(commande)
@@ -148,9 +228,40 @@ impl Hote {
     }
 }
 
+/// Encodage base64 standard, sans dependance de plus.
+fn base64(octets: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(octets.len().div_ceil(3) * 4);
+    for bloc in octets.chunks(3) {
+        let n = (u32::from(bloc[0]) << 16)
+            | (u32::from(*bloc.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*bloc.get(2).unwrap_or(&0));
+        for (i, decalage) in [18, 12, 6, 0].into_iter().enumerate() {
+            if i <= bloc.len() {
+                out.push(A[((n >> decalage) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn l_encodage_base64_suit_la_norme() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(
+            base64(b"yunohost app install"),
+            "eXVub2hvc3QgYXBwIGluc3RhbGw="
+        );
+    }
 
     #[test]
     fn le_diagnostic_retient_la_fin_du_journal() {

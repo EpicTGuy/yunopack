@@ -115,6 +115,42 @@ impl RepoTree {
         t
     }
 
+    /// Le sous-arbre d'un repertoire, chemins relatifs a lui : le serveur
+    /// d'un monorepo (`backend/`) s'analyse comme un depot a part entiere.
+    pub fn sous_arbre(&self, repertoire: &str) -> RepoTree {
+        let prefixe = format!("{}/", repertoire.trim_end_matches('/'));
+        let sous = |p: &str| p.strip_prefix(&prefixe).map(str::to_string);
+        let mut t = RepoTree::new();
+        for p in &self.paths {
+            if let Some(q) = sous(p) {
+                t.paths.insert(q);
+            }
+        }
+        for (p, c) in &self.files {
+            if let Some(q) = sous(p) {
+                t.files.insert(q, c.clone());
+            }
+        }
+        for (n, p) in &self.lectures {
+            if let Some(q) = sous(p) {
+                t.lectures.insert(n.clone(), q);
+            }
+        }
+        for (i, p) in &self.ecoutes {
+            if let Some(q) = sous(p) {
+                t.ecoutes.insert(i.clone(), q);
+            }
+        }
+        for (c, o, k) in &self.applications_web {
+            if let Some(q) = sous(c) {
+                t.applications_web.push((q, o.clone(), k.clone()));
+            }
+        }
+        t.moteurs_cites = self.moteurs_cites.clone();
+        t.defauts_lus = self.defauts_lus.clone();
+        t
+    }
+
     pub fn paths(&self) -> Vec<String> {
         self.paths.iter().cloned().collect()
     }

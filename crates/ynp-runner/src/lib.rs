@@ -155,7 +155,7 @@ pub async fn run_g3(
             format!("domain={domaine}&init_main_permission={}", cible.permission)
         };
         let install = hote
-            .executer(&format!(
+            .executer_detache(&format!(
                 "yunohost app install {distant} --force -a \"{args}\""
             ))
             .await?;
@@ -190,7 +190,9 @@ pub async fn run_g3(
         .await?
         .ok();
     if presente {
-        let remove = hote.executer(&format!("yunohost app remove {app}")).await?;
+        let remove = hote
+            .executer_detache(&format!("yunohost app remove {app}"))
+            .await?;
         etapes.push(chrono.etape("desinstallation", remove.ok(), remove.diagnostic()));
     } else {
         etapes.push(chrono.etape(
@@ -236,7 +238,7 @@ async fn mise_a_jour(
     chrono: &mut Chrono,
 ) -> Result<Vec<Etape>, SshError> {
     let upgrade = hote
-        .executer(&format!(
+        .executer_detache(&format!(
             "yunohost app upgrade {app} --file {distant} --force"
         ))
         .await?;
@@ -498,7 +500,7 @@ async fn sauvegarde_restauration(
         .await;
 
     let sauvegarde = hote
-        .executer(&format!(
+        .executer_detache(&format!(
             "yunohost backup create --apps {app} --name {archive}"
         ))
         .await?;
@@ -507,9 +509,11 @@ async fn sauvegarde_restauration(
         return Ok(etapes);
     }
 
-    let _ = hote.executer(&format!("yunohost app remove {app}")).await;
+    let _ = hote
+        .executer_detache(&format!("yunohost app remove {app}"))
+        .await;
     let restauration = hote
-        .executer(&format!(
+        .executer_detache(&format!(
             "yunohost backup restore {archive} --apps {app} --force"
         ))
         .await?;

@@ -26,6 +26,9 @@ pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
     let mut runtime = runtime(facts, &app_id);
     let mut resources = resources(facts, &app_id);
     outils_des_etapes(facts, &mut runtime, &mut resources);
+    if let Some(d) = &facts.stack.sous_repertoire {
+        dans_le_sous_repertoire(&mut runtime, d);
+    }
     // Un reglage qui designe le repertoire de donnees l'exige : sans lui,
     // YunoHost s'arrete sur « Variable $data_dir wasn't initialized »
     // (endurain).
@@ -44,6 +47,35 @@ pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
         features: features(facts),
         docs: docs(facts),
     })
+}
+
+/// Le serveur d'un monorepo vit dans un sous-repertoire de l'installation
+/// (`backend`) : les etapes s'y lancent, les chemins de l'installation que
+/// la commande designe y sont ramenes, et le service y travaille. Le venv,
+/// cree a la racine, reste ou il est.
+fn dans_le_sous_repertoire(r: &mut Runtime, d: &str) {
+    let ramener = |c: &str| {
+        c.replace("__INSTALL_DIR__/venv/", "\u{0}")
+            .replace("__INSTALL_DIR__/", &format!("__INSTALL_DIR__/{d}/"))
+            .replace('\u{0}', "__INSTALL_DIR__/venv/")
+    };
+    r.build_steps = r
+        .build_steps
+        .iter()
+        .map(|e| format!("cd {d} && {e}"))
+        .collect();
+    if let Some(c) = r.execstart.value() {
+        r.execstart = Known::resolved(ramener(c));
+    }
+    r.migrations = r.migrations.iter().map(|m| ramener(m)).collect();
+    for p in &mut r.processus_annexes {
+        p.execstart = ramener(&p.execstart);
+    }
+    r.racine_web = r.racine_web.as_ref().map(|w| format!("{d}/{w}"));
+    r.repertoire_de_travail = Some(match &r.repertoire_de_travail {
+        Some(w) => format!("{d}/{w}"),
+        None => d.to_string(),
+    });
 }
 
 /// Vrai si la configuration, la commande ou les migrations designent le
@@ -717,7 +749,17 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         .as_ref()
         .and_then(|b| b.start_command())
         .into_iter()
-        .chain(facts.stack.exec_du_point_d_entree.clone());
+        .chain(facts.stack.exec_du_point_d_entree.clone())
+        // Le script npm qui lance l'application, sans image :
+        // `cross-env NODE_ENV=production node ./index`.
+        .chain(
+            facts
+                .build
+                .is_none()
+                .then(|| entree::script_de_production(facts))
+                .flatten()
+                .map(|s| execstart::developper(&format!("npm run {s}"), facts)),
+        );
     for c in commandes {
         for (nom, valeur) in execstart::affectations_de_tete(&c) {
             let valeur = if matches!(valeur.as_str(), "0.0.0.0" | "::" | "[::]") {
@@ -2147,6 +2189,27 @@ mod propositions {
         assert_eq!(e[2], "curl -fsSL https://x/composer.phar -o $PWD/composer");
         // Lire un outil du systeme n'est pas en poser un.
         assert_eq!(e[3], "/usr/bin/env python3 build.py");
+    }
+
+    #[test]
+    fn le_serveur_d_un_monorepo_vit_dans_son_repertoire() {
+        let mut r = Runtime {
+            build_steps: vec!["go build -o counter .".into()],
+            execstart: Known::resolved("__INSTALL_DIR__/counter".into()),
+            migrations: vec!["__INSTALL_DIR__/venv/bin/python manage.py migrate".into()],
+            ..Default::default()
+        };
+        dans_le_sous_repertoire(&mut r, "backend");
+        assert_eq!(r.build_steps, vec!["cd backend && go build -o counter ."]);
+        assert_eq!(
+            r.execstart.value().map(String::as_str),
+            Some("__INSTALL_DIR__/backend/counter")
+        );
+        assert_eq!(
+            r.migrations[0],
+            "__INSTALL_DIR__/venv/bin/python manage.py migrate"
+        );
+        assert_eq!(r.repertoire_de_travail.as_deref(), Some("backend"));
     }
 
     #[test]

@@ -2436,6 +2436,7 @@ name = "ynp-dockerfile"
 version = "0.8.1"
 dependencies = [
  "indexmap",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",
