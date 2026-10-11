@@ -1866,7 +1866,9 @@ fn docs(facts: &RepoFacts) -> Docs {
 /// reverse-proxy. Constate sur gotify, dont le Dockerfile ne declare aucun
 /// port alors que le paquet officiel en reserve un.
 fn a_besoin_d_un_port(facts: &RepoFacts) -> bool {
-    if statique::site(facts).is_some() {
+    // Un site servi par nginx n'ecoute sur rien : un port reserve ferait
+    // echouer le test qui verifie que quelque chose y repond.
+    if statique::site(facts).is_some() || facts.stack.primary == Technology::Static {
         return false;
     }
     if expose_un_port(facts) {

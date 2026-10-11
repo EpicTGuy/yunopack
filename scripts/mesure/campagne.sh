@@ -37,11 +37,11 @@ un_depot() {
 
 while read -r nom url; do
   [ -z "$nom" ] && continue
-  v=$(un_depot "$nom" "$url"); echo "$v" | tee -a "$R/bilan.txt"
+  v=$(un_depot "$nom" "$url" < /dev/null); echo "$v" | tee -a "$R/bilan.txt"
   case "$v" in *" RESEAU") echo "$nom $url" >> "$R/a-rejouer.txt";; esac
 done < "$L"
 while read -r nom url; do
   [ -z "$nom" ] && continue
-  echo "$(un_depot "$nom" "$url") (rejoue)" | tee -a "$R/bilan.txt"
+  echo "$(un_depot "$nom" "$url" < /dev/null) (rejoue)" | tee -a "$R/bilan.txt"
 done < "$R/a-rejouer.txt"
 echo FIN >> "$R/bilan.txt"

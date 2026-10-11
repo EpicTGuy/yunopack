@@ -770,6 +770,31 @@ fn est_une_variante_de_developpement(chemin: &str) -> bool {
     const SEPARATEURS: &[char] = &['.', '_', '-'];
     let bas = chemin.to_lowercase();
     let nom = bas.rsplit('/').next().unwrap_or(&bas);
+    // Le repertoire aussi : `docs/Dockerfile` construit le site de la
+    // documentation. AliasVault, une application .NET, passait ainsi pour
+    // un site statique servi par nginx.
+    const REPERTOIRES: &[&str] = &[
+        "docs",
+        "doc",
+        "documentation",
+        "website",
+        "site",
+        "examples",
+        "example",
+        "test",
+        "tests",
+        "e2e",
+        ".devcontainer",
+        "benchmarks",
+    ];
+    if bas
+        .split('/')
+        .rev()
+        .skip(1)
+        .any(|segment| REPERTOIRES.contains(&segment))
+    {
+        return true;
+    }
     // Le separateur varie d'un projet a l'autre : `Dockerfile.dev`,
     // `Dockerfile_ci` chez ibis, `Dockerfile-Develop` chez Mailtrain. Faute
     // de reconnaitre les deux derniers, l'outil retenait le Dockerfile de la
@@ -866,4 +891,21 @@ fn is_runtime_image(image: &str) -> bool {
     ];
     let short = image.rsplit('/').next().unwrap_or(image).to_lowercase();
     RUNTIMES.contains(&short.as_str())
+}
+
+#[cfg(test)]
+mod variantes {
+    use super::*;
+
+    #[test]
+    fn un_dockerfile_de_documentation_ou_de_test_n_est_pas_l_application() {
+        assert!(est_une_variante_de_developpement("docs/Dockerfile"));
+        assert!(est_une_variante_de_developpement("website/Dockerfile"));
+        assert!(est_une_variante_de_developpement(
+            ".devcontainer/Dockerfile"
+        ));
+        assert!(est_une_variante_de_developpement("Dockerfile.dev"));
+        assert!(!est_une_variante_de_developpement("apps/server/Dockerfile"));
+        assert!(!est_une_variante_de_developpement("Dockerfile"));
+    }
 }
