@@ -221,39 +221,69 @@ fn paquets_php(facts: &RepoFacts) -> Vec<String> {
 
 /// Le paquet Debian qui fournit une extension PHP ; rien pour une extension
 /// comprise dans le moteur (`json`, `pdo`, `ctype`…) ou inconnue.
-fn extension_php_en_paquet(ext: &str) -> Option<&'static str> {
-    Some(match ext {
-        "pdo_mysql" | "mysqli" | "mysqlnd" => "mysql",
-        "pdo_pgsql" | "pgsql" => "pgsql",
-        "pdo_sqlite" | "sqlite3" => "sqlite3",
-        "dom" | "simplexml" | "xmlreader" | "xmlwriter" | "libxml" | "xml" => "xml",
-        "gd" => "gd",
-        "intl" => "intl",
-        "mbstring" => "mbstring",
-        "curl" => "curl",
-        "zip" => "zip",
-        "bcmath" => "bcmath",
-        "gmp" => "gmp",
-        "ldap" => "ldap",
-        "imagick" => "imagick",
-        "redis" => "redis",
-        "memcached" => "memcached",
-        "apcu" => "apcu",
-        "soap" => "soap",
-        "bz2" => "bz2",
-        "imap" => "imap",
-        "opcache" => "opcache",
-        "xsl" => "xsl",
-        "tidy" => "tidy",
-        "igbinary" => "igbinary",
-        "msgpack" => "msgpack",
-        _ => return None,
-    })
+fn extension_php_en_paquet(ext: &str) -> Option<String> {
+    Some(
+        match ext {
+            "pdo_mysql" | "mysqli" | "mysqlnd" => "mysql",
+            "pdo_pgsql" | "pgsql" => "pgsql",
+            "pdo_sqlite" | "sqlite3" => "sqlite3",
+            "dom" | "simplexml" | "xmlreader" | "xmlwriter" | "libxml" | "xml" => "xml",
+            "gd" => "gd",
+            "intl" => "intl",
+            "mbstring" => "mbstring",
+            "curl" => "curl",
+            "zip" => "zip",
+            "bcmath" => "bcmath",
+            "gmp" => "gmp",
+            "ldap" => "ldap",
+            "imagick" => "imagick",
+            "redis" => "redis",
+            "memcached" => "memcached",
+            "apcu" => "apcu",
+            "soap" => "soap",
+            "bz2" => "bz2",
+            "imap" => "imap",
+            "opcache" => "opcache",
+            "xsl" => "xsl",
+            "tidy" => "tidy",
+            "igbinary" => "igbinary",
+            "msgpack" => "msgpack",
+            // Comprises dans le moteur (php-common, php-cli) : aucun paquet.
+            "json" | "ctype" | "pdo" | "openssl" | "tokenizer" | "fileinfo" | "filter" | "hash"
+            | "session" | "iconv" | "pcre" | "spl" | "reflection" | "standard" | "phar"
+            | "posix" | "sockets" | "sodium" | "exif" | "gettext" | "calendar" | "ffi"
+            | "shmop" | "sysvmsg" | "sysvsem" | "sysvshm" | "date" | "zlib" | "random" | "ftp"
+            | "core" | "libsodium" => return None,
+            // Les autres portent le nom de leur paquet : `php8.3-mailparse`,
+            // `php8.3-gnupg`, `php8.3-yaml`. anonaddy exige mailparse ; faute de
+            // la reconnaitre, l'outil ne l'installait pas, et composer refusait
+            // de continuer.
+            autre if autre.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+                return Some(autre.replace('_', "-"))
+            }
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 #[cfg(test)]
 mod php {
     use super::*;
+
+    #[test]
+    fn une_extension_inconnue_porte_le_nom_de_son_paquet() {
+        assert_eq!(
+            extension_php_en_paquet("mailparse").as_deref(),
+            Some("mailparse")
+        );
+        assert_eq!(
+            extension_php_en_paquet("pdo_mysql").as_deref(),
+            Some("mysql")
+        );
+        assert_eq!(extension_php_en_paquet("json"), None);
+        assert_eq!(extension_php_en_paquet("tokenizer"), None);
+    }
     use ynp_core::facts::{Database, StackFacts, Technology};
 
     fn php(version: Option<&str>, exts: &[&str], base: Database) -> RepoFacts {

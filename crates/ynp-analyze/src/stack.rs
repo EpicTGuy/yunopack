@@ -27,6 +27,20 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
     if facts.primary == Technology::Unknown {
         facts.primary = from_files.primary;
     }
+    // Une image finale nue (`scratch`, `alpine`) : la version de l'outil est
+    // celle de l'etape qui construit. AnonymousOverflow compile avec
+    // golang:1.22.1, quand son go.mod ne dit que `go 1.19`.
+    if facts.runtime_version.is_none() {
+        if let Some(b) = build {
+            facts.runtime_version = b
+                .stages
+                .iter()
+                .rev()
+                .filter_map(|s| from_base_image(&s.image, s.tag.as_deref()))
+                .find(|(t, v)| *t == facts.primary && v.is_some())
+                .and_then(|(_, v)| v);
+        }
+    }
     // Un tag d'image peut etre plus vague que le fichier de projet : `golang:1`
     // face a `go 1.26.0`. On garde la version la plus precise des deux.
     facts.runtime_version = more_precise(facts.runtime_version.take(), from_files.runtime_version);
@@ -117,8 +131,20 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
 fn more_precise(from_image: Option<String>, from_files: Option<String>) -> Option<String> {
     match (from_image, from_files) {
         (Some(image), Some(files)) => {
-            let parts = |v: &str| v.matches('.').count();
-            if parts(&files) > parts(&image) {
+            let nombres =
+                |v: &str| -> Vec<u32> { v.split('.').map_while(|p| p.parse().ok()).collect() };
+            let (a, b) = (nombres(&image), nombres(&files));
+            let n = a.len().min(b.len());
+            // L'une prolonge l'autre (`1` et `1.26.0`) : la plus precise.
+            // Sinon le fichier de projet ne donne qu'un minimum (`go 1.19`),
+            // et l'image ce qui sert vraiment (1.22) : la plus recente.
+            if a[..n] == b[..n] {
+                if b.len() > a.len() {
+                    Some(files)
+                } else {
+                    Some(image)
+                }
+            } else if b > a {
                 Some(files)
             } else {
                 Some(image)
@@ -776,6 +802,14 @@ mod precision {
         assert_eq!(
             more_precise(Some("20".into()), Some("18".into())).as_deref(),
             Some("20")
+        );
+        assert_eq!(
+            more_precise(Some("1.22.1".into()), Some("1.19".into())).as_deref(),
+            Some("1.22.1")
+        );
+        assert_eq!(
+            more_precise(Some("1".into()), Some("1.26.0".into())).as_deref(),
+            Some("1.26.0")
         );
         assert_eq!(
             more_precise(None, Some("3.11".into())).as_deref(),

@@ -450,6 +450,51 @@ fn outils_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Le premier script de l'image qu'une etape de construction lance par son
+/// chemin absolu, hors des repertoires du systeme et de l'application.
+fn script_d_image(facts: &RepoFacts) -> Option<String> {
+    let etapes = facts.build.as_ref()?.build_steps.clone();
+    etapes.into_iter().find_map(|e| {
+        e.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+            .filter(|m| !m.is_empty())
+            .find(|m| {
+                m.starts_with('/')
+                    && (m.ends_with(".sh") || m.contains("/build") || m.contains("_build"))
+                    && ![
+                        "/usr/", "/bin/", "/sbin/", "/etc/", "/tmp/", "/dev/", "/proc/",
+                    ]
+                    .iter()
+                    .any(|p| m.starts_with(p))
+            })
+            .map(str::to_string)
+    })
+}
+
+/// Une installation npm qui echoue sur un conflit de dependances paires
+/// (ERESOLVE) est retentee comme npm 6 la faisait. Les projets ecrits avant
+/// npm 7 en sont pleins : astral ne s'installait pas.
+fn avec_les_pairs_tolerees(etapes: Vec<String>) -> Vec<String> {
+    etapes
+        .into_iter()
+        .map(|e| {
+            let t = e.trim();
+            let npm = t == "npm ci"
+                || t == "npm install"
+                || (t.starts_with("npm ci ") || t.starts_with("npm install "))
+                    && !t.contains("&&")
+                    && !t.contains("||")
+                    && !t.contains(" -g")
+                    && !t.contains("--global")
+                    && !t.contains("legacy-peer-deps");
+            if npm {
+                format!("{t} || {t} --legacy-peer-deps")
+            } else {
+                e
+            }
+        })
+        .collect()
+}
+
 /// Vrai si l'etape ecrit dans `/usr/bin` ou `/usr/local/bin`.
 fn ecrit_dans_un_repertoire_de_binaires(etape: &str) -> bool {
     const ECRITURE: &[&str] = &[
@@ -839,6 +884,23 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         ),
         _ => execstart,
     };
+    // Une etape qui lance un script de l'image par son chemin absolu
+    // (`bash /bd_build/prepare.sh` chez AzuraCast) prepare un systeme entier :
+    // rien ne dit ce qu'il fait, et il ne se transpose pas.
+    let execstart = match (script_d_image(facts), execstart.value()) {
+        (Some(script), Some(_)) => Known::unresolved_avec(
+            format!(
+                "une etape de construction lance « {script} », un script de preparation de \
+                 l'image, non transposable automatiquement"
+            ),
+            &[
+                "le Dockerfile",
+                "la documentation d'installation sans Docker du projet",
+            ],
+            Vec::new(),
+        ),
+        _ => execstart,
+    };
     let execstart = match (intraduisible, execstart.value()) {
         (Some(m), Some(_)) => Known::unresolved_avec(
             format!(
@@ -915,7 +977,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
-    let build_steps = outils_dans_l_installation(etapes);
+    let build_steps = avec_les_pairs_tolerees(outils_dans_l_installation(etapes));
 
     Runtime {
         technology: match facts.stack.primary {
@@ -2176,6 +2238,33 @@ mod propositions {
         f.config.variables.remove(1);
         f.config.variables.remove(0);
         assert_eq!(fichier_sqlite(&f), None);
+    }
+
+    #[test]
+    fn un_script_de_preparation_de_l_image_ne_se_transpose_pas() {
+        let mut f = faits(vec![], vec![]);
+        f.build.as_mut().unwrap().build_steps =
+            vec!["npm ci".into(), "bash /bd_build/prepare.sh".into()];
+        assert_eq!(script_d_image(&f).as_deref(), Some("/bd_build/prepare.sh"));
+        f.build.as_mut().unwrap().build_steps = vec!["/usr/bin/env node build.js".into()];
+        assert_eq!(script_d_image(&f), None);
+    }
+
+    #[test]
+    fn une_installation_npm_tolere_les_conflits_de_pairs() {
+        let e = avec_les_pairs_tolerees(vec![
+            "npm ci".into(),
+            "npm install --omit=dev".into(),
+            "npm install -g pm2".into(),
+            "npm run build".into(),
+        ]);
+        assert_eq!(e[0], "npm ci || npm ci --legacy-peer-deps");
+        assert_eq!(
+            e[1],
+            "npm install --omit=dev || npm install --omit=dev --legacy-peer-deps"
+        );
+        assert_eq!(e[2], "npm install -g pm2");
+        assert_eq!(e[3], "npm run build");
     }
 
     #[test]
