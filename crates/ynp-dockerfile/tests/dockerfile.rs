@@ -758,3 +758,19 @@ fn chaque_etape_se_construit_dans_son_repertoire() {
         ]
     );
 }
+
+#[test]
+fn un_workdir_vers_une_copie_change_le_repertoire_des_commandes() {
+    // Cas de checkmate : tout est copie sous /app, puis chaque partie se
+    // construit dans son repertoire.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22\nWORKDIR /app\nCOPY client ./client\nCOPY server ./server\n\
+         WORKDIR /app/client\nRUN npm ci\nWORKDIR /app/server\nRUN npm run build\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec!["cd client && npm ci", "cd server && npm run build"]
+    );
+    assert_eq!(r.workdir.as_deref(), Some("/app/server"));
+}

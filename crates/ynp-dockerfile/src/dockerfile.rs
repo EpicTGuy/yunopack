@@ -143,7 +143,24 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             }
             "WORKDIR" => {
                 if let Some(s) = stages.last_mut() {
-                    s.workdir = Some(unquote(ins.args.trim()));
+                    let w = unquote(ins.args.trim());
+                    let absolu = absolu(&w, s.workdir.as_deref());
+                    // Un WORKDIR qui designe ou l'etape a copie un
+                    // sous-repertoire du depot (`COPY client ./client` puis
+                    // `WORKDIR /app/client` chez checkmate) : ses commandes
+                    // se lancent dans ce sous-repertoire.
+                    if let Some((_, src)) = s.destinations.iter().rev().find(|(d, _)| *d == absolu)
+                    {
+                        let src = src.trim_start_matches("./").trim_end_matches('/');
+                        if !src.is_empty()
+                            && src != "."
+                            && !src.contains('*')
+                            && !src.starts_with('/')
+                        {
+                            s.contexte = Some(src.to_string());
+                        }
+                    }
+                    s.workdir = Some(absolu);
                 }
             }
             "VOLUME" => {
@@ -157,6 +174,8 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                 let developpe = expand(&ins.args, &args);
                 for (dans_l_image, dans_le_depot) in parse_copy(&developpe) {
                     if let Some(s) = stages.last_mut() {
+                        let d = absolu(&dans_l_image, s.workdir.as_deref());
+                        s.destinations.push((d, dans_le_depot.clone()));
                         if s.contexte.is_none() {
                             s.contexte = contexte_de_copie(
                                 &dans_l_image,
@@ -225,6 +244,27 @@ struct StageAccu {
     /// Le sous-repertoire du depot que l'etape copie dans son repertoire de
     /// travail, et ou ses commandes se lancent.
     contexte: Option<String>,
+    /// Les copies de l'etape : destination absolue dans l'image, source.
+    destinations: Vec<(String, String)>,
+}
+
+/// Un chemin de l'image rendu absolu d'apres le repertoire de travail.
+fn absolu(chemin: &str, workdir: Option<&str>) -> String {
+    let c = chemin.trim_end_matches('/');
+    if c.starts_with('/') {
+        return c.to_string();
+    }
+    let base = workdir.unwrap_or("/").trim_end_matches('/');
+    let c = c.trim_start_matches("./");
+    if c.is_empty() || c == "." {
+        if base.is_empty() {
+            "/".into()
+        } else {
+            base.to_string()
+        }
+    } else {
+        format!("{base}/{c}")
+    }
 }
 
 /// Le sous-repertoire du depot qu'une copie installe dans le repertoire de
