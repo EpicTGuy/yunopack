@@ -1917,16 +1917,6 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
             )
         })
         .collect();
-    if !adresses.is_empty() {
-        return Known::resolved(
-            moteur
-                .into_iter()
-                .chain(adresses)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
-    }
-
     // Certaines applications attendent les champs separement plutot qu'une URL.
     let champs: Vec<String> = [
         (ConfigRole::DatabaseHost, "127.0.0.1"),
@@ -1943,10 +1933,14 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
     })
     .collect();
 
-    if !champs.is_empty() {
+    // L'adresse et les champs separes ensemble quand le projet nomme les
+    // deux : anonaddy declare DB_URL, que sa version de Laravel ne lit pas,
+    // et retombait sur l'utilisateur `forge` de config/database.php.
+    if !adresses.is_empty() || !champs.is_empty() {
         return Known::resolved(
             moteur
                 .into_iter()
+                .chain(adresses)
                 .chain(champs)
                 .collect::<Vec<_>>()
                 .join("\n"),
@@ -2656,6 +2650,31 @@ mod propositions {
         f.config.variables.clear();
         f.stack.primary = Technology::Php;
         assert!(!sans_reglage_de_chemin(&f));
+    }
+
+    #[test]
+    fn l_adresse_et_les_champs_de_la_base_se_donnent_ensemble() {
+        // Cas d'anonaddy : DB_URL, que Laravel ne lisait pas, et DB_*.
+        let role = |nom: &str, r: ConfigRole| ConfigVar {
+            name: nom.into(),
+            role: r,
+            ..Default::default()
+        };
+        let mut f = faits(
+            vec![
+                role("DB_URL", ConfigRole::DatabaseUrl),
+                role("DB_HOST", ConfigRole::DatabaseHost),
+                role("DB_DATABASE", ConfigRole::DatabaseName),
+                role("DB_USERNAME", ConfigRole::DatabaseUser),
+                role("DB_PASSWORD", ConfigRole::DatabasePassword),
+            ],
+            vec![],
+        );
+        f.services.database = Database::MySql;
+        let l = liaison_base(&f).value().cloned().unwrap();
+        assert!(l.contains("DB_URL=mysql://"));
+        assert!(l.contains("DB_USERNAME=__DB_USER__"));
+        assert!(l.contains("DB_PASSWORD=__DB_PWD__"));
     }
 
     #[test]
