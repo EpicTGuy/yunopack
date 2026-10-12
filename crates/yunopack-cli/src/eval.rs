@@ -62,7 +62,18 @@ type Extracteur = fn(&toml::Value) -> String;
 pub fn champs() -> Vec<(&'static str, Extracteur)> {
     vec![
         ("id", |m| texte(m, "id")),
-        ("licence", |m| chemin(m, &["upstream", "license"])),
+        // La famille de la licence : `AGPL-3.0`, forme SPDX retiree, vaut
+        // `AGPL-3.0-only`, et le choix entre `-only` et `-or-later` ne se lit
+        // pas toujours dans le depot — les paquets du catalogue eux-memes
+        // tranchent au hasard.
+        ("licence", |m| {
+            let l = chemin(m, &["upstream", "license"]);
+            let l = l.trim();
+            l.strip_suffix("-only")
+                .or_else(|| l.strip_suffix("-or-later"))
+                .unwrap_or(l)
+                .to_string()
+        }),
         ("architectures", |m| {
             liste_ou_texte(m, &["integration", "architectures"])
         }),
