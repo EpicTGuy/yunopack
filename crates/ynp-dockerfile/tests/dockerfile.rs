@@ -865,3 +865,18 @@ fn le_depot_copie_au_dessus_du_workdir_donne_le_contexte() {
         ]
     );
 }
+
+#[test]
+fn les_fichiers_copies_d_une_etape_vers_le_repertoire_final_sont_copies() {
+    // Cas de freetar : la roue construite par poetry est installee ensuite.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM python:3.12 AS builder\nRUN pip install poetry\nCOPY . /app\nWORKDIR /app\n\
+         RUN poetry build --format=wheel\n\
+         FROM python:3.12\nCOPY --from=builder /app/dist/*.whl .\nRUN pip install *.whl && rm *.whl\n",
+    );
+    let i = |e: &str| r.build_steps.iter().position(|x| x.contains(e)).unwrap();
+    assert!(
+        i("poetry build") < i("cp dist/*.whl .") && i("cp dist/*.whl .") < i("pip install *.whl")
+    );
+}

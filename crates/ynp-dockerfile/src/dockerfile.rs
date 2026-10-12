@@ -202,8 +202,29 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                     }
                     recipe.copies.insert(dans_l_image, dans_le_depot);
                 }
+                let copies = parse_copy_d_etape(&developpe);
+                // Les fichiers qu'une etape de construction produit, copies
+                // dans le repertoire de travail final pour y etre installes
+                // (`COPY --from=builder /app/dist/*.whl .` puis `pip install
+                // *.whl` chez freetar) : la copie devient une etape.
+                for (etape, source, vers) in &copies {
+                    if !source.contains('*') || !matches!(vers.as_str(), "." | "./") {
+                        continue;
+                    }
+                    let w = stages
+                        .iter()
+                        .find(|x| x.stage.alias.as_deref() == Some(etape.as_str()))
+                        .and_then(|x| x.workdir.clone());
+                    if let Some(rel) = w.and_then(|w| {
+                        source
+                            .strip_prefix(&format!("{}/", w.trim_end_matches('/')))
+                            .map(str::to_string)
+                    }) {
+                        recipe.build_steps.push(format!("cp {rel} ."));
+                    }
+                }
                 if let Some(s) = stages.last_mut() {
-                    s.copies_d_etape.extend(parse_copy_d_etape(&developpe));
+                    s.copies_d_etape.extend(copies);
                 }
             }
             "CMD" => {
