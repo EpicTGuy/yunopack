@@ -147,6 +147,23 @@ fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut R
         apt("composer");
         apt("unzip");
     }
+    // La ressource Ruby compile Ruby sur le serveur, et exige que le
+    // manifeste declare de quoi le faire (docuseal : « libjemalloc-dev is
+    // required to install Ruby »). Sans libssl-dev, Ruby n'aurait pas
+    // OpenSSL.
+    if resources.ruby_version.is_some() {
+        for p in [
+            "gcc",
+            "make",
+            "libjemalloc-dev",
+            "libffi-dev",
+            "libyaml-dev",
+            "zlib1g-dev",
+            "libssl-dev",
+        ] {
+            apt(p);
+        }
+    }
     for outil in ["git", "curl", "wget", "unzip", "make"] {
         if appelle(&etapes, &[outil]) {
             apt(outil);
@@ -568,6 +585,35 @@ fn script_d_image(facts: &RepoFacts) -> Option<String> {
             })
             .map(str::to_string)
     })
+}
+
+/// `npm install -g turbo` ecrit dans le repertoire de Node, refuse a
+/// l'utilisateur de l'application (documenso). L'outil s'installe dans un
+/// prefixe de l'installation, que les etapes suivantes ont dans leur PATH ;
+/// il reste appelable par son nom.
+fn npm_global_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
+    let global = |e: &str| {
+        let mots: Vec<&str> = e.split_whitespace().collect();
+        mots.windows(2)
+            .any(|w| w[0] == "npm" && matches!(w[1], "install" | "i" | "add"))
+            && mots.iter().any(|m| matches!(*m, "-g" | "--global"))
+            && !mots.iter().any(|m| m.starts_with("--prefix"))
+    };
+    if !etapes.iter().any(|e| global(e)) {
+        return etapes;
+    }
+    etapes
+        .into_iter()
+        .map(|e| {
+            let e = if global(&e) {
+                e.replacen(" -g", " -g --prefix \"$PWD/.npm-global\"", 1)
+                    .replacen(" --global", " --global --prefix \"$PWD/.npm-global\"", 1)
+            } else {
+                e
+            };
+            format!("export PATH=\"$PWD/.npm-global/bin:$PATH\"; {e}")
+        })
+        .collect()
 }
 
 /// yarn et pnpm ne sont pas installes : corepack, livre avec Node, les
@@ -1180,8 +1226,8 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
-    let build_steps = yarn_et_pnpm_par_corepack(bun_par_npx(avec_les_pairs_tolerees(
-        outils_dans_l_installation(etapes),
+    let build_steps = npm_global_dans_l_installation(yarn_et_pnpm_par_corepack(bun_par_npx(
+        avec_les_pairs_tolerees(outils_dans_l_installation(etapes)),
     )));
 
     Runtime {
@@ -2493,6 +2539,26 @@ mod propositions {
     }
 
     #[test]
+    fn un_outil_npm_global_s_installe_dans_l_installation() {
+        let e = npm_global_dans_l_installation(vec![
+            "npm install -g turbo@2".into(),
+            "turbo prune --scope=web".into(),
+        ]);
+        assert_eq!(
+            e[0],
+            "export PATH=\"$PWD/.npm-global/bin:$PATH\"; npm install -g --prefix \"$PWD/.npm-global\" turbo@2"
+        );
+        assert_eq!(
+            e[1],
+            "export PATH=\"$PWD/.npm-global/bin:$PATH\"; turbo prune --scope=web"
+        );
+        assert_eq!(
+            npm_global_dans_l_installation(vec!["npm ci".into()]),
+            vec!["npm ci"]
+        );
+    }
+
+    #[test]
     fn yarn_et_pnpm_passent_par_corepack() {
         let e = yarn_et_pnpm_par_corepack(vec![
             "yarn build".into(),
@@ -2615,6 +2681,7 @@ mod propositions {
         outils_des_etapes(&f, &mut r, &mut res);
         assert!(r.venv_python);
         assert_eq!(res.ruby_version.as_deref(), Some("3.3"));
+        assert!(res.apt_packages.iter().any(|a| a == "libjemalloc-dev"));
         for p in ["python3-venv", "wget"] {
             assert!(res.apt_packages.iter().any(|a| a == p), "{p}");
         }
