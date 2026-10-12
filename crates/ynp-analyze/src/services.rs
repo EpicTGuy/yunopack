@@ -37,6 +37,15 @@ pub fn detect(
         }
     }
 
+    // Les schemas du projet nomment son moteur : Prisma, les reglages Django,
+    // les fichiers SQL ranges par moteur (roundcube : SQL/mysql.initial.sql).
+    if facts.database == Database::None {
+        if let Some((db, evidence)) = from_schemas(tree, stack) {
+            facts.database = db;
+            facts.database_evidence = Some(evidence);
+        }
+    }
+
     // Dernier recours : le pilote present dans les dependances.
     if facts.database == Database::None {
         if let Some((db, evidence)) = from_drivers(tree) {
@@ -61,6 +70,77 @@ pub fn detect(
 
     facts.requires_container_runtime = requires_containers(tree, compose, stack, has_dockerfile);
     facts
+}
+
+/// Le moteur que nomment les schemas du projet. Plusieurs moteurs pris en
+/// charge : MySQL pour une application PHP, convention des paquets YunoHost,
+/// PostgreSQL sinon.
+fn from_schemas(tree: &RepoTree, stack: &StackFacts) -> Option<(Database, String)> {
+    let (mut pg, mut my) = (None, None);
+    let mut noter = |db: Database, ou: &str| match db {
+        Database::PostgreSql if pg.is_none() => pg = Some(ou.to_string()),
+        Database::MySql if my.is_none() => my = Some(ou.to_string()),
+        _ => {}
+    };
+    let a_ecarter = |p: &str| {
+        let l = p.to_lowercase();
+        ["test", "example", "docs/", "documentation/"]
+            .iter()
+            .any(|m| l.contains(m))
+    };
+    for chemin in tree.paths() {
+        if a_ecarter(&chemin) {
+            continue;
+        }
+        let l = chemin.to_lowercase();
+        let nom = l.rsplit('/').next().unwrap_or(&l).to_string();
+        if nom == "schema.prisma" {
+            let t = tree.text(&chemin).unwrap_or("");
+            let fournisseur = t
+                .split("datasource")
+                .nth(1)
+                .and_then(|d| d.split("provider").nth(1))
+                .and_then(|p| p.split('"').nth(1))
+                .unwrap_or("");
+            match fournisseur {
+                "postgresql" | "postgres" => noter(Database::PostgreSql, &chemin),
+                "mysql" => noter(Database::MySql, &chemin),
+                _ => {}
+            }
+        } else if l.ends_with(".py") && (nom == "settings.py" || l.contains("/settings/")) {
+            let t = tree.text(&chemin).unwrap_or("");
+            if t.contains("db.backends.postgresql") || t.contains("backends.postgis") {
+                noter(Database::PostgreSql, &chemin);
+            }
+            if t.contains("db.backends.mysql") {
+                noter(Database::MySql, &chemin);
+            }
+        } else if l.ends_with(".sql") {
+            // Le moteur dans le nom du fichier ou d'un repertoire : il faut un
+            // mot entier, pour ne pas lire « my » dans « mytable ».
+            let mots: Vec<&str> = l.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+            if mots
+                .iter()
+                .any(|m| matches!(*m, "postgres" | "postgresql" | "pgsql"))
+            {
+                noter(Database::PostgreSql, &chemin);
+            }
+            if mots.iter().any(|m| matches!(*m, "mysql" | "mariadb")) {
+                noter(Database::MySql, &chemin);
+            }
+        }
+    }
+    let php = stack.primary == ynp_core::facts::Technology::Php;
+    match (pg, my) {
+        (Some(p), Some(m)) => Some(if php {
+            (Database::MySql, m)
+        } else {
+            (Database::PostgreSql, p)
+        }),
+        (Some(p), None) => Some((Database::PostgreSql, p)),
+        (None, Some(m)) => Some((Database::MySql, m)),
+        (None, None) => None,
+    }
 }
 
 /// Base deduite de la variable qui nomme le moteur.
@@ -213,6 +293,32 @@ pub fn is_kubernetes_only(tree: &RepoTree, has_dockerfile: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn les_schemas_du_projet_nomment_la_base() {
+        let mut st = StackFacts {
+            primary: ynp_core::facts::Technology::NodeJs,
+            ..Default::default()
+        };
+        let t = RepoTree::from_pairs([(
+            "prisma/schema.prisma",
+            "datasource db {\n  provider = \"postgresql\"\n  url = env(\"DATABASE_URL\")\n}\n",
+        )]);
+        assert_eq!(
+            from_schemas(&t, &st).map(|x| x.0),
+            Some(Database::PostgreSql)
+        );
+        // Deux moteurs : MySQL pour PHP.
+        st.primary = ynp_core::facts::Technology::Php;
+        let t = RepoTree::from_pairs([
+            ("SQL/mysql.initial.sql", ""),
+            ("SQL/postgres.initial.sql", ""),
+        ]);
+        assert_eq!(from_schemas(&t, &st).map(|x| x.0), Some(Database::MySql));
+        // Pas un moteur : « my » dans un nom de table.
+        let t = RepoTree::from_pairs([("db/mytable.sql", "")]);
+        assert_eq!(from_schemas(&t, &st), None);
+    }
+
     use super::*;
     use ynp_core::facts::{ConfigVar, Technology};
 

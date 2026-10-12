@@ -106,6 +106,10 @@ fn is_interesting(path: &str) -> bool {
         "requirements.txt",
         "setup.py",
         "setup.cfg",
+        // Le moteur de base y est nomme : `provider = "postgresql"` (Prisma),
+        // `ENGINE` des reglages Django.
+        "schema.prisma",
+        "settings.py",
         "pipfile",
         "makefile",
         "package-lock.json",
@@ -159,6 +163,8 @@ fn is_interesting(path: &str) -> bool {
         // Une unite systemd livree par le projet dit comment il se lance en
         // demon : c'est exactement ce que le paquet doit ecrire.
         || lower.ends_with(".service")
+        // Les reglages Django decoupes par environnement : settings/base.py.
+        || (path.to_lowercase().contains("/settings/") && lower.ends_with(".py"))
         || lower.starts_with("docker-compose.")
         || lower.starts_with("compose.")
         || lower.starts_with(".env")
