@@ -117,9 +117,15 @@ pub fn pousser(
     message: &str,
 ) -> Result<String, ForgeError> {
     let git = |args: &[&str]| -> Result<String, ForgeError> {
+        // Les variables d'un git appelant (un hook de commit fixe
+        // GIT_INDEX_FILE) designeraient son depot, pas celui du paquet.
         let sortie = std::process::Command::new("git")
             .args(args)
             .current_dir(paquet)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_OBJECT_DIRECTORY")
             .output()
             .map_err(|e| ForgeError::Git {
                 commande: args.join(" "),
