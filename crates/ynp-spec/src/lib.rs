@@ -1366,7 +1366,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .iter()
                 .map(|e| php::avec_le_php_du_manifeste(e))
                 .collect();
-            if !etapes.iter().any(|e| e.contains("/usr/bin/composer")) {
+            if !etapes.iter().any(|e| e.contains("composer.phar")) {
                 if let Some(c) = php::etape_composer(facts) {
                     etapes.insert(0, c);
                 }

@@ -82,7 +82,7 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
                 .as_ref()
                 .is_some_and(|b| b.build_steps.iter().any(|e| e.starts_with("composer ")))
         {
-            ajouter("composer");
+            // composer.phar vient des scripts ; il lui faut unzip.
             ajouter("unzip");
         }
     }

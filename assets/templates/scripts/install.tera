@@ -90,6 +90,13 @@ chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
 ynh_script_progression "Construction de $app..."
 
 pushd "$install_dir"
+{%- if runtime.version_composer %}
+    # Composer, dans la version que le paquet fixe, lance par le PHP du
+    # manifeste.
+    composer_version="{{ runtime.version_composer }}"
+    ynh_composer_install
+    chown "$app:$app" "$install_dir/composer.phar"
+{%- endif %}
 {%- if runtime.installer_rust %}
     # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
     # construction, puis retiree.

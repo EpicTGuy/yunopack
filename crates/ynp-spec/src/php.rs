@@ -72,18 +72,20 @@ pub fn etape_composer(facts: &RepoFacts) -> Option<String> {
             ""
         };
         format!(
-            "{env}COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION /usr/bin/composer install \
+            "{env}COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" install \
              --no-dev --optimize-autoloader --no-interaction --no-progress"
         )
     })
 }
 
 /// Une etape de composer ecrite pour l'image (`composer install`) passe par
-/// le composer de Debian et le PHP du manifeste.
+/// le composer.phar de l'installation et le PHP du manifeste.
 pub fn avec_le_php_du_manifeste(etape: &str) -> String {
     match etape.strip_prefix("composer ") {
         Some(reste) => {
-            format!("COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION /usr/bin/composer {reste}")
+            format!(
+                "COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" {reste}"
+            )
         }
         None => etape.to_string(),
     }
@@ -219,7 +221,7 @@ mod tests {
         assert_eq!(racine_web(&f).as_deref(), Some("public"));
         assert!(etape_composer(&f)
             .unwrap()
-            .contains("/usr/bin/composer install --no-dev"));
+            .contains("composer.phar\" install --no-dev"));
         assert_eq!(etapes_du_frontal(&f), vec!["npm ci", "npm run production"]);
         assert_eq!(
             migrations(&f),
@@ -249,7 +251,7 @@ mod tests {
     fn une_etape_composer_de_l_image_prend_le_php_du_manifeste() {
         assert_eq!(
             avec_le_php_du_manifeste("composer install --no-dev"),
-            "COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION /usr/bin/composer install --no-dev"
+            "COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" install --no-dev"
         );
         assert_eq!(avec_le_php_du_manifeste("npm ci"), "npm ci");
     }
