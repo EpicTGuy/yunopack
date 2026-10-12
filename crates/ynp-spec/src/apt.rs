@@ -172,7 +172,12 @@ fn est_specifique_au_conteneur(paquet: &str) -> bool {
         "gnupg",
         "software-properties-common",
     ];
-    INUTILES.contains(&paquet)
+    // Node.js vient de la ressource nodejs de YunoHost. Ceux de Debian, et
+    // les bibliotheques `node-*` qui en dependent, entrent en conflit avec
+    // elle : `node-gyp` empechait l'installation de klaxon, alors que npm
+    // embarque deja le sien.
+    let de_node = matches!(paquet, "nodejs" | "npm" | "yarnpkg") || paquet.starts_with("node-");
+    INUTILES.contains(&paquet) || de_node
 }
 
 /// Paquets qui ne servent qu'a construire.
@@ -502,6 +507,12 @@ mod tests {
     fn le_socle_fourni_par_yunohost_n_est_pas_redeclare() {
         let p = packages(&facts(&["ca-certificates", "tzdata", "curl"], &[], &[]));
         assert_eq!(p, vec!["curl"]);
+        let p = packages(&facts(
+            &["node-gyp", "nodejs", "npm", "libpq-dev"],
+            &[],
+            &[],
+        ));
+        assert_eq!(p, vec!["libpq-dev"]);
     }
 
     #[test]
