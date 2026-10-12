@@ -30,7 +30,7 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
             if est_specifique_au_conteneur(p) || (sans_compilation && sert_a_construire(p)) {
                 continue;
             }
-            ajouter(p);
+            ajouter(&en_bookworm(p));
         }
 
         // 2. Les paquets Alpine traduits. Une traduction vide signale un
@@ -112,6 +112,37 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
 
     out.sort_unstable();
     out
+}
+
+/// Le nom bookworm d'un paquet de bibliotheque nomme par une distribution
+/// plus recente : duplicati, construit sur trixie, demandait `libicu76` et
+/// `libssl3t64`, introuvables sous Debian 12. Le suffixe `t64` (passage du
+/// temps sur 64 bits) disparait ; les familles a version prennent la leur.
+pub(crate) fn en_bookworm(paquet: &str) -> String {
+    let p = paquet.strip_suffix("t64").unwrap_or(paquet);
+    let familles: &[(&str, &str)] = &[
+        ("libicu", "libicu72"),
+        ("libssl", "libssl3"),
+        ("libffi", "libffi8"),
+        ("libreadline", "libreadline8"),
+        ("libtiff", "libtiff6"),
+        ("libwebp", "libwebp7"),
+        ("libavcodec", "libavcodec59"),
+        ("libavformat", "libavformat59"),
+        ("libavutil", "libavutil57"),
+        ("libswscale", "libswscale6"),
+        ("libpython3.", "libpython3.11"),
+        ("libmagickwand-7.q16-", "libmagickwand-6.q16-6"),
+    ];
+    for (prefixe, bookworm) in familles {
+        // `libicu76`, et non `libicu-dev` : un numero suit le prefixe.
+        if let Some(reste) = p.strip_prefix(prefixe) {
+            if reste.chars().next().is_some_and(|c| c.is_ascii_digit()) && !reste.contains("-dev") {
+                return (*bookworm).to_string();
+            }
+        }
+    }
+    p.to_string()
 }
 
 /// Paquets qui n'ont de sens que dans une image.
@@ -270,6 +301,15 @@ fn extension_php_en_paquet(ext: &str) -> Option<String> {
 #[cfg(test)]
 mod php {
     use super::*;
+
+    #[test]
+    fn les_bibliotheques_d_une_distribution_recente_prennent_leur_nom_bookworm() {
+        assert_eq!(en_bookworm("libicu76"), "libicu72");
+        assert_eq!(en_bookworm("libssl3t64"), "libssl3");
+        assert_eq!(en_bookworm("libgssapi-krb5-2"), "libgssapi-krb5-2");
+        assert_eq!(en_bookworm("libicu-dev"), "libicu-dev");
+        assert_eq!(en_bookworm("libpng16-16t64"), "libpng16-16");
+    }
 
     #[test]
     fn une_extension_inconnue_porte_le_nom_de_son_paquet() {
