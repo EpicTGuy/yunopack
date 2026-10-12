@@ -472,21 +472,32 @@ fn chemin_interroge(reglage: &str) -> String {
 /// repond. Constate en installant yunopack, dont l'endpoint rendait 302 alors
 /// que son binaire ne pouvait meme pas demarrer.
 async fn endpoint_public(hote: &Hote, url: &str, chrono: &mut Chrono) -> Result<Etape, SshError> {
+    // Comme un navigateur : la tuile du portail ouvre l'adresse dans un
+    // navigateur. Le relais Buzz repondait 200 avec son document JSON, et
+    // son interface web n'etait jamais servie.
     let reponse = hote
         .executer(&format!(
-            "curl -sk -o /dev/null -w '%{{http_code}} %{{redirect_url}}' --max-time 15 {url}"
+            "curl -sk -o /dev/null -w '%{{http_code}} %{{content_type}} %{{redirect_url}}' \
+             -H 'Accept: text/html,application/xhtml+xml,*/*;q=0.8' --max-time 15 {url}"
         ))
         .await?;
     let texte = reponse.texte().to_string();
-    let (code, redirection) = texte.split_once(' ').unwrap_or((texte.as_str(), ""));
+    let mut champs = texte.splitn(3, ' ');
+    let code = champs.next().unwrap_or_default();
+    let type_ = champs.next().unwrap_or_default();
+    let redirection = champs.next().unwrap_or_default();
 
     let vers_le_portail = redirection.contains("/yunohost/sso");
     let servi = code.starts_with('2') || code.starts_with('3');
+    let json = code.starts_with('2') && type_.contains("json");
 
     Ok(chrono.etape(
         "endpoint HTTP",
-        servi,
+        servi && !json,
         match (servi, vers_le_portail) {
+            _ if json => {
+                format!("{url} repond {type_} a un navigateur : aucune page web n'y est servie")
+            }
             (true, true) => String::new(), // protege par le portail, attendu
             (true, false) => String::new(),
             (false, _) => format!("code {code} sur {url}"),
