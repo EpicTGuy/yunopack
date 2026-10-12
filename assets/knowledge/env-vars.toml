@@ -119,7 +119,10 @@ exact = ["ADMIN_PASSWORD", "INITIAL_ADMIN_PASSWORD", "SUPERUSER_PASSWORD", "DEFA
 
 [[rule]]
 role = "data_path"
-exact = ["DATA_DIR", "DATA_PATH", "STORAGE_PATH", "UPLOAD_DIR", "MEDIA_ROOT", "FILES_DIR", "STORAGE_DIR"]
+exact = ["DATA_DIR", "DATADIR", "DATA_PATH", "STORAGE_PATH", "UPLOAD_DIR", "MEDIA_ROOT", "FILES_DIR", "STORAGE_DIR"]
+# Prefixees du nom de l'application : TIMETAGGER_DATADIR valait /root/_timetagger,
+# ou l'utilisateur de l'app ne peut pas ecrire.
+suffix = ["_DATA_DIR", "_DATADIR", "_DATA_PATH", "_STORAGE_DIR", "_STORAGE_PATH"]
 
 [[rule]]
 role = "smtp_host"
