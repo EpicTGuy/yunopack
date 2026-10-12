@@ -450,6 +450,22 @@ fn outils_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Un secret propre a l'application, de forme libre : il se tire au hasard
+/// sans rien casser. Pas une cle d'un service tiers (`API_KEY`), ni une cle
+/// au format impose (`PRIVATE_KEY` hexadecimale, `ENCRYPTION_KEY` de
+/// longueur fixe).
+fn secret_interne(nom: &str) -> bool {
+    let n = nom.to_ascii_uppercase();
+    [
+        "JWT", "SESSION", "COOKIE", "SIGNING", "HMAC", "SALT", "CSRF",
+    ]
+    .iter()
+    .any(|m| n.contains(m))
+        && !["PRIVATE_KEY", "ENCRYPTION", "PUBLIC"]
+            .iter()
+            .any(|m| n.contains(m))
+}
+
 /// Le premier script de l'image qu'une etape de construction lance par son
 /// chemin absolu, hors des repertoires du systeme et de l'application.
 fn script_d_image(facts: &RepoFacts) -> Option<String> {
@@ -715,7 +731,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         // hexadecimal, facultative : y ecrire une chaine aleatoire l'aurait
         // rendue invalide. Il lit aussi dans son code la cle d'un autre
         // programme et celle d'un service de recherche externe.
-        if var.role == ConfigRole::Secret && var.facultative {
+        //
+        // Sauf un secret interne, de forme libre, que le code exige souvent
+        // sans le dire facultatif : AnonymousOverflow s'arrete au demarrage
+        // sans JWT_SIGNING_SECRET.
+        if var.role == ConfigRole::Secret && var.facultative && !secret_interne(&var.name) {
             continue;
         }
         if let Some(valeur) = valeur_yunohost(var.role) {
@@ -2238,6 +2258,15 @@ mod propositions {
         f.config.variables.remove(1);
         f.config.variables.remove(0);
         assert_eq!(fichier_sqlite(&f), None);
+    }
+
+    #[test]
+    fn un_secret_interne_se_genere_meme_facultatif() {
+        assert!(secret_interne("JWT_SIGNING_SECRET"));
+        assert!(secret_interne("SESSION_SECRET"));
+        assert!(!secret_interne("API_KEY"));
+        assert!(!secret_interne("BUZZ_RELAY_PRIVATE_KEY"));
+        assert!(!secret_interne("MAILGUN_SECRET"));
     }
 
     #[test]

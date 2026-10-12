@@ -60,6 +60,23 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
             .map(|e| e.to_lowercase())
             .collect();
     }
+    // Les extensions qu'exigent les dependances, telles que le verrou les
+    // fige : anonaddy n'exige pas mailparse lui-meme, mais par
+    // php-mime-mail-parser, et composer refusait d'installer sans elle.
+    if let Some(Value::Array(paquets)) =
+        json(tree, "composer.lock").and_then(|c| c.get("packages").cloned())
+    {
+        for p in &paquets {
+            if let Some(Value::Object(requis)) = p.get("require") {
+                for e in requis.keys().filter_map(|k| k.strip_prefix("ext-")) {
+                    let e = e.to_lowercase();
+                    if !facts.extensions_php.contains(&e) {
+                        facts.extensions_php.push(e);
+                    }
+                }
+            }
+        }
+    }
     if let Some(b) = build {
         for etape in &b.build_steps {
             if let Some((_, reste)) = etape.split_once("docker-php-ext-install") {
@@ -623,6 +640,22 @@ fn python_version(tree: &RepoTree) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn les_extensions_des_dependances_viennent_du_verrou() {
+        let arbre = RepoTree::from_pairs([
+            (
+                "composer.json",
+                r#"{"require": {"php": "^8.3", "ext-intl": "*"}}"#,
+            ),
+            (
+                "composer.lock",
+                r#"{"packages": [{"name": "php-mime-mail-parser/php-mime-mail-parser", "require": {"php": "^8.2", "ext-mailparse": "*"}}], "packages-dev": [{"name": "x/y", "require": {"ext-xdebug": "*"}}]}"#,
+            ),
+        ]);
+        let f = detect(&arbre, None);
+        assert_eq!(f.extensions_php, vec!["intl", "mailparse"]);
+    }
 
     #[test]
     fn une_image_de_base_peut_nommer_le_langage_a_elle_seule() {

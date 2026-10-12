@@ -25,7 +25,11 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
     let version = resoudre("app.version", spec.app.version.value());
     let description = resoudre("app.description_en", spec.app.description_en.value());
     let licence = resoudre("upstream.license", spec.upstream.license.value());
-    let execstart = if spec.features.systemd {
+    // Une commande en question bloque meme sans service a rendre : la
+    // question porte sur ce que le paquet ne sait pas faire. AzuraCast
+    // (PHP, sans service) passait la verification et echouait a
+    // l'installation sur un script de preparation de son image.
+    let execstart = if spec.features.systemd || spec.runtime.execstart.value().is_none() {
         resoudre("runtime.execstart", spec.runtime.execstart.value())
     } else {
         String::new()
@@ -329,16 +333,18 @@ mod tests {
     }
 
     #[test]
-    fn le_demarrage_n_est_reclame_que_si_un_service_existe() {
+    fn une_commande_en_question_bloque_meme_sans_service() {
+        // Une application sans service a une commande resolue, vide : une
+        // question y signale ce que le paquet ne sait pas faire (un script de
+        // preparation de l'image chez AzuraCast).
         let mut s = spec_minimale();
-        s.runtime.execstart = Known::unresolved("inconnu", &[]);
         s.features.systemd = false;
+        s.runtime.execstart = Known::resolved(String::new());
+        assert!(build(&s).1.is_empty());
 
+        s.runtime.execstart = Known::unresolved("inconnu", &[]);
         let (_, fixmes) = build(&s);
-        assert!(
-            fixmes.is_empty(),
-            "une app sans daemon n'a pas d'ExecStart : {fixmes:?}"
-        );
+        assert_eq!(fixmes, vec!["runtime.execstart"]);
     }
 
     #[test]
