@@ -367,7 +367,11 @@ mod tests {
 /// `pip install` vise le Python du systeme, que Debian 12 refuse
 /// (« externally-managed-environment ») et que l'utilisateur de l'application
 /// n'a pas le droit de modifier.
-const ENV_VENV: &str = "export VIRTUAL_ENV=\"$PWD/venv\" PATH=\"$PWD/venv/bin:$PATH\"; ";
+/// uv installe aussi dans ce venv (`uv sync`, chez simplelogin), et garde
+/// dans l'installation l'interpreteur qu'il telecharge et son cache.
+const ENV_VENV: &str = "export VIRTUAL_ENV=\"$PWD/venv\" PATH=\"$PWD/venv/bin:$PATH\" \
+                        UV_PROJECT_ENVIRONMENT=\"$PWD/venv\" UV_PYTHON_INSTALL_DIR=\"$PWD/.uv/python\" \
+                        UV_CACHE_DIR=\"$PWD/.uv/cache\"; ";
 
 const ENV_RUST: &str = "export CARGO_HOME=\"$PWD/.cargo\" RUSTUP_HOME=\"$PWD/.rustup\" \
                         PATH=\"$PWD/.cargo/bin:$PATH\"; ";

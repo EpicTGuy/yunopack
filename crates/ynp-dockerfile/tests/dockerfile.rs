@@ -935,3 +935,27 @@ fn le_produit_d_une_etape_rejoint_celle_qui_l_embarque() {
         .iter()
         .any(|c| c.depuis == "booklore-api/build/libs/api.jar"));
 }
+
+#[test]
+fn un_sous_shell_reste_entier_et_un_cd_vaut_pour_la_suite() {
+    // Cas de puter, puis de simplelogin.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22\nWORKDIR /app\nCOPY . .\n\
+         RUN (cd src/gui && node ./build.js) & gui_pid=$! && wait $gui_pid\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec!["(cd src/gui && node ./build.js) & gui_pid=$! && wait $gui_pid"]
+    );
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:10 AS npm\nWORKDIR /code\nCOPY ./static/package*.json /code/static/\n\
+         RUN cd /code/static && npm ci\n\
+         FROM ubuntu:22.04\nWORKDIR /code\nCOPY . .\nCOPY --from=npm /code /code\n\
+         CMD [\"gunicorn\", \"wsgi:app\"]\n",
+    );
+    assert_eq!(r.build_steps, vec!["cd static && npm ci"]);
+    assert!(r.copies_d_etape.is_empty());
+    assert_eq!(r.contexte_final, None);
+}

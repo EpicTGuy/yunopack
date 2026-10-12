@@ -194,6 +194,17 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                             }
                             *e = format!("cd {c} && {corps}");
                         }
+                    } else if let Some(w) = s.workdir.as_deref().filter(|w| w.len() > 1) {
+                        // Les etapes tournent dans le repertoire d'installation,
+                        // qui tient lieu de WORKDIR : `cd /code/static` y est
+                        // `cd static` (simplelogin).
+                        let w = format!("{} ", w.trim_end_matches('/'));
+                        let prefixe = format!("{}/", w.trim_end());
+                        for e in &mut recipe.build_steps[avant..] {
+                            *e = e
+                                .replace(&format!("cd {prefixe}"), "cd ")
+                                .replace(&format!("cd {w}"), "cd . ");
+                        }
                     }
                 }
             }
@@ -492,11 +503,21 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
     // l'etape copiait toujours un fichier qui n'existe pas. Gardee entiere,
     // elle s'execute par `bash -c` avec son sens d'origine — ici, rien.
     let fragments = split_commands(commande);
-    let a_un_bloc = fragments.iter().any(|f| {
-        tokenize(f)
-            .first()
-            .is_some_and(|t| matches!(t.as_str(), "if" | "case" | "for" | "while"))
-    });
+    // Un sous-shell ou une tache de fond (`(cd src/gui && node build.js) &
+    // gui_pid=$!`, chez puter) ne se decoupe pas non plus : coupe aux `&&`,
+    // il cassait la syntaxe du script.
+    let en_arriere_plan = commande.contains("$!")
+        || commande
+            .as_bytes()
+            .windows(3)
+            .any(|w| w[1] == b'&' && w[0] != b'&' && w[2] != b'&' && w[0] != b'>' && w[2] != b'>');
+    let a_un_bloc = en_arriere_plan
+        || fragments.iter().any(|f| {
+            f.trim_start().starts_with('(')
+                || tokenize(f)
+                    .first()
+                    .is_some_and(|t| matches!(t.as_str(), "if" | "case" | "for" | "while"))
+        });
     if a_un_bloc {
         // Les paquets qu'il installe vont quand meme au manifeste, et leur
         // installation dans l'etape devient `true` : l'utilisateur de
@@ -507,9 +528,16 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
         recipe.build_steps.push(nettoye);
         return;
     }
+    // Un `cd` seul vaut pour les commandes qui le suivent dans le meme RUN :
+    // `cd /code/static && npm ci`, decoupe, lancait npm a la racine.
+    let mut dossier: Vec<String> = Vec::new();
     for cmd in fragments {
         let toks = tokenize(&cmd);
         if toks.is_empty() {
+            continue;
+        }
+        if toks[0] == "cd" && toks.len() == 2 {
+            dossier.push(cmd.trim().to_string());
             continue;
         }
         recipe.extensions_php.extend(extensions_php_de(&toks));
@@ -517,7 +545,12 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
             RunKind::AptInstall(pkgs) => recipe.apt_packages.extend(pkgs),
             RunKind::ApkAdd(pkgs) => recipe.apk_packages.extend(pkgs),
             RunKind::Noise => {}
-            RunKind::BuildStep => recipe.build_steps.push(cmd.clone()),
+            RunKind::BuildStep if dossier.is_empty() => recipe.build_steps.push(cmd.clone()),
+            RunKind::BuildStep => {
+                recipe
+                    .build_steps
+                    .push(format!("{} && {}", dossier.join(" && "), cmd.trim()))
+            }
         }
     }
 }
@@ -945,10 +978,14 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
     let workdir_final = last.workdir.clone();
     for (etape, source, vers) in copies {
         let depuis = if let Some(rel) = source.strip_prefix('/') {
+            // Le repertoire de travail entier de l'etape (`COPY --from=npm
+            // /code /code`, chez simplelogin) : c'est le depot lui-meme.
             let interne = workdir_de(etape).and_then(|w| {
-                format!("/{rel}")
-                    .strip_prefix(&format!("{w}/"))
-                    .map(str::to_string)
+                let source = format!("/{}", rel.trim_end_matches('/'));
+                if source == w {
+                    return Some(String::new());
+                }
+                source.strip_prefix(&format!("{w}/")).map(str::to_string)
             });
             // L'etape construisait dans un sous-repertoire du depot : ses
             // produits y sont (`booklore-api/build/libs/…`).
@@ -958,8 +995,8 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
                 .and_then(|s| s.contexte.clone());
             match interne {
                 Some(r) => match contexte {
-                    Some(c) => format!("{c}/{r}"),
-                    None => r,
+                    Some(c) if !r.is_empty() => format!("{c}/{r}"),
+                    _ => r,
                 },
                 // Une sortie de construction hors du repertoire de travail
                 // (`pnpm deploy … /prod/api` chez cobalt), que l'etape produit
