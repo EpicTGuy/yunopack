@@ -212,12 +212,20 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
             let n = asset.name.to_lowercase();
             n.ends_with(".tar.gz") || n.ends_with(".tgz")
         };
+        let zip = asset.name.to_lowercase().ends_with(".zip");
         if let Some(empreinte) = asset.empreinte_publiee.clone() {
             asset.sha256 = empreinte;
             if asset.extract && tar_gz {
                 if let Some(d) = client.debut(&asset.url, 64 * 1024).await {
                     asset.sous_repertoire = archive::repertoire_racine(&d);
                     asset.executables = archive::executables(&d);
+                }
+            }
+            if asset.extract && zip {
+                if let Some(f) = client.fin(&asset.url, asset.taille, 64 * 1024).await {
+                    let e = archive::entrees_zip(&f);
+                    asset.sous_repertoire = archive::racine_des_entrees(&e);
+                    asset.executables = archive::executables_des_entrees(&e);
                 }
             }
             retenus.push(asset);
@@ -235,6 +243,11 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
                 if asset.extract && tar_gz {
                     asset.sous_repertoire = archive::repertoire_racine(&bytes);
                     asset.executables = archive::executables(&bytes);
+                }
+                if asset.extract && zip {
+                    let e = archive::entrees_zip(&bytes);
+                    asset.sous_repertoire = archive::racine_des_entrees(&e);
+                    asset.executables = archive::executables_des_entrees(&e);
                 }
                 retenus.push(asset);
             }

@@ -147,6 +147,32 @@ impl Client {
         Some(octets)
     }
 
+    /// Les derniers octets d'un fichier, sans le rapatrier : le repertoire
+    /// central d'un zip y tient.
+    ///
+    /// Une plage explicite, d'apres la taille du fichier : le CDN de GitHub
+    /// refuse `bytes=-N` (« 501 Unsupported client range »).
+    pub async fn fin(&self, url: &str, total: u64, taille: usize) -> Option<Vec<u8>> {
+        if total == 0 {
+            return None;
+        }
+        let debut = total.saturating_sub(taille as u64);
+        let r = crate::client_http()
+            .ok()?
+            .get(url)
+            .header("Range", format!("bytes={debut}-{}", total - 1))
+            .send()
+            .await
+            .ok()?;
+        if !r.status().is_success() {
+            return None;
+        }
+        let octets = r.bytes().await.ok()?.to_vec();
+        // Un serveur qui ignore Range renvoie tout : on garde la fin.
+        let debut = octets.len().saturating_sub(taille);
+        Some(octets[debut..].to_vec())
+    }
+
     /// Telecharge, en retentant sur une erreur passagere.
     ///
     /// Une coupure au milieu d'une archive faisait echouer toute l'analyse :

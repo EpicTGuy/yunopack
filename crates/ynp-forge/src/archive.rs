@@ -207,6 +207,49 @@ fn est_un_fichier_env(nom: &str) -> bool {
 }
 
 #[cfg(test)]
+mod zip {
+    use super::*;
+
+    /// Un zip minimal : une entree par (nom, mode), sans donnees.
+    fn zip(entrees: &[(&str, u32)]) -> Vec<u8> {
+        let mut central = Vec::new();
+        for (nom, mode) in entrees {
+            central.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+            central.extend_from_slice(&((3u16 << 8) | 20).to_le_bytes()); // fait sous Unix
+            central.extend_from_slice(&[0u8; 22]); // version, drapeaux, methode, dates, crc, tailles
+            central.extend_from_slice(&(nom.len() as u16).to_le_bytes());
+            central.extend_from_slice(&[0u8; 8]); // extra, commentaire, disque, attributs internes
+            central.extend_from_slice(&(mode << 16).to_le_bytes());
+            central.extend_from_slice(&[0u8; 4]); // decalage
+            central.extend_from_slice(nom.as_bytes());
+        }
+        let mut z = vec![0u8; 10]; // donnees locales, ignorees
+        let debut = z.len();
+        z.extend_from_slice(&central);
+        z.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
+        z.extend_from_slice(&(entrees.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(entrees.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(central.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(debut as u32).to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        z
+    }
+
+    #[test]
+    fn les_executables_d_un_zip_se_lisent_a_sa_fin() {
+        let z = zip(&[
+            ("dmarc-viewer/", 0o040755),
+            ("dmarc-viewer/dmarc-report-viewer", 0o100644),
+            ("dmarc-viewer/README.md", 0o100644),
+        ]);
+        let e = entrees_zip(&z);
+        assert_eq!(e.len(), 3);
+        assert_eq!(executables_des_entrees(&e), vec!["dmarc-report-viewer"]);
+        assert_eq!(racine_des_entrees(&e), Some(true));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -384,6 +427,109 @@ pub fn executables(debut: &[u8]) -> Vec<String> {
             _ => n,
         })
         .collect()
+}
+
+/// Les entrees d'une archive zip — nom, fichier ou non, mode Unix — d'apres
+/// son repertoire central, qui en occupe la fin : les derniers kilooctets
+/// suffisent, sans rapatrier l'archive. dmarc-report-viewer ne publie que
+/// des zip, et l'outil supposait un binaire a la racine.
+pub fn entrees_zip(fin: &[u8]) -> Vec<(String, bool, u32)> {
+    let u16le = |b: &[u8], i: usize| -> Option<usize> {
+        Some(u16::from_le_bytes([*b.get(i)?, *b.get(i + 1)?]) as usize)
+    };
+    let u32le = |b: &[u8], i: usize| -> Option<u32> {
+        Some(u32::from_le_bytes([
+            *b.get(i)?,
+            *b.get(i + 1)?,
+            *b.get(i + 2)?,
+            *b.get(i + 3)?,
+        ]))
+    };
+    // La fin du repertoire central : signature PK\x05\x06, la derniere.
+    let Some(eocd) = fin.windows(4).rposition(|w| w == [0x50, 0x4b, 0x05, 0x06]) else {
+        return Vec::new();
+    };
+    let (Some(taille), Some(n)) = (u32le(fin, eocd + 12), u16le(fin, eocd + 10)) else {
+        return Vec::new();
+    };
+    // Le repertoire central precede immediatement cette fin.
+    let Some(mut i) = eocd.checked_sub(taille as usize) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for _ in 0..n.min(500) {
+        if fin.get(i..i + 4) != Some(&[0x50, 0x4b, 0x01, 0x02][..]) {
+            break;
+        }
+        let (Some(fait_par), Some(lg_nom), Some(lg_extra), Some(lg_comm), Some(externes)) = (
+            u16le(fin, i + 4),
+            u16le(fin, i + 28),
+            u16le(fin, i + 30),
+            u16le(fin, i + 32),
+            u32le(fin, i + 38),
+        ) else {
+            break;
+        };
+        let Some(nom) = fin.get(i + 46..i + 46 + lg_nom) else {
+            break;
+        };
+        let nom = String::from_utf8_lossy(nom)
+            .trim_start_matches("./")
+            .to_string();
+        // Le mode Unix n'existe que pour une archive faite sous Unix.
+        let mode = if fait_par >> 8 == 3 {
+            externes >> 16
+        } else {
+            0
+        };
+        let fichier = !nom.ends_with('/');
+        out.push((nom, fichier, mode));
+        i += 46 + lg_nom + lg_extra + lg_comm;
+    }
+    out
+}
+
+/// Les executables d'une liste d'entrees, le repertoire racine retire s'il
+/// enveloppe tout. Sans mode Unix (zip fait ailleurs), un fichier sans
+/// extension a la racine tient lieu d'executable.
+pub fn executables_des_entrees(entrees: &[(String, bool, u32)]) -> Vec<String> {
+    let tous: Vec<&String> = entrees.iter().map(|(n, _, _)| n).collect();
+    let racine = |n: &str| n.split('/').next().unwrap_or_default().to_string();
+    let enveloppe = !tous.is_empty()
+        && tous.iter().all(|n| n.contains('/'))
+        && tous.iter().all(|n| racine(n) == racine(tous[0]));
+    let sans_racine = |n: &str| match (enveloppe, n.split_once('/')) {
+        (true, Some((_, reste))) => reste.to_string(),
+        _ => n.to_string(),
+    };
+    // Des modes Unix, et au moins un executable : ils font foi. Sinon —
+    // dmarc-report-viewer publie son binaire en -rw-r--r-- — un fichier sans
+    // extension tient lieu d'executable (voir `chmod` a l'installation).
+    let avec_mode = entrees.iter().any(|(_, f, m)| *f && *m & 0o111 != 0);
+    entrees
+        .iter()
+        .filter(|(n, fichier, mode)| {
+            *fichier
+                && if avec_mode {
+                    mode & 0o111 != 0
+                } else {
+                    let court = sans_racine(n);
+                    !court.contains('/') && !court.contains('.')
+                }
+        })
+        .map(|(n, _, _)| sans_racine(n))
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// Vrai si toutes les entrees sont sous un meme repertoire racine.
+pub fn racine_des_entrees(entrees: &[(String, bool, u32)]) -> Option<bool> {
+    let tous: Vec<&String> = entrees.iter().map(|(n, _, _)| n).collect();
+    if tous.is_empty() {
+        return None;
+    }
+    let racine = |n: &str| n.split('/').next().unwrap_or_default().to_string();
+    Some(tous.iter().all(|n| n.contains('/')) && tous.iter().all(|n| racine(n) == racine(tous[0])))
 }
 
 pub fn repertoire_racine(debut: &[u8]) -> Option<bool> {

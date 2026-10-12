@@ -1111,8 +1111,21 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         .as_ref()
         .is_some_and(|s| s.evite_la_compilation())
     {
-        // Rien a construire : l'amont publie un binaire.
-        Vec::new()
+        // Rien a construire : l'amont publie un binaire. Qu'il soit
+        // executable, quel que soit le mode que l'archive lui a laisse :
+        // dmarc-report-viewer le publie en -rw-r--r--.
+        // (Un binaire nu, lui, l'est par le script d'installation.)
+        let archive = facts
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.prebuilt.iter().any(|a| a.extract));
+        execstart
+            .value()
+            .filter(|_| archive)
+            .and_then(|c| c.split_whitespace().next())
+            .and_then(|b| b.strip_prefix("__INSTALL_DIR__/"))
+            .map(|b| vec![format!("chmod +x {b}")])
+            .unwrap_or_default()
     } else {
         let mut etapes = statique::site(facts)
             .map(|s| s.etapes)

@@ -161,7 +161,10 @@ fn isole(nom: &str, motif: &str) -> bool {
         let avant = i == 0 || nom[..i].chars().next_back().is_some_and(separateur);
         let apres_at = i + motif.len();
         let apres = apres_at == nom.len() || nom[apres_at..].chars().next().is_some_and(separateur);
-        avant && apres
+        // `x86_64` et `x86-64` sont de l'amd64, pas de l'i386 :
+        // dmarc-report-viewer voyait son archive x86_64 retenue pour i386.
+        let suite_64 = nom[apres_at..].starts_with("_64") || nom[apres_at..].starts_with("-64");
+        avant && apres && !suite_64
     })
 }
 
@@ -276,6 +279,13 @@ mod tests {
             assets: assets(noms),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn x86_64_n_est_pas_de_l_i386() {
+        let r = release(&["linux-aarch64.zip", "linux-x86_64.zip"]);
+        let archs: Vec<String> = select(&r).into_iter().map(|a| a.arch).collect();
+        assert_eq!(archs, vec!["arm64", "amd64"]);
     }
 
     #[test]
