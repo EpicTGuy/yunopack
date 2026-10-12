@@ -86,8 +86,7 @@ fn depot_complet() -> RepoFacts {
                 source: ".env.example".into(),
                 facultative: false,
             },
-            // miniflux route d'apres son adresse publique : c'est ce qui
-            // lui permet d'etre servi sous un chemin.
+            // L'adresse publique de miniflux, qui recoit celle du domaine.
             ConfigVar {
                 name: "BASE_URL".into(),
                 role: ConfigRole::BaseUrl,
@@ -116,7 +115,9 @@ fn une_application_bien_documentee_produit_une_specification_complete() {
     assert_eq!(spec.upstream.license.value().unwrap(), "Apache-2.0");
     assert_eq!(spec.app.version.value().unwrap(), "2.3.3");
     assert_eq!(spec.resources.database, Database::PostgreSql);
-    assert_eq!(spec.install.url_scheme, UrlScheme::DomainAndPath);
+    // Un service sans variable de prefixe se sert a la racine d'un domaine :
+    // c'est ce qui fonctionne a coup sur.
+    assert_eq!(spec.install.url_scheme, UrlScheme::FullDomain);
 }
 
 #[test]

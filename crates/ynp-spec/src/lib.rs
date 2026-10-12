@@ -513,17 +513,11 @@ fn sans_reglage_de_chemin(facts: &RepoFacts) -> bool {
     ) {
         return false;
     }
-    // Une adresse publique que le paquet remplit (`https://domaine/chemin`)
-    // donne aussi son prefixe : miniflux route d'apres BASE_URL, gitea
-    // d'apres ROOT_URL. calrs n'echouait que parce que CALRS_BASE_URL,
-    // prefixee, n'etait pas reconnue, donc jamais remplie.
-    let adresse_publique = facts.config.variables.iter().any(|v| {
-        v.role == ConfigRole::BaseUrl
-            && (v.name.to_ascii_uppercase().contains("URL")
-                || v.name.to_ascii_uppercase().contains("URI"))
-            && !d_un_service_tiers(&v.name)
-    });
-    variable_de_chemin(facts).is_none() && !adresse_publique
+    // Une adresse publique ne suffit pas : anonymousoverflow, qui recoit
+    // APP_URL, repondait 404 sous /anonymousoverflow. Servi a la racine d'un
+    // domaine, un service fonctionne toujours ; sous un chemin, seulement
+    // s'il lit un prefixe.
+    variable_de_chemin(facts).is_none()
 }
 
 /// La variable par laquelle l'application apprend sous quel prefixe elle est
@@ -2557,11 +2551,11 @@ mod propositions {
         let mut f = faits(vec![var("SECRET_KEY", None, ".env.example")], vec![8080]);
         f.stack.primary = Technology::Python;
         assert!(sans_reglage_de_chemin(&f));
-        // Une adresse publique reconnue, que le paquet remplit, suffit.
+        // Une adresse publique ne suffit pas (anonymousoverflow).
         let mut url = var("APP_BASE_URL", None, ".env.example");
         url.role = ConfigRole::BaseUrl;
         f.config.variables.push(url);
-        assert!(!sans_reglage_de_chemin(&f));
+        assert!(sans_reglage_de_chemin(&f));
         // Pas celle d'un service tiers.
         f.config.variables.clear();
         let mut sms = var("APP_SMS_BASE_URL", None, ".env.example");
