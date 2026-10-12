@@ -305,6 +305,33 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                     }
                     recipe.copies.insert(dans_l_image, dans_le_depot);
                 }
+                // Une source par motif (`COPY client/package*.json ./` sous
+                // `WORKDIR /app/client`, chez checkmate) : son repertoire est
+                // le contexte, des le premier `npm ci`.
+                if let Some(s) = stages.last_mut() {
+                    let mots: Vec<&str> = developpe.split_whitespace().collect();
+                    if s.contexte.is_none() && !mots.iter().any(|m| m.starts_with("--from")) {
+                        let mots: Vec<&str> =
+                            mots.into_iter().filter(|m| !m.starts_with("--")).collect();
+                        if let Some((dest, sources)) = mots.split_last() {
+                            for src in sources.iter().filter(|m| m.contains('*')) {
+                                if let Some((dossier, _)) =
+                                    src.trim_start_matches("./").rsplit_once('/')
+                                {
+                                    let c = contexte_de_copie(
+                                        dest,
+                                        &format!("{dossier}/fichier.json"),
+                                        s.workdir.as_deref(),
+                                    );
+                                    if c.is_some() {
+                                        s.contexte = c;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 let copies = parse_copy_d_etape(&developpe);
                 // Les fichiers qu'une etape de construction produit, copies
                 // dans le repertoire de travail final pour y etre installes

@@ -959,3 +959,17 @@ fn un_sous_shell_reste_entier_et_un_cd_vaut_pour_la_suite() {
     assert!(r.copies_d_etape.is_empty());
     assert_eq!(r.contexte_final, None);
 }
+
+#[test]
+fn une_copie_par_motif_donne_le_contexte() {
+    // Cas de checkmate.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:24 AS front\nWORKDIR /app/client\nCOPY client/package*.json ./\nRUN npm ci\n\
+         COPY client ./\nRUN npm run build\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec!["cd client && npm ci", "cd client && npm run build"]
+    );
+}
