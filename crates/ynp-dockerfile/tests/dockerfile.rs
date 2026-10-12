@@ -806,3 +806,12 @@ fn les_outils_des_images_php_donnent_leurs_extensions() {
         vec!["pdo", "pdo_mysql", "zip", "memcached", "memcache"]
     );
 }
+
+#[test]
+fn npm_link_n_est_pas_une_etape() {
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22\nRUN npm ci && npm run build && npm link\n",
+    );
+    assert_eq!(r.build_steps, vec!["npm ci", "npm run build"]);
+}

@@ -376,6 +376,22 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
     if facts.stack.primary == Technology::NodeJs {
         let c = guillemets_du_shell(&c);
         let mots = sans_enveloppe(&mots_de(&c));
+        // Un executable que le paquet declare lui-meme (`bin`), que l'image
+        // rendait global par `npm link` : cross-seed.
+        if let Some(fichier) = mots
+            .first()
+            .and_then(|m| facts.stack.bins_npm.get(nom_de_fichier(m)))
+        {
+            let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
+            return Some(
+                format!(
+                    "__NODEJS_DIR__/node __INSTALL_DIR__/{fichier} {}",
+                    args.join(" ")
+                )
+                .trim()
+                .to_string(),
+            );
+        }
         if let Some(outil) = mots.first() {
             if facts.stack.dependances_npm.iter().any(|d| d == outil) {
                 let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
@@ -926,6 +942,8 @@ fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
         // Thruster, le mandataire HTTP que Rails place devant puma depuis sa
         // version 8 : nginx tient ce role chez YunoHost.
         "thrust",
+        // L'init minimal de certaines images, comme tini.
+        "catatonit",
     ];
 
     let mut reste = mots;
@@ -1283,6 +1301,20 @@ mod tests {
         let e = derive(&f, "x");
         assert!(e.value().is_none());
         assert_eq!(e.candidates().len(), 2);
+    }
+
+    #[test]
+    fn un_executable_du_paquet_se_lance_par_node() {
+        // Cas de cross-seed : `catatonit -- cross-seed daemon`, l'executable
+        // que le paquet declare, rendu global par `npm link` dans l'image.
+        let mut f = facts_node("catatonit -- cross-seed daemon", &[], &[]);
+        f.stack
+            .bins_npm
+            .insert("cross-seed".into(), "dist/cmd.js".into());
+        assert_eq!(
+            derive(&f, "cross-seed").value().map(String::as_str),
+            Some("__NODEJS_DIR__/node __INSTALL_DIR__/dist/cmd.js daemon")
+        );
     }
 
     #[test]

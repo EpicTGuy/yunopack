@@ -454,6 +454,9 @@ pub struct StackFacts {
     /// code ne le fixe pas lui-meme (`babybuddy.settings.base`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reglages_django: Option<String>,
+    /// Les executables que le `package.json` declare (`bin`), et leur fichier.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub bins_npm: std::collections::BTreeMap<String, String>,
     /// Le champ `main` du `package.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_npm: Option<String>,

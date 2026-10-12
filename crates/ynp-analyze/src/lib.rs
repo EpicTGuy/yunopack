@@ -932,6 +932,7 @@ pub fn premier_mot_de_script(commande: &str) -> Option<String> {
     const ENVELOPPES: &[&str] = &[
         "tini",
         "dumb-init",
+        "catatonit",
         "gosu",
         "su-exec",
         "env",

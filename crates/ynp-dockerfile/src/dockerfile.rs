@@ -473,6 +473,16 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // `npm link` et `npm install -g .` installent le paquet dans le
+    // repertoire de Node, refuse a l'utilisateur de l'application ; ses
+    // executables se lancent depuis l'installation (voir `bins_npm`).
+    if bin == "npm"
+        && (cmd.get(1).is_some_and(|s| s == "link") && cmd.len() == 2
+            || cmd.iter().any(|t| t == "-g" || t == "--global") && cmd.iter().any(|t| t == "."))
+    {
+        return RunKind::Noise;
+    }
+
     // Les outils des images PHP officielles, absents d'un serveur : les
     // extensions qu'ils nomment vont au manifeste (voir `extensions_php_de`).
     if matches!(

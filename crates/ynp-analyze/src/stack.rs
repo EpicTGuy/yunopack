@@ -102,6 +102,27 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
             }
         }
         facts.version_node = node_version(tree);
+        // `"bin": "dist/cmd.js"` porte le nom du paquet ; `"bin": {…}` les nomme.
+        match pkg.get("bin") {
+            Some(Value::String(f)) => {
+                if let Some(nom) = pkg.get("name").and_then(Value::as_str) {
+                    let nom = nom.rsplit('/').next().unwrap_or(nom);
+                    facts
+                        .bins_npm
+                        .insert(nom.to_string(), f.trim_start_matches("./").to_string());
+                }
+            }
+            Some(Value::Object(b)) => {
+                for (nom, f) in b {
+                    if let Some(f) = f.as_str() {
+                        facts
+                            .bins_npm
+                            .insert(nom.clone(), f.trim_start_matches("./").to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
         facts.main_npm = pkg
             .get("main")
             .and_then(Value::as_str)
