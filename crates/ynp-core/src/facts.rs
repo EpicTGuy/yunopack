@@ -816,10 +816,14 @@ pub struct EcouteFacts {
     /// Ports ecrits en dur dans un appel d'ecoute, avec le fichier.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports_en_dur: Vec<(u16, String)>,
+    /// Options qui attendent une adresse `hote:port`, d'apres leur valeur
+    /// par defaut dans le code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options_adresse: Vec<(String, String)>,
 }
 
 impl EcouteFacts {
     pub fn est_vide(&self) -> bool {
-        self.options.is_empty() && self.ports_en_dur.is_empty()
+        self.options.is_empty() && self.ports_en_dur.is_empty() && self.options_adresse.is_empty()
     }
 }

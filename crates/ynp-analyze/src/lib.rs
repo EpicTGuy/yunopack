@@ -59,6 +59,10 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
             ynp_core::ecoutes::Indice::PortEnDur(p) => {
                 facts.ecoute.ports_en_dur.push((*p, fichier.clone()))
             }
+            ynp_core::ecoutes::Indice::OptionAdresse(o) => facts
+                .ecoute
+                .options_adresse
+                .push((o.clone(), fichier.clone())),
         }
     }
 

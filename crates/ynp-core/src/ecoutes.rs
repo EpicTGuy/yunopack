@@ -16,6 +16,38 @@ pub enum Indice {
     Option(String),
     /// Port litteral passe a un appel d'ecoute.
     PortEnDur(u16),
+    /// Option dont la valeur par defaut est une adresse `hote:port` :
+    /// `flag.String("bind", ":8923", ...)` chez anubis. Elle attend donc une
+    /// adresse complete, ce que le nom seul ne disait pas.
+    OptionAdresse(String),
+}
+
+fn options_adresse() -> &'static [Regex] {
+    static M: OnceLock<Vec<Regex>> = OnceLock::new();
+    M.get_or_init(|| {
+        [
+            // Go, paquet flag : `flag.String("bind", ":8923", ...)`.
+            r#"flag\.String(?:Var)?\((?:&?[\w.]+\s*,\s*)?"([\w-]+)"\s*,\s*"([^"]*)""#,
+            // Go, cobra et pflag : `StringVarP(&a, "bind", "b", ":8080", ...)`.
+            r#"\.String(?:Var)?P\((?:&[\w.]+\s*,\s*)?"([\w-]+)"\s*,\s*"\w?"\s*,\s*"([^"]*)""#,
+        ]
+        .iter()
+        .map(|m| Regex::new(m).expect("motif d'option invalide"))
+        .collect()
+    })
+}
+
+/// `:8923`, `0.0.0.0:8080`, `127.0.0.1:3000` : une adresse d'ecoute.
+fn est_une_adresse(v: &str) -> bool {
+    v.rsplit_once(':').is_some_and(|(h, p)| {
+        !p.is_empty()
+            && p.len() <= 5
+            && p.chars().all(|c| c.is_ascii_digit())
+            && matches!(
+                h,
+                "" | "0.0.0.0" | "127.0.0.1" | "localhost" | "[::]" | "::"
+            )
+    })
 }
 
 fn options() -> &'static [Regex] {
@@ -87,6 +119,16 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
             }
         }
     }
+    for m in options_adresse() {
+        for c in m.captures_iter(contenu) {
+            if est_une_adresse(&c[2]) {
+                let i = Indice::OptionAdresse(format!("--{}", &c[1]));
+                if !out.contains(&i) {
+                    out.push(i);
+                }
+            }
+        }
+    }
     for m in ports_en_dur() {
         for c in m.captures_iter(contenu) {
             if let Ok(p) = c[1].parse::<u16>() {
@@ -103,6 +145,16 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_option_a_adresse_par_defaut_attend_une_adresse() {
+        // Cas d'anubis.
+        let go = r#"bind = flag.String("bind", ":8923", "network address to bind HTTP to")"#;
+        assert!(indices(go).contains(&Indice::OptionAdresse("--bind".into())));
+        // Une valeur qui n'est pas une adresse : rien de plus.
+        let go = r#"name = flag.String("bind", "eth0", "interface")"#;
+        assert!(!indices(go).contains(&Indice::OptionAdresse("--bind".into())));
+    }
 
     #[test]
     fn un_port_ecrit_en_dur_se_releve() {
@@ -158,11 +210,11 @@ mod tests {
             (r#"&cli.IntFlag{Name: "port", Value: 3000}"#, "--port"),
         ];
         for (code, attendu) in cas {
-            assert_eq!(
-                indices(code),
-                vec![Indice::Option(attendu.into())],
-                "{code}"
-            );
+            let options: Vec<Indice> = indices(code)
+                .into_iter()
+                .filter(|i| matches!(i, Indice::Option(_)))
+                .collect();
+            assert_eq!(options, vec![Indice::Option(attendu.into())], "{code}");
         }
     }
 

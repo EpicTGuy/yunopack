@@ -1561,7 +1561,37 @@ fn avec_l_option_de_port(facts: &RepoFacts, execstart: Known<String>) -> Known<S
         {
             Known::resolved(format!("{commande} {o} __PORT__"))
         }
-        _ => execstart,
+        _ => {
+            // Une option dont le code donne une adresse par defaut
+            // (`--bind`, `:8923` chez anubis) recoit l'adresse reservee.
+            let adresse = facts
+                .ecoute
+                .options_adresse
+                .iter()
+                .map(|(o, _)| o.as_str())
+                .find(|o| {
+                    matches!(
+                        *o,
+                        "--bind"
+                            | "--listen"
+                            | "--addr"
+                            | "--address"
+                            | "--listen-addr"
+                            | "--http-addr"
+                            | "--http"
+                    )
+                });
+            match adresse {
+                Some(o)
+                    if sans_variable_de_port(facts)
+                        && !commande.contains("__PORT__")
+                        && !commande.contains(o) =>
+                {
+                    Known::resolved(format!("{commande} {o}=127.0.0.1:__PORT__"))
+                }
+                _ => execstart,
+            }
+        }
     }
 }
 
