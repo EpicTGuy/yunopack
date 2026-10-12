@@ -173,7 +173,8 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                         venv.to_string()
                     };
                     let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
-                    let corps = entre_apostrophes(&format!("{rust}{venv}{e}"));
+                    let node = if lance_node(e) { ENV_NODE } else { "" };
+                    let corps = entre_apostrophes(&format!("{rust}{node}{venv}{e}"));
                     format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
                 })
                 .collect::<Vec<_>>(),
@@ -491,4 +492,21 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
             })
         })
         .collect()
+}
+
+/// Le tas de Node a 75 % de la memoire de l'hote : sa limite par defaut est
+/// plus basse, et `tsc && vite build` de bytestash s'arretait sur « Reached
+/// heap limit » sur un serveur de 4 Go qui avait encore de quoi.
+const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\"; ";
+
+/// Vrai si une etape lance un outil de Node.
+fn lance_node(etape: &str) -> bool {
+    etape
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+        .any(|m| {
+            matches!(
+                m.rsplit('/').next().unwrap_or(m),
+                "npm" | "npx" | "pnpm" | "yarn" | "corepack" | "node" | "bun"
+            )
+        })
 }
