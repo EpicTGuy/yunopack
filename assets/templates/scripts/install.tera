@@ -15,36 +15,6 @@ chmod +x "$install_dir/{{ sources.rename | default(value=app.id) }}"
 {%- endif %}
 
 chown -R "$app:www-data" "$install_dir"
-{%- if runtime.build_steps | length > 0 %}
-
-#=================================================
-# CONSTRUCTION DE L'APPLICATION
-#=================================================
-ynh_script_progression "Construction de $app..."
-
-pushd "$install_dir"
-{%- if runtime.installer_rust %}
-    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
-    # construction, puis retiree.
-    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
-{%- endif %}
-{%- if runtime.installer_venv %}
-    # L'application Python s'installe dans son propre environnement.
-    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
-{%- endif %}
-{%- for etape in runtime.build_steps %}
-    ynh_exec_as_app {{ etape }}
-{%- endfor %}
-popd
-{%- if runtime.rust_toolchain %}
-
-# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
-# servent plus une fois les binaires en place.
-ynh_safe_rm "$install_dir/.cargo"
-ynh_safe_rm "$install_dir/.rustup"
-ynh_safe_rm "$install_dir/target"
-{%- endif %}
-{%- endif %}
 {%- if resources.s3 %}
 
 #=================================================
@@ -99,6 +69,38 @@ chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
 {%- endif %}
 {%- endif %}
 
+{%- if runtime.build_steps | length > 0 %}
+
+#=================================================
+# CONSTRUCTION DE L'APPLICATION
+#=================================================
+# Apres la configuration : une construction peut la lire (Vite chez
+# anonaddy, Next.js), et les migrations, apres elle, en ont besoin.
+ynh_script_progression "Construction de $app..."
+
+pushd "$install_dir"
+{%- if runtime.installer_rust %}
+    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
+    # construction, puis retiree.
+    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
+{%- endif %}
+{%- if runtime.installer_venv %}
+    # L'application Python s'installe dans son propre environnement.
+    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
+{%- endif %}
+{%- for etape in runtime.build_steps %}
+    ynh_exec_as_app {{ etape }}
+{%- endfor %}
+popd
+{%- if runtime.rust_toolchain %}
+
+# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
+# servent plus une fois les binaires en place.
+ynh_safe_rm "$install_dir/.cargo"
+ynh_safe_rm "$install_dir/.rustup"
+ynh_safe_rm "$install_dir/target"
+{%- endif %}
+{%- endif %}
 {%- if runtime.migrations_scripts | length > 0 %}
 
 #=================================================

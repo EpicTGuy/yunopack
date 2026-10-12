@@ -491,6 +491,19 @@ fn outils_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
 /// longueur fixe).
 fn secret_interne(nom: &str) -> bool {
     let n = nom.to_ascii_uppercase();
+    // Le secret canonique des cadres web (Django, Flask, Rails, Symfony) :
+    // babybuddy s'arretait sur « The SECRET_KEY setting must not be empty ».
+    if matches!(
+        n.as_str(),
+        "SECRET_KEY"
+            | "SECRET_KEY_BASE"
+            | "APP_SECRET"
+            | "SECRET"
+            | "FLASK_SECRET_KEY"
+            | "DJANGO_SECRET_KEY"
+    ) {
+        return true;
+    }
     [
         "JWT", "SESSION", "COOKIE", "SIGNING", "HMAC", "SALT", "CSRF",
     ]
@@ -2574,6 +2587,8 @@ mod propositions {
     #[test]
     fn un_secret_interne_se_genere_meme_facultatif() {
         assert!(secret_interne("JWT_SIGNING_SECRET"));
+        assert!(secret_interne("SECRET_KEY"));
+        assert!(!secret_interne("STRIPE_SECRET_KEY"));
         assert!(secret_interne("SESSION_SECRET"));
         assert!(!secret_interne("API_KEY"));
         assert!(!secret_interne("BUZZ_RELAY_PRIVATE_KEY"));

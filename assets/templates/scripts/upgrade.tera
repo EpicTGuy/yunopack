@@ -18,6 +18,13 @@ ynh_script_progression "Mise a jour des sources de $app..."
 ynh_setup_source --dest_dir="$construction"
 chown -R "$app:www-data" "$construction"
 
+{%- if runtime.config_file %}
+# La configuration en place, que la construction peut lire.
+if [ -f "$install_dir/{{ runtime.config_file }}" ]; then
+    cp -a "$install_dir/{{ runtime.config_file }}" "$construction/{{ runtime.config_file }}"
+fi
+{%- endif %}
+
 ynh_script_progression "Construction de $app..."
 pushd "$construction"
 {%- if runtime.installer_rust %}
@@ -93,36 +100,7 @@ chmod +x "$install_dir/{{ sources.rename | default(value=app.id) }}"
 {%- endif %}
 
 chown -R "$app:www-data" "$install_dir"
-{%- if runtime.build_steps | length > 0 %}
 
-#=================================================
-# CONSTRUCTION
-#=================================================
-ynh_script_progression "Construction de $app..."
-
-pushd "$install_dir"
-{%- if runtime.installer_rust %}
-    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
-    # construction, puis retiree.
-    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
-{%- endif %}
-{%- if runtime.installer_venv %}
-    # L'application Python s'installe dans son propre environnement.
-    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
-{%- endif %}
-{%- for etape in runtime.build_steps %}
-    ynh_exec_as_app {{ etape }}
-{%- endfor %}
-popd
-{%- if runtime.rust_toolchain %}
-
-# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
-# servent plus une fois les binaires en place.
-ynh_safe_rm "$install_dir/.cargo"
-ynh_safe_rm "$install_dir/.rustup"
-ynh_safe_rm "$install_dir/target"
-{%- endif %}
-{%- endif %}
 {%- endif %}
 {%- if resources.s3 %}
 
@@ -172,6 +150,39 @@ chmod 400 "$install_dir/{{ runtime.config_file }}"
 chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
 {%- endif %}
 
+{%- if not runtime.construire_a_cote %}
+{%- if runtime.build_steps | length > 0 %}
+
+#=================================================
+# CONSTRUCTION
+#=================================================
+# Apres la configuration, que la construction peut lire.
+ynh_script_progression "Construction de $app..."
+
+pushd "$install_dir"
+{%- if runtime.installer_rust %}
+    # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
+    # construction, puis retiree.
+    ynh_exec_as_app bash -c {{ runtime.installer_rust }}
+{%- endif %}
+{%- if runtime.installer_venv %}
+    # L'application Python s'installe dans son propre environnement.
+    ynh_exec_as_app bash -c {{ runtime.installer_venv }}
+{%- endif %}
+{%- for etape in runtime.build_steps %}
+    ynh_exec_as_app {{ etape }}
+{%- endfor %}
+popd
+{%- if runtime.rust_toolchain %}
+
+# La chaine Rust et les objets de compilation pesent plusieurs Go, et ne
+# servent plus une fois les binaires en place.
+ynh_safe_rm "$install_dir/.cargo"
+ynh_safe_rm "$install_dir/.rustup"
+ynh_safe_rm "$install_dir/target"
+{%- endif %}
+{%- endif %}
+{%- endif %}
 {%- if runtime.migrations_scripts | length > 0 %}
 
 #=================================================

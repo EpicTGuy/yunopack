@@ -40,7 +40,15 @@ pub fn extract(gzipped_tar: &[u8]) -> std::io::Result<RepoTree> {
         }
 
         let size = entry.header().size().unwrap_or(0);
-        if !is_interesting(relative) || size > MAX_FILE_BYTES {
+        // Un verrou composer depasse souvent la limite (AzuraCast) ; les
+        // extensions et les versions de PHP qu'exigent les dependances n'y
+        // sont pourtant que la.
+        let limite = if relative.ends_with("composer.lock") {
+            8 * MAX_FILE_BYTES
+        } else {
+            MAX_FILE_BYTES
+        };
+        if !is_interesting(relative) || size > limite {
             // Un fichier source n'est pas garde, mais on releve au passage les
             // variables qu'il lit : c'est la reponse exacte a « sous quel nom
             // l'application attend-elle son port ? ».
