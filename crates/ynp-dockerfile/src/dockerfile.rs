@@ -502,6 +502,13 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // `composer global require …` : des outils installes pour toute l'image,
+    // souvent des greffons de composer 1 (hirak/prestissimo chez
+    // webhook-site), refuses par composer 2.
+    if bin == "composer" && cmd.get(1).is_some_and(|s| s == "global") {
+        return RunKind::Noise;
+    }
+
     // Les outils des images PHP officielles, absents d'un serveur : les
     // extensions qu'ils nomment vont au manifeste (voir `extensions_php_de`).
     if matches!(

@@ -824,3 +824,12 @@ fn un_gestionnaire_de_versions_de_node_n_est_pas_une_etape() {
     );
     assert_eq!(r.build_steps, vec!["npm install -g n", "npm ci"]);
 }
+
+#[test]
+fn un_outil_global_de_composer_n_est_pas_une_etape() {
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM php:8.2\nRUN composer global require hirak/prestissimo && composer install --no-dev\n",
+    );
+    assert_eq!(r.build_steps, vec!["composer install --no-dev"]);
+}
