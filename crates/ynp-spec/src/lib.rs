@@ -570,6 +570,30 @@ fn script_d_image(facts: &RepoFacts) -> Option<String> {
     })
 }
 
+/// Bun, que YunoHost ne fournit pas, est publie sur npm avec ses binaires :
+/// `npx --yes bun` le lance sans rien installer dans le systeme. cap
+/// construisait par `bun install`, introuvable.
+fn bun_par_npx(etapes: Vec<String>) -> Vec<String> {
+    etapes
+        .into_iter()
+        .map(|e| {
+            let mut sortie = Vec::new();
+            let mut debut_de_commande = true;
+            for m in e.split(' ') {
+                if debut_de_commande && m == "bun" {
+                    sortie.push("npx --yes bun".to_string());
+                } else {
+                    sortie.push(m.to_string());
+                }
+                // Un mot qui termine une commande : le suivant en commence une.
+                debut_de_commande =
+                    matches!(m, "&&" | "||" | ";" | "|") || (m.contains('=') && debut_de_commande);
+            }
+            sortie.join(" ")
+        })
+        .collect()
+}
+
 /// Une installation npm qui echoue sur un conflit de dependances paires
 /// (ERESOLVE) est retentee comme npm 6 la faisait. Les projets ecrits avant
 /// npm 7 en sont pleins : astral ne s'installait pas.
@@ -1096,7 +1120,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
-    let build_steps = avec_les_pairs_tolerees(outils_dans_l_installation(etapes));
+    let build_steps = bun_par_npx(avec_les_pairs_tolerees(outils_dans_l_installation(etapes)));
 
     Runtime {
         technology: match facts.stack.primary {
@@ -2404,6 +2428,22 @@ mod propositions {
         assert_eq!(script_d_image(&f).as_deref(), Some("/bd_build/prepare.sh"));
         f.build.as_mut().unwrap().build_steps = vec!["/usr/bin/env node build.js".into()];
         assert_eq!(script_d_image(&f), None);
+    }
+
+    #[test]
+    fn bun_passe_par_npx() {
+        assert_eq!(
+            bun_par_npx(vec![
+                "bun install --frozen-lockfile".into(),
+                "cd web && bun run build".into(),
+                "echo bun".into(),
+            ]),
+            vec![
+                "npx --yes bun install --frozen-lockfile",
+                "cd web && npx --yes bun run build",
+                "echo bun",
+            ]
+        );
     }
 
     #[test]

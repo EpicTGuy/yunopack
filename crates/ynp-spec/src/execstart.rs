@@ -748,6 +748,8 @@ fn traduire(commande: &str, tech: Technology, depot: &str) -> Option<String> {
         // (`npx prisma migrate deploy` chez documenso).
         "npx" => Some(format!("__NODEJS_DIR__/npx {}", reste(1))),
         "npm" | "yarn" | "pnpm" => None, // demarrer par un gestionnaire de paquets est deconseille
+        // Bun n'a pas de ressource YunoHost : npx lance celui que publie npm.
+        "bun" => Some(format!("__NODEJS_DIR__/npx --yes bun {}", reste(1))),
         "ruby" | "bundle" => Some(format!("__RUBY_DIR__/{nom} {}", reste(1))),
         // Java vient du paquet Debian ou du depot Adoptium que le manifeste
         // declare (voir `java`) : dans les deux cas, /usr/bin/java.
