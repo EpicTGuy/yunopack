@@ -898,3 +898,40 @@ fn un_workdir_dans_une_copie_en_miroir_donne_le_contexte() {
         vec!["pnpm install", "cd apps/server && pnpm build"]
     );
 }
+
+#[test]
+fn une_etape_qui_lit_un_arg_sans_valeur_est_ecartee() {
+    // Cas de booklore : la version de l'amont inscrite par yq.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM gradle:9 AS build\nARG APP_VERSION\nARG TARGETARCH\n\
+         RUN yq eval '.app.version = strenv(APP_VERSION)' -i app.yaml\n\
+         RUN curl -o tool https://example.org/tool-${TARGETARCH}\nRUN ./gradlew build\n",
+    );
+    assert!(r.build_steps.iter().all(|e| !e.contains("yq")));
+    assert!(r.build_steps.iter().any(|e| e.contains("TARGETARCH")));
+    assert!(r.build_steps.iter().any(|e| e.contains("gradlew")));
+}
+
+#[test]
+fn le_produit_d_une_etape_rejoint_celle_qui_l_embarque() {
+    // Cas de booklore : le front Angular dans les ressources Spring, puis le jar.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:24 AS front\nWORKDIR /angular-app\nCOPY booklore-ui/ .\nRUN npm ci && npm run build\n\
+         FROM gradle:9 AS api\nWORKDIR /springboot-app\nCOPY booklore-api/ .\n\
+         COPY --from=front /angular-app/dist/booklore/browser /springboot-app/src/main/resources/static\n\
+         RUN ./gradlew build\n\
+         FROM eclipse-temurin:25-jre\nWORKDIR /app\nCOPY --from=api /springboot-app/build/libs/api.jar /app/app.jar\n\
+         CMD [\"java\", \"-jar\", \"app.jar\"]\n",
+    );
+    let copie = "mkdir -p booklore-api/src/main/resources && rm -rf booklore-api/src/main/resources/static \
+                 && cp -a booklore-ui/dist/booklore/browser booklore-api/src/main/resources/static";
+    let i = |e: &str| r.build_steps.iter().position(|x| x == e).unwrap();
+    assert!(i("cd booklore-ui && npm run build") < i(copie));
+    assert!(i(copie) < i("cd booklore-api && ./gradlew build"));
+    assert!(r
+        .copies_d_etape
+        .iter()
+        .any(|c| c.depuis == "booklore-api/build/libs/api.jar"));
+}

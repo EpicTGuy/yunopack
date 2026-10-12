@@ -93,6 +93,8 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
     // Les ARG declares avant le premier FROM sont globaux et substituables
     // dans les lignes FROM : `ARG NODE=20` puis `FROM node:${NODE}`.
     let mut args: IndexMap<String, String> = IndexMap::new();
+    // Les ARG declares sans valeur : seul le pipeline de l'amont les fournit.
+    let mut sans_valeur: Vec<String> = Vec::new();
     let mut stages: Vec<StageAccu> = Vec::new();
 
     for ins in &instructions {
@@ -100,6 +102,21 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             "ARG" => {
                 if let Some((k, v)) = ins.args.split_once('=') {
                     args.insert(k.trim().to_string(), unquote(v.trim()));
+                } else {
+                    const AUTOMATIQUES: &[&str] = &[
+                        "TARGETARCH",
+                        "TARGETOS",
+                        "TARGETPLATFORM",
+                        "TARGETVARIANT",
+                        "BUILDPLATFORM",
+                        "BUILDARCH",
+                        "BUILDOS",
+                        "BUILDVARIANT",
+                    ];
+                    let k = ins.args.trim().to_string();
+                    if !k.is_empty() && !AUTOMATIQUES.contains(&k.as_str()) {
+                        sans_valeur.push(k);
+                    }
                 }
             }
             "FROM" => {
@@ -113,6 +130,22 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             "RUN" => {
                 let avant = recipe.build_steps.len();
                 collect_run(&expand(&ins.args, &args), &mut recipe);
+                // Une etape qui lit un ARG sans valeur inscrit une metadonnee
+                // de l'amont : `yq eval '.app.version = strenv(APP_VERSION)'`
+                // chez booklore, avec un yq que Debian n'a pas.
+                let lit = |e: &str, a: &str| {
+                    e.contains(&format!("${a}"))
+                        || e.contains(&format!("${{{a}}}"))
+                        || e.contains(&format!("strenv({a})"))
+                };
+                let mut i = avant;
+                while i < recipe.build_steps.len() {
+                    if sans_valeur.iter().any(|a| lit(&recipe.build_steps[i], a)) {
+                        recipe.build_steps.remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
                 // Une etape qui construit dans un sous-repertoire du depot
                 // (`COPY booklore-ui/ .`) : ses commandes s'y lancent.
                 if let Some(s) = stages.last() {
@@ -242,6 +275,47 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                             .map(str::to_string)
                     }) {
                         recipe.build_steps.push(format!("cp {rel} ."));
+                    }
+                }
+                // Une etape qui construit dans un sous-repertoire du depot et
+                // recoit le produit d'une autre (`COPY --from=angular-build
+                // /angular-app/dist/booklore/browser
+                // /springboot-app/src/main/resources/static` chez booklore) :
+                // la copie devient une etape, avant la construction qui
+                // l'embarque.
+                if let Some(cur) = stages.last() {
+                    if let (Some(c_cur), Some(w_cur)) = (cur.contexte.clone(), cur.workdir.clone())
+                    {
+                        for (etape, source, vers) in &copies {
+                            let Some(src) = stages
+                                .iter()
+                                .find(|x| x.stage.alias.as_deref() == Some(etape.as_str()))
+                            else {
+                                continue;
+                            };
+                            let rel = |chemin: &str, w: &str| {
+                                chemin
+                                    .trim_end_matches('/')
+                                    .strip_prefix(&format!("{}/", w.trim_end_matches('/')))
+                                    .map(str::to_string)
+                            };
+                            let depuis = src.workdir.as_deref().and_then(|w| rel(source, w));
+                            let vers = rel(&absolu(vers, Some(&w_cur)), &w_cur);
+                            if let (Some(depuis), Some(vers)) = (depuis, vers) {
+                                if depuis.contains('*') {
+                                    continue;
+                                }
+                                let depuis = match &src.contexte {
+                                    Some(c) => format!("{c}/{depuis}"),
+                                    None => depuis,
+                                };
+                                let vers = format!("{c_cur}/{vers}");
+                                let parent = vers.rsplit_once('/').map(|(p, _)| p).unwrap_or(".");
+                                recipe.build_steps.push(format!(
+                                    "mkdir -p {parent} && rm -rf {vers} && cp -a {depuis} {vers}"
+                                ));
+                            }
+                        }
                     }
                 }
                 if let Some(s) = stages.last_mut() {
@@ -876,8 +950,17 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
                     .strip_prefix(&format!("{w}/"))
                     .map(str::to_string)
             });
+            // L'etape construisait dans un sous-repertoire du depot : ses
+            // produits y sont (`booklore-api/build/libs/…`).
+            let contexte = stages
+                .iter()
+                .find(|s| s.stage.alias.as_deref() == Some(etape.as_str()))
+                .and_then(|s| s.contexte.clone());
             match interne {
-                Some(r) => r,
+                Some(r) => match contexte {
+                    Some(c) => format!("{c}/{r}"),
+                    None => r,
+                },
                 // Une sortie de construction hors du repertoire de travail
                 // (`pnpm deploy … /prod/api` chez cobalt), que l'etape produit
                 // elle-meme : elle devient un repertoire de l'installation.
