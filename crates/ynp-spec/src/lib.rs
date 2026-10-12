@@ -2605,6 +2605,11 @@ mod propositions {
             npm_global_dans_l_installation(vec!["npm ci".into()]),
             vec!["npm ci"]
         );
+        // Option groupee : `npm i -gf` chez ferdium.
+        assert!(
+            npm_global_dans_l_installation(vec!["npm i -gf @adonisjs/cli".into()])[0]
+                .contains("-gf --prefix \"$PWD/.npm-global\"")
+        );
     }
 
     #[test]
