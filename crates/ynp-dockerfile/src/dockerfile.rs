@@ -131,7 +131,28 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                                 .map(str::to_string)
                         })
                     });
-                    let contexte = s.contexte.clone().or(sous_la_racine.flatten());
+                    // Des copies qui reproduisent l'arborescence du depot
+                    // (`COPY apps/server/src apps/server/src` sous `/app`) puis
+                    // un WORKDIR dans l'une d'elles (`/app/apps/server`, chez
+                    // your_spotify) : le contexte est ce sous-repertoire.
+                    let en_miroir = || {
+                        let w = s.workdir.as_deref()?.trim_end_matches('/');
+                        s.destinations.iter().find_map(|(d, src)| {
+                            let src = src.trim_start_matches("./").trim_end_matches('/');
+                            if matches!(src, "" | ".") || src.starts_with('/') {
+                                return None;
+                            }
+                            let base = d.trim_end_matches('/').strip_suffix(&format!("/{src}"))?;
+                            w.strip_prefix(&format!("{base}/"))
+                                .filter(|r| !r.is_empty() && src.starts_with(&format!("{r}/")))
+                                .map(str::to_string)
+                        })
+                    };
+                    let contexte = s
+                        .contexte
+                        .clone()
+                        .or(sous_la_racine.flatten())
+                        .or_else(en_miroir);
                     if let Some(c) = &contexte {
                         for e in &mut recipe.build_steps[avant..] {
                             let mut corps = e.clone();

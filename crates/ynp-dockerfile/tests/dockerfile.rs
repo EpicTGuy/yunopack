@@ -880,3 +880,18 @@ fn les_fichiers_copies_d_une_etape_vers_le_repertoire_final_sont_copies() {
         i("poetry build") < i("cp dist/*.whl .") && i("cp dist/*.whl .") < i("pip install *.whl")
     );
 }
+
+#[test]
+fn un_workdir_dans_une_copie_en_miroir_donne_le_contexte() {
+    // Cas de your_spotify : copies fichier par fichier, puis WORKDIR.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22 AS builder\nWORKDIR /app\nCOPY package.json package.json\n\
+         COPY apps/server/package.json apps/server/package.json\nRUN pnpm install\n\
+         COPY apps/server/src apps/server/src\nWORKDIR /app/apps/server\nRUN pnpm build\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec!["pnpm install", "cd apps/server && pnpm build"]
+    );
+}
