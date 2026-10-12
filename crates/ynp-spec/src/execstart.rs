@@ -401,13 +401,10 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
                         .and_then(|r| r.split_once('/'))
                         .is_some_and(|(portee, nom)| {
                             let tete = portee.split('-').next().unwrap_or(portee);
-                            [
-                                nom.to_string(),
-                                format!("{portee}-{nom}"),
-                                format!("{tete}-{nom}"),
-                            ]
-                            .iter()
-                            .any(|c| c == outil)
+                            // Pas le nom seul : `@types/node` ne fournit pas `node`.
+                            [format!("{portee}-{nom}"), format!("{tete}-{nom}")]
+                                .iter()
+                                .any(|c| c == outil)
                         })
             };
             if facts.stack.dependances_npm.iter().any(|d| fournit(d)) {
@@ -1150,6 +1147,20 @@ mod tests {
         assert_eq!(
             lier_les_options_d_ecoute("java --server.port=8080 -jar a.jar", &[8080]),
             "java --server.port=__PORT__ -jar a.jar"
+        );
+        // Les types d'un paquet ne fournissent pas son executable.
+        let mut f = RepoFacts::default();
+        f.stack.primary = Technology::NodeJs;
+        f.stack.dependances_npm = vec!["@types/node".into(), "@remix-run/serve".into()];
+        assert_eq!(
+            traduire_avec("node server.js", &f).as_deref(),
+            Some("__NODEJS_DIR__/node server.js")
+        );
+        assert_eq!(
+            traduire_avec("remix-serve build/index.js", &f).as_deref(),
+            Some(
+                "__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/remix-serve build/index.js"
+            )
         );
         // L'hote et le port ensemble (gunicorn chez fireshare).
         assert_eq!(
