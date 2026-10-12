@@ -577,7 +577,8 @@ fn d_un_service_tiers(nom: &str) -> bool {
     }
     [
         "SMS", "SMTP", "MAIL", "API", "OIDC", "OAUTH", "AUTH", "S3", "WEBHOOK", "SENTRY", "STRIPE",
-        "LDAP", "PROXY", "REDIS", "DATABASE", "DB_", "CDN", "STORAGE", "MINIO", "AWS",
+        "LDAP", "PROXY", "REDIS", "DATABASE", "DB_", "CDN", "STORAGE", "MINIO", "AWS", "TURN",
+        "STUN",
     ]
     .iter()
     .any(|m| n.contains(m))
@@ -1028,7 +1029,9 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         if var.role == ConfigRole::Secret && var.facultative && !secret_interne(&var.name) {
             continue;
         }
-        if var.role == ConfigRole::BaseUrl && d_un_service_tiers(&var.name) {
+        if matches!(var.role, ConfigRole::BaseUrl | ConfigRole::Domain)
+            && d_un_service_tiers(&var.name)
+        {
             continue;
         }
         // Un nom d'adresse dont la valeur par defaut est un hote ou ecouter :
@@ -1060,6 +1063,23 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                     var.name.clone(),
                     format!("__SECRET_{}_{n}__", f.to_ascii_uppercase()),
                 );
+                continue;
+            }
+        }
+        // Un chemin de donnees qui designe un fichier (`/data/app.db`) : le
+        // fichier, dans le repertoire de donnees.
+        if var.role == ConfigRole::DataPath {
+            if let Some(fichier) = var
+                .default
+                .as_deref()
+                .and_then(|d| d.rsplit('/').next())
+                .filter(|f| {
+                    [".db", ".sqlite", ".sqlite3", ".json"]
+                        .iter()
+                        .any(|e| f.ends_with(e))
+                })
+            {
+                env.insert(var.name.clone(), format!("__DATA_DIR__/{fichier}"));
                 continue;
             }
         }
@@ -2279,6 +2299,7 @@ fn valeur_s3(nom: &str) -> Option<&'static str> {
 fn valeur_yunohost(role: ConfigRole) -> Option<&'static str> {
     Some(match role {
         ConfigRole::BaseUrl => "https://__DOMAIN____PATH__",
+        ConfigRole::Domain => "__DOMAIN__",
         ConfigRole::DataPath => "__DATA_DIR__",
         ConfigRole::Secret => "__SECRET__",
         // Le port et la base passent par les liaisons dediees, qui savent les

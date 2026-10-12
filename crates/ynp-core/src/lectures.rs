@@ -192,6 +192,39 @@ pub fn variables_lues(contenu: &str) -> Vec<String> {
 /// `choices: ["pg", "mysql2"]` chez Kutt. Le meme reglage — le moteur a
 /// utiliser — s'ecrit `pgsql`, `pg` ou `postgres` selon le cadre, et seul le
 /// code dit lequel.
+/// Les prefixes d'environnement d'un cadre de configuration : Figment
+/// (`Env::prefixed("APP_")`), viper (`SetEnvPrefix("app")`), dynaconf
+/// (`envvar_prefix="APP"`). Chaque cle du fichier de configuration s'y lit
+/// alors sous `APP_CLE`.
+pub fn prefixes_env(contenu: &str) -> Vec<String> {
+    use std::sync::OnceLock;
+    static MOTIFS: OnceLock<Vec<regex::Regex>> = OnceLock::new();
+    if !(contenu.contains("prefixed")
+        || contenu.contains("EnvPrefix")
+        || contenu.contains("envvar_prefix"))
+    {
+        return Vec::new();
+    }
+    let motifs = MOTIFS.get_or_init(|| {
+        [
+            r#"Env::prefixed\(\s*"([A-Z][A-Z0-9_]*)"\s*\)"#,
+            r#"SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_]*)"\s*\)"#,
+            r#"envvar_prefix\s*=\s*["']([A-Z][A-Z0-9_]*)["']"#,
+        ]
+        .iter()
+        .map(|m| regex::Regex::new(m).expect("motif valide"))
+        .collect()
+    });
+    let mut out = Vec::new();
+    for m in motifs {
+        for c in m.captures_iter(contenu) {
+            let p = c[1].to_ascii_uppercase();
+            out.push(if p.ends_with('_') { p } else { format!("{p}_") });
+        }
+    }
+    out
+}
+
 pub fn moteurs_cites(contenu: &str) -> Vec<String> {
     static M: OnceLock<Regex> = OnceLock::new();
     let m = M.get_or_init(|| {

@@ -117,6 +117,134 @@ pub fn detect_avec_build(
     facts
 }
 
+/// Les variables qu'un cadre de configuration lit sous un prefixe, d'apres
+/// les cles du fichier de configuration d'exemple.
+///
+/// continuwuity se configure par un fichier TOML (`server_name`, `port`,
+/// `database_path` dans `[global]`), que son code fusionne avec
+/// l'environnement sous `CONTINUWUITY_` : `CONTINUWUITY_SERVER_NAME` fixe
+/// son nom de domaine sans fichier a ecrire. Seules les cles dont le role est
+/// connu sont retenues.
+pub fn ajouter_par_prefixe(facts: &mut ConfigFacts, tree: &RepoTree, depot: &str) {
+    let norme = |s: &str| s.to_uppercase().replace(['-', '.', '_'], "");
+    let prefixes: Vec<&String> = tree.prefixes_env().iter().collect();
+    let prefixe = match prefixes.as_slice() {
+        [] => return,
+        [seul] => (*seul).clone(),
+        plusieurs => match plusieurs.iter().find(|p| norme(p) == norme(depot)) {
+            Some(p) => (*p).clone(),
+            None => return,
+        },
+    };
+    let Some((chemin, texte)) = exemple_de_configuration(tree) else {
+        return;
+    };
+    for (cle, valeur, commentee) in cles_de_premier_niveau(&chemin, texte) {
+        let nom = format!("{prefixe}{}", cle.to_ascii_uppercase());
+        // Le port, prefixe du nom de l'application, est reconnu ensuite.
+        if knowledge::get().role_of(&nom) == ConfigRole::Other && !nom.ends_with("_PORT") {
+            continue;
+        }
+        let provenance = format!("{chemin}, sous {prefixe}");
+        // Une cle commentee documente une option, elle ne la fixe pas.
+        if commentee {
+            ajouter_facultative(facts, &nom, valeur, &provenance);
+        } else {
+            ajouter(facts, &nom, valeur, &provenance);
+        }
+    }
+}
+
+/// Le fichier de configuration d'exemple : `conduwuit-example.toml`,
+/// `config.example.yaml`. Le plus proche de la racine l'emporte.
+fn exemple_de_configuration(tree: &RepoTree) -> Option<(String, &str)> {
+    let mut candidats: Vec<String> = tree
+        .paths()
+        .into_iter()
+        .filter(|p| {
+            let l = p.to_lowercase();
+            let nom = l.rsplit('/').next().unwrap_or(&l).to_string();
+            p.matches('/').count() <= 1
+                && (nom.contains("example") || nom.contains("sample"))
+                && (l.ends_with(".toml") || l.ends_with(".yaml") || l.ends_with(".yml"))
+        })
+        .collect();
+    candidats.sort_by_key(|p| (p.matches('/').count(), p.len()));
+    let p = candidats.into_iter().next()?;
+    let t = tree.text(&p)?;
+    Some((p, t))
+}
+
+/// Les cles de premier niveau d'un TOML ou d'un YAML, avec leur valeur
+/// d'exemple. En TOML, a defaut de cles hors de toute table, celles de la
+/// premiere table simple (`[global]`), que Figment lit sans prefixe de table.
+fn cles_de_premier_niveau(chemin: &str, texte: &str) -> Vec<(String, Option<String>, bool)> {
+    let cle = |l: &str, sep: char| -> Option<(String, Option<String>, bool)> {
+        let commentee = l.starts_with('#');
+        let l = l.trim_start_matches('#').trim_start();
+        let (k, v) = l.split_once(sep)?;
+        let k = k.trim();
+        if k.is_empty()
+            || !k.starts_with(|c: char| c.is_ascii_lowercase())
+            || !k
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            return None;
+        }
+        let v = v.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+        let v =
+            (!v.is_empty() && !v.starts_with('[') && !v.starts_with('{')).then(|| v.to_string());
+        Some((k.to_string(), v, commentee))
+    };
+    let mut out: Vec<(String, Option<String>, bool)> = Vec::new();
+    let mut vu = std::collections::BTreeSet::new();
+    if chemin.ends_with(".toml") {
+        let mut table: Option<String> = None;
+        let mut premiere: Option<String> = None;
+        let (mut hors_table, mut dans_premiere) = (Vec::new(), Vec::new());
+        for ligne in texte.lines() {
+            let l = ligne.trim();
+            if let Some(t) = l.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+                table = Some(t.trim().to_string());
+                if premiere.is_none() && !t.contains('.') && !t.starts_with('[') {
+                    premiere = table.clone();
+                }
+                continue;
+            }
+            if let Some(c) = cle(l, '=') {
+                match &table {
+                    None => hors_table.push(c),
+                    Some(t) if Some(t) == premiere.as_ref() => dans_premiere.push(c),
+                    _ => {}
+                }
+            }
+        }
+        let choisies = if hors_table.is_empty() {
+            dans_premiere
+        } else {
+            hors_table
+        };
+        for c in choisies {
+            if vu.insert(c.0.clone()) {
+                out.push(c);
+            }
+        }
+    } else {
+        for ligne in texte.lines() {
+            if ligne.starts_with(' ') || ligne.starts_with('\t') {
+                continue;
+            }
+            if let Some(c) = cle(ligne, ':') {
+                if vu.insert(c.0.clone()) {
+                    out.push(c);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Ajoute les variables que le code de l'application lit.
 ///
 /// Source la plus sure sur le fond — c'est ce que l'application lit
@@ -469,6 +597,30 @@ mod tests {
 
     fn var(nom: &str, defaut: Option<&str>) -> ConfigVar {
         make_var(nom, defaut.map(String::from), "test")
+    }
+
+    #[test]
+    fn un_prefixe_d_environnement_fait_lire_les_cles_du_fichier_d_exemple() {
+        // Cas de continuwuity : Figment et un TOML documente.
+        let mut tree = RepoTree::new();
+        tree.insert(
+            "src/core/config/mod.rs",
+            "let f = Figment::new()\n.merge(Env::prefixed(\"CONDUWUIT_\").global())\n\
+             .merge(Env::prefixed(\"CONTINUWUITY_\").global());\n",
+        );
+        tree.insert(
+            "conduwuit-example.toml",
+            "[global]\n#server_name =\n#port = 8008\n#database_path =\n#turn_secret =\n\
+             #new_user_displayname_suffix = \"x\"\n[global.tls]\n#certs =\n",
+        );
+        let mut facts = ConfigFacts::default();
+        ajouter_par_prefixe(&mut facts, &tree, "continuwuity");
+        let noms: Vec<&str> = facts.variables.iter().map(|v| v.name.as_str()).collect();
+        assert!(noms.contains(&"CONTINUWUITY_SERVER_NAME"));
+        assert!(noms.contains(&"CONTINUWUITY_PORT"));
+        assert!(noms.contains(&"CONTINUWUITY_DATABASE_PATH"));
+        assert!(!noms.contains(&"CONTINUWUITY_NEW_USER_DISPLAYNAME_SUFFIX"));
+        assert!(!noms.iter().any(|n| n.contains("CERTS")));
     }
 
     #[test]

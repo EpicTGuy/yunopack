@@ -105,6 +105,13 @@ exact = [
 # tiers (CALRS_SMS_BASE_URL) sont ecartees au moment de les remplir.
 suffix = ["_BASE_URL", "_PUBLIC_URL", "_EXTERNAL_URL", "_ROOT_URL", "_APP_URL", "_SITE_URL"]
 
+# Le nom de domaine seul : CONTINUWUITY_SERVER_NAME, le server_name d'un
+# serveur Matrix.
+[[rule]]
+role = "domain"
+exact = ["SERVER_NAME"]
+suffix = ["_SERVER_NAME"]
+
 [[rule]]
 role = "admin_email"
 exact = ["ADMIN_EMAIL", "INITIAL_ADMIN_EMAIL", "DEFAULT_ADMIN_EMAIL", "SUPERUSER_EMAIL"]
@@ -122,7 +129,7 @@ role = "data_path"
 exact = ["DATA_DIR", "DATADIR", "DATA_PATH", "STORAGE_PATH", "UPLOAD_DIR", "MEDIA_ROOT", "FILES_DIR", "STORAGE_DIR"]
 # Prefixees du nom de l'application : TIMETAGGER_DATADIR valait /root/_timetagger,
 # ou l'utilisateur de l'app ne peut pas ecrire.
-suffix = ["_DATA_DIR", "_DATADIR", "_DATA_PATH", "_STORAGE_DIR", "_STORAGE_PATH"]
+suffix = ["_DATA_DIR", "_DATADIR", "_DATA_PATH", "_STORAGE_DIR", "_STORAGE_PATH", "_DATABASE_PATH", "_DATABASE_DIR"]
 
 [[rule]]
 role = "smtp_host"

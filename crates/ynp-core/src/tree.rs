@@ -28,6 +28,9 @@ pub struct RepoTree {
     /// Les objets d'application web des modules Python : (chemin, objet,
     /// cadre).
     applications_web: Vec<(String, String, String)>,
+    /// Les prefixes sous lesquels un cadre de configuration lit
+    /// l'environnement : `Env::prefixed("CONTINUWUITY_")` (Figment).
+    prefixes_env: BTreeSet<String>,
 }
 
 impl RepoTree {
@@ -55,6 +58,9 @@ impl RepoTree {
             for (objet, cadre) in crate::lectures::applications_web(contenu) {
                 self.applications_web.push((path.to_string(), objet, cadre));
             }
+        }
+        for p in crate::lectures::prefixes_env(contenu) {
+            self.prefixes_env.insert(p);
         }
         for m in crate::lectures::moteurs_cites(contenu) {
             *self.moteurs_cites.entry(m).or_default() += 1;
@@ -88,6 +94,10 @@ impl RepoTree {
     }
 
     /// Valeurs par defaut donnees par le code aux variables qu'il lit.
+    pub fn prefixes_env(&self) -> &BTreeSet<String> {
+        &self.prefixes_env
+    }
+
     pub fn defauts_lus(&self) -> &BTreeMap<String, String> {
         &self.defauts_lus
     }

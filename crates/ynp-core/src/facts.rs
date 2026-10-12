@@ -631,6 +631,9 @@ pub enum ConfigRole {
     /// retombe sur son moteur par defaut, souvent SQLite.
     DatabaseType,
     BaseUrl,
+    /// Le nom de domaine seul, sans schema : `server_name` d'un serveur
+    /// Matrix, que l'adresse publique complete rendrait invalide.
+    Domain,
     Secret,
     AdminEmail,
     AdminUser,
