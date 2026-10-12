@@ -155,13 +155,13 @@ impl Hote {
         );
         let base = format!("/tmp/yunopack/operations/{id}");
         // L'operation tourne dans un cgroup borne a 80 % de la memoire, avec
-        // peu d'echange : une construction trop gourmande y est tuee, au lieu
+        // 256 Mo d'echange : une construction trop gourmande y est tuee vite, au lieu
         // de faire echanger l'hote jusqu'a ne plus repondre — le Dell de test,
         // 3,7 Go, est reste injoignable plus d'une heure pendant celle de cap.
         let enveloppe = format!(
             "lim=$(awk '/MemTotal/ {{print int($2 * 0.8)}}' /proc/meminfo)\n\
              if [ \"$(id -u)\" = 0 ] && command -v systemd-run > /dev/null 2>&1; then\n\
-             exec systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=1G bash {base}.sh\n\
+             exec systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=256M bash {base}.sh\n\
              fi\n\
              exec bash {base}.sh\n"
         );
