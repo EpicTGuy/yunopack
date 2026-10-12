@@ -514,6 +514,17 @@ fn lier_les_options_d_ecoute(commande: &str, exposes: &[u16]) -> String {
     const PORT: &[&str] = &["--port", "--http-port", "--listen-port", "--server-port"];
     const PARTOUT: &[&str] = &["0.0.0.0", "::", "[::]"];
     let expose = |v: &str| v.parse::<u16>().is_ok_and(|p| exposes.contains(&p));
+    // `--bind=127.0.0.1:5000` : l'hote et le port ensemble, l'ecoute du
+    // processus principal (gunicorn chez fireshare).
+    let hote_et_port = |v: &str| {
+        v.rsplit_once(':').is_some_and(|(h, p)| {
+            p.parse::<u16>().is_ok()
+                && matches!(
+                    h,
+                    "0.0.0.0" | "127.0.0.1" | "localhost" | "::" | "[::]" | ""
+                )
+        })
+    };
     let mots: Vec<&str> = commande.split(' ').collect();
     let mut out: Vec<String> = Vec::with_capacity(mots.len());
     for (i, mot) in mots.iter().enumerate() {
@@ -526,6 +537,10 @@ fn lier_les_options_d_ecoute(commande: &str, exposes: &[u16]) -> String {
                 out.push(format!("{option}=127.0.0.1"));
                 continue;
             }
+            if HOTE.contains(&option) && hote_et_port(valeur) {
+                out.push(format!("{option}=127.0.0.1:__PORT__"));
+                continue;
+            }
             let option_de_port =
                 PORT.contains(&option) || option.ends_with(".port") || option.ends_with("-port");
             if option_de_port && expose(valeur) {
@@ -534,6 +549,10 @@ fn lier_les_options_d_ecoute(commande: &str, exposes: &[u16]) -> String {
             }
         }
         // Forme `--port 3000`.
+        if precedent.is_some_and(|p| HOTE.contains(&p)) && hote_et_port(mot) {
+            out.push("127.0.0.1:__PORT__".into());
+            continue;
+        }
         if precedent.is_some_and(|p| HOTE.contains(&p)) && PARTOUT.contains(mot) {
             out.push("127.0.0.1".into());
             continue;
@@ -965,6 +984,17 @@ fn sans_enveloppe<'a>(mots: &[&'a str]) -> Vec<&'a str> {
         while suite.first().is_some_and(|m| m.starts_with('-')) {
             suite = &suite[1..];
         }
+        // `env PATH=... LD_LIBRARY_PATH=... gunicorn` : les affectations de
+        // l'image (fireshare) precedent la commande.
+        if nom == "env" {
+            while suite.first().is_some_and(|m| {
+                m.split_once('=').is_some_and(|(k, _)| {
+                    !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+            }) {
+                suite = &suite[1..];
+            }
+        }
         if suite.is_empty() {
             return reste.to_vec(); // rien derriere : ce n'etait pas une enveloppe
         }
@@ -1103,6 +1133,15 @@ mod tests {
         assert_eq!(
             lier_les_options_d_ecoute("java --server.port=8080 -jar a.jar", &[8080]),
             "java --server.port=__PORT__ -jar a.jar"
+        );
+        // L'hote et le port ensemble (gunicorn chez fireshare).
+        assert_eq!(
+            lier_les_options_d_ecoute("gunicorn --bind=127.0.0.1:5000 app:app", &[80]),
+            "gunicorn --bind=127.0.0.1:__PORT__ app:app"
+        );
+        assert_eq!(
+            lier_les_options_d_ecoute("gunicorn --bind 0.0.0.0:8000 app:app", &[]),
+            "gunicorn --bind 127.0.0.1:__PORT__ app:app"
         );
     }
 

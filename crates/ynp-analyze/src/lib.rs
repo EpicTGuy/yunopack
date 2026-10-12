@@ -626,7 +626,24 @@ pub fn ligne_exec_suivant_les_copies(
         if let Some(reste) = l.strip_prefix("exec ") {
             // `"${@}"` est `"$@"` (Rails l'ecrit ainsi).
             let reste = reste.trim().replace("${@}", "$@");
+            // Un tableau du script (`"${args[@]}"`, chez fishnet) : des
+            // options que le script compose, sans valeur ici.
+            let reste = tableaux_du_script(&reste);
             let reste = reste.as_str();
+            // `exec 1>&-` ou `exec 0<&-` ferme des descripteurs : ce n'est pas
+            // un processus (archivesspace).
+            if reste.starts_with(|c: char| c.is_ascii_digit() || c == '<' || c == '>')
+                && reste.contains(['<', '>'])
+                && !reste
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .any(|c| c.is_ascii_alphabetic())
+            {
+                derniere = Some(l.to_string());
+                continue;
+            }
             // Le script qui se relance lui-meme sous un autre utilisateur
             // (`exec gosu $PUID "$BASH_SOURCE" "$@"` chez Mealie) ne designe
             // pas le processus : c'est une re-entree.
@@ -661,6 +678,17 @@ pub fn ligne_exec_suivant_les_copies(
     // build/server.js` celui de Ferdium, apres ses migrations. Une derniere
     // ligne quelconque, elle, peut etre un nettoyage.
     derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@") || lance_une_application(l))
+}
+
+/// Retire les tableaux d'un script (`"${args[@]}"`), sans valeur hors de
+/// lui ; `"$@"` reste, il renvoie au `CMD`.
+fn tableaux_du_script(ligne: &str) -> String {
+    use std::sync::OnceLock;
+    static TABLEAU: OnceLock<regex::Regex> = OnceLock::new();
+    let t = TABLEAU.get_or_init(|| {
+        regex::Regex::new(r#""?\$\{[A-Za-z_][A-Za-z0-9_]*\[[@*]\]\}"?"#).expect("motif valide")
+    });
+    t.replace_all(ligne, "").trim().to_string()
 }
 
 /// Remplace les variables de la ligne par les valeurs que le script leur

@@ -105,6 +105,7 @@ fn is_interesting(path: &str) -> bool {
         "pyproject.toml",
         "requirements.txt",
         "setup.py",
+        "setup.cfg",
         "pipfile",
         "makefile",
         "package-lock.json",

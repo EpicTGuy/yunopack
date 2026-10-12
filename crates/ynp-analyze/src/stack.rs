@@ -93,9 +93,32 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
             }
         }
     }
-    if let Some(texte) = tree.text("pyproject.toml") {
-        for section in ["[project.scripts]", "[tool.poetry.scripts]"] {
-            facts.scripts_python.extend(cles_de_section(texte, section));
+    // Les executables qu'un projet Python declare, ou qu'il soit dans le
+    // depot : fireshare declare `fireshare` dans les console_scripts de
+    // app/server/setup.py, et son image lance `fireshare migrate-game-assets`.
+    for chemin in tree.paths() {
+        let nom = chemin.rsplit('/').next().unwrap_or(&chemin);
+        let sous_un_test = ["test", "example", "doc", "sample"]
+            .iter()
+            .any(|m| chemin.to_lowercase().contains(m));
+        if chemin.matches('/').count() > 3 || sous_un_test {
+            continue;
+        }
+        let Some(texte) = tree.text(&chemin) else {
+            continue;
+        };
+        let trouves = match nom {
+            "pyproject.toml" => ["[project.scripts]", "[tool.poetry.scripts]"]
+                .iter()
+                .flat_map(|s| cles_de_section(texte, s))
+                .collect(),
+            "setup.py" | "setup.cfg" => console_scripts(texte),
+            _ => Vec::new(),
+        };
+        for s in trouves {
+            if !facts.scripts_python.contains(&s) {
+                facts.scripts_python.push(s);
+            }
         }
     }
     if let Some(pkg) = json(tree, "package.json") {
@@ -393,6 +416,45 @@ pub fn processus_du_procfile(tree: &RepoTree) -> Vec<CommandeDeclaree> {
 }
 
 /// Toutes les cles declarees sous une section TOML.
+/// Les noms des `console_scripts` d'un setup.py (`"nom=module:fonction"`) ou
+/// d'un setup.cfg (`nom = module:fonction` sous `console_scripts =`).
+fn console_scripts(texte: &str) -> Vec<String> {
+    let Some(i) = texte.find("console_scripts") else {
+        return Vec::new();
+    };
+    let suite = &texte[i + "console_scripts".len()..];
+    let mut out = Vec::new();
+    for ligne in suite.lines().skip(usize::from(!suite.starts_with('\n'))) {
+        let l = ligne
+            .trim()
+            .trim_matches(|c| matches!(c, '"' | '\'' | ',' | '[' | ']'));
+        if l.is_empty() {
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        }
+        let Some((nom, cible)) = l.split_once('=') else {
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        };
+        let nom = nom.trim();
+        if cible.contains(':')
+            && !nom.is_empty()
+            && nom
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            out.push(nom.to_string());
+        } else if !out.is_empty() {
+            break;
+        }
+    }
+    out
+}
+
 fn cles_de_section(texte: &str, section: &str) -> Vec<String> {
     let Some((_, apres)) = texte.split_once(section) else {
         return Vec::new();
@@ -682,6 +744,14 @@ fn python_version(tree: &RepoTree) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn les_console_scripts_d_un_setup_sont_des_executables() {
+        let py = "setup(\n    entry_points={\n        \"console_scripts\": [\n            \"fireshare=fireshare.cli:cli\"\n        ]\n    },\n)\n";
+        assert_eq!(console_scripts(py), vec!["fireshare"]);
+        let cfg = "[options.entry_points]\nconsole_scripts =\n    outil = paquet.cli:main\n    autre = paquet.b:run\n\n[x]\n";
+        assert_eq!(console_scripts(cfg), vec!["outil", "autre"]);
+    }
+
     use super::*;
 
     #[test]
