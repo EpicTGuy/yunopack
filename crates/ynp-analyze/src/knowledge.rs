@@ -38,6 +38,7 @@ struct MapTable<T> {
     packages: Option<IndexMap<String, T>>,
     deps: Option<IndexMap<String, T>>,
     pip: Option<IndexMap<String, T>>,
+    gem: Option<IndexMap<String, T>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +82,7 @@ pub struct Knowledge {
     apk_to_deb: IndexMap<String, String>,
     npm_native: IndexMap<String, Vec<String>>,
     pip_native: IndexMap<String, Vec<String>>,
+    gem_native: IndexMap<String, Vec<String>>,
     bookworm: BTreeMap<String, String>,
     provisionable: Vec<String>,
     unsupported: Vec<String>,
@@ -112,6 +114,7 @@ pub fn get() -> &'static Knowledge {
             apk_to_deb: apk.packages.unwrap_or_default(),
             npm_native: npm.deps.unwrap_or_default(),
             pip_native: npm.pip.unwrap_or_default(),
+            gem_native: npm.gem.unwrap_or_default(),
             bookworm: rt.bookworm,
             provisionable: rt.resources.provisionable,
             unsupported: un.services.blocking,
@@ -164,6 +167,11 @@ impl Knowledge {
             .get(&module.to_lowercase().replace('_', "-"))
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    /// Paquets Debian exiges par une gemme Ruby a extension native.
+    pub fn gem_native_deps(&self, gemme: &str) -> &[String] {
+        self.gem_native.get(gemme).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn npm_native_deps(&self, module: &str) -> &[String] {

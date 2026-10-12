@@ -654,6 +654,25 @@ fn native_deps(tree: &RepoTree) -> Vec<String> {
             }
         }
     }
+    // Les gemmes Ruby, prefixees `gem:`, depuis le Gemfile.lock : ses
+    // specifications sont indentees de quatre espaces (`    idn-ruby (0.1.5)`).
+    if let Some(texte) = tree.text("Gemfile.lock") {
+        for ligne in texte.lines() {
+            let Some(reste) = ligne.strip_prefix("    ") else {
+                continue;
+            };
+            if reste.starts_with(' ') {
+                continue;
+            }
+            let nom = reste.split_whitespace().next().unwrap_or("");
+            if !nom.is_empty() && !k.gem_native_deps(nom).is_empty() {
+                let cle = format!("gem:{nom}");
+                if !out.contains(&cle) {
+                    out.push(cle);
+                }
+            }
+        }
+    }
     let Some(pkg) = json(tree, "package.json") else {
         return out;
     };

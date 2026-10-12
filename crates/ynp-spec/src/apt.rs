@@ -95,9 +95,10 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         .is_some_and(|s| s.evite_la_compilation())
     {
         for module in &facts.stack.native_deps {
-            let paquets = match module.strip_prefix("pip:") {
-                Some(m) => k.pip_native_deps(m),
-                None => k.npm_native_deps(module),
+            let paquets = match (module.strip_prefix("pip:"), module.strip_prefix("gem:")) {
+                (Some(m), _) => k.pip_native_deps(m),
+                (_, Some(g)) => k.gem_native_deps(g),
+                _ => k.npm_native_deps(module),
             };
             for p in paquets {
                 ajouter(p);
