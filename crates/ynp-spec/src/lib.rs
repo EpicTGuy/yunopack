@@ -263,7 +263,7 @@ fn questions(facts: &RepoFacts) -> InstallQuestions {
     InstallQuestions {
         // Le cas courant, sauf un site construit : il reference ses fichiers
         // depuis la racine, et ne fonctionnerait pas sous un chemin.
-        url_scheme: if statique::site(facts).is_some() {
+        url_scheme: if statique::site(facts).is_some() || sans_reglage_de_chemin(facts) {
             UrlScheme::FullDomain
         } else {
             UrlScheme::DomainAndPath
@@ -482,6 +482,54 @@ fn secret_interne(nom: &str) -> bool {
         && !["PRIVATE_KEY", "ENCRYPTION", "PUBLIC"]
             .iter()
             .any(|m| n.contains(m))
+}
+
+/// Vrai pour un service web qui ne peut apprendre sous quel chemin il est
+/// servi : aucune variable d'adresse publique ni de prefixe. nginx lui
+/// transmet l'URL complete (`/butler/`), et il repond 404 a tout ce qui
+/// n'est pas a la racine. PHP et les fichiers statiques, servis par nginx
+/// lui-meme, suivent le chemin sans rien demander.
+fn sans_reglage_de_chemin(facts: &RepoFacts) -> bool {
+    if matches!(
+        facts.stack.primary,
+        Technology::Php | Technology::Static | Technology::Unknown
+    ) {
+        return false;
+    }
+    const PREFIXES: &[&str] = &[
+        "BASE_PATH",
+        "BASEPATH",
+        "ROOT_PATH",
+        "SUBPATH",
+        "SUB_PATH",
+        "URL_PREFIX",
+        "PATH_PREFIX",
+        "PREFIX",
+        "BASE_URL",
+        "ROOT_URL",
+        "PUBLIC_URL",
+        "EXTERNAL_URL",
+        "APP_URL",
+        "SITE_URL",
+        "SERVER_URL",
+        "WEB_ROOT",
+        "CONTEXT_PATH",
+        "SCRIPT_NAME",
+    ];
+    let reglable = facts.config.variables.iter().any(|v| {
+        let n = v.name.to_ascii_uppercase();
+        v.role == ConfigRole::BaseUrl || PREFIXES.iter().any(|p| n.ends_with(p))
+    });
+    // Les cadres qui suivent un prefixe d'eux-memes : Spring Boot
+    // (server.servlet.context-path), Rails et Django derriere un proxy
+    // (SCRIPT_NAME), et les commandes qui en recoivent un en argument.
+    let par_le_cadre = facts.stack.cadre_web.is_some()
+        || facts
+            .ecoute
+            .options
+            .iter()
+            .any(|(o, _)| o.contains("prefix") || o.contains("base") || o.contains("root"));
+    !reglable && !par_le_cadre
 }
 
 /// Le premier script de l'image qu'une etape de construction lance par son
@@ -2282,6 +2330,20 @@ mod propositions {
         f.config.variables.remove(1);
         f.config.variables.remove(0);
         assert_eq!(fichier_sqlite(&f), None);
+    }
+
+    #[test]
+    fn un_service_sans_reglage_de_chemin_demande_un_domaine() {
+        let mut f = faits(vec![var("SECRET_KEY", None, ".env.example")], vec![8080]);
+        f.stack.primary = Technology::Python;
+        assert!(sans_reglage_de_chemin(&f));
+        f.config
+            .variables
+            .push(var("APP_BASE_URL", None, ".env.example"));
+        assert!(!sans_reglage_de_chemin(&f));
+        f.config.variables.clear();
+        f.stack.primary = Technology::Php;
+        assert!(!sans_reglage_de_chemin(&f));
     }
 
     #[test]
