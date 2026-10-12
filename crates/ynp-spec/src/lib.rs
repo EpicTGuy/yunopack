@@ -1256,6 +1256,22 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             facts,
         ))
     };
+    // @t3-oss/env valide l'environnement des la construction, et l'arrete
+    // faute des valeurs de production (fountain-ink : « Invalid environment
+    // variables »). Sa convention : SKIP_ENV_VALIDATION pour construire.
+    let etapes: Vec<String> = if facts
+        .stack
+        .dependances_npm
+        .iter()
+        .any(|d| d.starts_with("@t3-oss/env"))
+    {
+        etapes
+            .into_iter()
+            .map(|e| format!("export SKIP_ENV_VALIDATION=1; {e}"))
+            .collect()
+    } else {
+        etapes
+    };
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
