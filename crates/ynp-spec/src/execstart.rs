@@ -675,6 +675,26 @@ fn guillemets_du_shell(commande: &str) -> String {
 /// deplies les scripts npm.
 pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
     let mut c = sans_cross_env(&derniere_etape(commande));
+    // Le script d'un paquet de l'espace de travail, deplie avec les scripts
+    // de ce paquet : `yarn workspace @chibisafe/backend start`.
+    if let (Some((nom, script)), Some(p)) = (
+        ynp_core::noms::commande_d_espace_de_travail(&c),
+        facts.stack.paquet_du_processus.as_ref(),
+    ) {
+        if p.nom == nom {
+            if let Some(corps) = p.scripts.get(&script) {
+                c = sans_cross_env(&derniere_etape(corps));
+                for _ in 0..2 {
+                    let Some(n) = script_npm_appele(&c) else {
+                        break;
+                    };
+                    let Some(corps) = p.scripts.get(n) else { break };
+                    c = sans_cross_env(&derniere_etape(corps));
+                }
+                return c;
+            }
+        }
+    }
     // Un script npm peut en appeler un autre (`start` -> `serve`) : deux
     // niveaux suffisent, et bornent une boucle entre scripts.
     for _ in 0..2 {
@@ -716,7 +736,7 @@ fn derniere_etape(commande: &str) -> String {
 }
 
 /// Le script npm qu'une commande appelle, s'il y en a un.
-fn script_npm_appele(commande: &str) -> Option<&str> {
+pub(crate) fn script_npm_appele(commande: &str) -> Option<&str> {
     let mots: Vec<&str> = commande.split_whitespace().collect();
     match mots.as_slice() {
         ["npm" | "yarn" | "pnpm", "start", ..] => Some("start"),

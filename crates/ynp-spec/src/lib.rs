@@ -1212,6 +1212,15 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         .build
         .as_ref()
         .and_then(|b| b.start_command())
+        // Depliee : le script d'un paquet d'espace de travail porte ses
+        // propres affectations (`NODE_ENV=production`, chez chibisafe).
+        .map(|c| {
+            if ynp_core::noms::commande_d_espace_de_travail(&c).is_some() {
+                execstart::developper(&c, facts)
+            } else {
+                c
+            }
+        })
         .into_iter()
         .chain(facts.stack.exec_du_point_d_entree.clone())
         // Le script npm qui lance l'application, sans image :
@@ -1289,6 +1298,37 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         match execstart::traduire_avec(m, facts) {
             Some(t) => migrations.push(t),
             None => intraduisible = Some(m.clone()),
+        }
+    }
+    // Ce qui precede le serveur dans le script d'un paquet d'espace de
+    // travail : `yarn migrate && node dist/main.js` chez chibisafe. Le
+    // service demarre dans le dossier du paquet ; ses migrations aussi.
+    if let (Some(p), Some((_, script))) = (
+        facts.stack.paquet_du_processus.as_ref(),
+        facts
+            .build
+            .as_ref()
+            .and_then(|b| b.start_command())
+            .and_then(|c| ynp_core::noms::commande_d_espace_de_travail(&c)),
+    ) {
+        if let Some(corps) = p.scripts.get(&script) {
+            let parts: Vec<&str> = corps.split("&&").map(str::trim).collect();
+            // Un script appele (`yarn migrate`) se deplie lui-meme, partie par
+            // partie : `prisma migrate deploy && prisma generate`.
+            let mut a_traduire: Vec<String> = Vec::new();
+            for part in parts.iter().take(parts.len().saturating_sub(1)) {
+                match execstart::script_npm_appele(part).and_then(|s| p.scripts.get(s)) {
+                    Some(sous) => a_traduire.extend(sous.split("&&").map(|x| x.trim().to_string())),
+                    None => a_traduire.push(part.to_string()),
+                }
+            }
+            for commande in a_traduire {
+                if let Some(t) = execstart::traduire_avec(&commande, facts) {
+                    if !migrations.contains(&t) {
+                        migrations.push(t);
+                    }
+                }
+            }
         }
     }
     let (processus_annexes, annexe_intraduisible) = processus_annexes(facts, &mut migrations);
@@ -1863,6 +1903,10 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
 fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
     if let Some(c) = facts.build.as_ref().and_then(|b| b.contexte_final.clone()) {
         return Some(c);
+    }
+    // Le paquet de l'espace de travail que l'image lance demarre chez lui.
+    if let Some(p) = &facts.stack.paquet_du_processus {
+        return Some(p.dossier.clone());
     }
     const RACINES: &[&str] = &[
         "/app/",

@@ -62,3 +62,70 @@ mod tests {
         }
     }
 }
+
+/// Le paquet et le script d'une commande d'espace de travail :
+/// `yarn workspace @chibisafe/backend start`, `pnpm --filter api start`,
+/// `npm run start -w api`.
+pub fn commande_d_espace_de_travail(commande: &str) -> Option<(String, String)> {
+    let mots: Vec<&str> = commande.split_whitespace().collect();
+    match mots.as_slice() {
+        ["yarn", "workspace", paquet, "run", script, ..]
+        | ["yarn", "workspace", paquet, script, ..] => {
+            Some(((*paquet).to_string(), (*script).to_string()))
+        }
+        ["pnpm", option, paquet, reste @ ..] if matches!(*option, "--filter" | "-F") => {
+            let script = match reste {
+                ["run", s, ..] | [s, ..] => *s,
+                [] => return None,
+            };
+            Some(((*paquet).to_string(), script.to_string()))
+        }
+        ["pnpm", option, reste @ ..] if option.starts_with("--filter=") => {
+            let script = match reste {
+                ["run", s, ..] | [s, ..] => *s,
+                [] => return None,
+            };
+            Some((option["--filter=".len()..].to_string(), script.to_string()))
+        }
+        ["npm", "run" | "run-script", script, reste @ ..] => {
+            let paquet = reste
+                .windows(2)
+                .find_map(|w| matches!(w[0], "-w" | "--workspace").then(|| w[1].to_string()))
+                .or_else(|| {
+                    reste
+                        .iter()
+                        .find_map(|m| m.strip_prefix("--workspace=").map(str::to_string))
+                })?;
+            Some((paquet, (*script).to_string()))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests_espace_de_travail {
+    use super::*;
+
+    #[test]
+    fn les_commandes_d_espace_de_travail_se_lisent() {
+        let c = |s: &str| commande_d_espace_de_travail(s);
+        assert_eq!(
+            c("yarn workspace @chibisafe/backend start"),
+            Some(("@chibisafe/backend".into(), "start".into()))
+        );
+        assert_eq!(
+            c("pnpm --filter api run start"),
+            Some(("api".into(), "start".into()))
+        );
+        assert_eq!(
+            c("pnpm --filter=api start"),
+            Some(("api".into(), "start".into()))
+        );
+        assert_eq!(
+            c("npm run start -w api"),
+            Some(("api".into(), "start".into()))
+        );
+        assert_eq!(c("yarn workspaces focus @x/y"), None);
+        assert_eq!(c("npm run start"), None);
+    }
+}

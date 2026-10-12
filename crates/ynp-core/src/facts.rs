@@ -432,6 +432,11 @@ pub struct StackFacts {
     /// et c'est le projet qui le declare.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub scripts_npm: std::collections::BTreeMap<String, String>,
+    /// Le paquet d'un espace de travail que l'image lance
+    /// (`yarn workspace @chibisafe/backend start`) : son dossier et ses
+    /// scripts. Le service demarre dans ce dossier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paquet_du_processus: Option<PaquetNpm>,
     /// Les dependances du `package.json` racine, pour reconnaitre un outil
     /// installe dans `node_modules/.bin` quand un script l'appelle par son nom.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -495,6 +500,15 @@ pub struct CopieDEtape {
     pub depuis: String,
     /// Chemin dans l'image.
     pub vers: String,
+}
+
+/// Un paquet npm d'un espace de travail.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaquetNpm {
+    pub nom: String,
+    pub dossier: String,
+    #[serde(default)]
+    pub scripts: std::collections::BTreeMap<String, String>,
 }
 
 /// Une commande de demarrage que le projet enonce, et la source qui l'enonce.

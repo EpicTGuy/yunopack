@@ -125,6 +125,34 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
             contexte_du_dockerfile(tree, b).or_else(|| workdir_dans_le_depot(tree, b))
         })
     });
+    // Le paquet d'espace de travail que l'image lance : son dossier et ses
+    // scripts (`yarn workspace @chibisafe/backend start`).
+    if let Some((nom, _)) = facts
+        .build
+        .as_ref()
+        .and_then(|b| b.start_command())
+        .and_then(|c| ynp_core::noms::commande_d_espace_de_travail(&c))
+    {
+        facts.stack.paquet_du_processus = paquet_npm_nomme(tree, &nom);
+        // Ses dependances fournissent les outils de ses scripts (`prisma`).
+        if let Some(p) = &facts.stack.paquet_du_processus {
+            let texte = tree
+                .text(&format!("{}/package.json", p.dossier))
+                .unwrap_or("");
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(texte) {
+                for champ in ["dependencies", "devDependencies"] {
+                    if let Some(o) = v.get(champ).and_then(|d| d.as_object()) {
+                        for dep in o.keys() {
+                            if !facts.stack.dependances_npm.contains(dep) {
+                                facts.stack.dependances_npm.push(dep.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Le paquet d'un monorepo : ses scripts et ses dependances sont ceux qui
     // comptent (`pnpm run start` d'analytodon est celui d'apps/frontend).
     if sous_repertoire.is_none() {
@@ -466,6 +494,30 @@ fn contexte_du_dockerfile(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> 
     let un_projet = stack::detect(&tree.sous_arbre(dossier), None).primary
         != ynp_core::facts::Technology::Unknown;
     (la_seulement > 0 && a_la_racine == 0 && un_projet).then(|| dossier.to_string())
+}
+
+/// Le paquet npm du depot qui porte ce nom, avec son dossier et ses scripts.
+fn paquet_npm_nomme(tree: &RepoTree, nom: &str) -> Option<ynp_core::facts::PaquetNpm> {
+    tree.paths().into_iter().find_map(|chemin| {
+        let dossier = chemin.strip_suffix("/package.json")?;
+        if dossier.contains("node_modules") || dossier.matches('/').count() > 3 {
+            return None;
+        }
+        let v: serde_json::Value = serde_json::from_str(tree.text(&chemin)?).ok()?;
+        (v.get("name")?.as_str()? == nom).then(|| ynp_core::facts::PaquetNpm {
+            nom: nom.to_string(),
+            dossier: dossier.to_string(),
+            scripts: v
+                .get("scripts")
+                .and_then(|s| s.as_object())
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+    })
 }
 
 /// Le paquet du depot ou l'etape finale travaille : `WORKDIR
