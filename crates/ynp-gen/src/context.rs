@@ -212,6 +212,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "fichier_sqlite": spec.runtime.fichier_sqlite,
             "cron": spec.runtime.cron,
             "a_une_cle_32": spec.runtime.env.values().any(|v| v.contains("__CLE_32__")),
+            "a_un_prefixe": spec.runtime.env.values().any(|v| v.contains("__PREFIXE__")),
             "processus_annexes": spec.runtime.processus_annexes,
             "repertoire_de_travail": spec.runtime.repertoire_de_travail,
             "port_env_var": spec.runtime.port_env_var,

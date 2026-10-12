@@ -1068,9 +1068,12 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     }
 
     // Le prefixe sous lequel l'application est servie, quand elle sait le
-    // lire.
+    // lire. Pas `__PATH__` : il vaut `/` a la racine d'un domaine, et
+    // l'application qui ecrit `${BASE_PATH}/api` servirait `//api`. Les
+    // scripts posent `prefixe` au chemin sans sa barre finale, vide a la
+    // racine.
     if let Some(v) = variable_de_chemin(facts) {
-        env.insert(v, "__PATH__".to_string());
+        env.insert(v, "__PREFIXE__".to_string());
     }
 
     // Le module de reglages que Django attend de l'environnement.

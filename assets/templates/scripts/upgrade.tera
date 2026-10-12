@@ -145,6 +145,11 @@ if [ -z "${cle_32:-}" ]; then
 fi
 {%- endif %}
 
+{%- if runtime.a_un_prefixe %}
+
+# Le chemin sans sa barre finale : vide a la racine du domaine.
+prefixe="${path%/}"
+{%- endif %}
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 chmod 400 "$install_dir/{{ runtime.config_file }}"
 chown "$app:$app" "$install_dir/{{ runtime.config_file }}"

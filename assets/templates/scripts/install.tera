@@ -61,6 +61,11 @@ chown "$app:$app" "$data_dir/{{ runtime.fichier_sqlite }}"
 chmod 600 "$data_dir/{{ runtime.fichier_sqlite }}"
 {%- endif %}
 {% if runtime.has_config %}
+{%- if runtime.a_un_prefixe %}
+
+# Le chemin sans sa barre finale : vide a la racine du domaine.
+prefixe="${path%/}"
+{%- endif %}
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 
 # Le fichier peut contenir des identifiants : il n'est lisible que par l'app.

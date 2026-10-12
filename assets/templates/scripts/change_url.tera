@@ -21,6 +21,9 @@ ynh_config_change_url_nginx
 {%- if runtime.has_config %}
 
 # La configuration de l'app porte son adresse publique : elle doit suivre.
+{%- if runtime.a_un_prefixe %}
+prefixe="${new_path%/}"
+{%- endif %}
 ynh_config_add --template="{{ runtime.config_file }}" --destination="$install_dir/{{ runtime.config_file }}"
 chmod 400 "$install_dir/{{ runtime.config_file }}"
 chown "$app:$app" "$install_dir/{{ runtime.config_file }}"
