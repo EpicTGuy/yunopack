@@ -1,0 +1,704 @@
+# Corpus tire du catalogue YunoHost (paquets « working », niveau >= 7).
+# Genere par scripts/mesure/corpus.py ; l'amont vient du manifeste de chaque paquet.
+
+[[app]]
+nom = "biboumi"
+amont = "https://github.com/louiz/biboumi"
+paquet = "https://github.com/YunoHost-Apps/biboumi_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "converse"
+amont = "https://github.com/conversejs/converse.js"
+paquet = "https://github.com/YunoHost-Apps/converse_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "element"
+amont = "https://github.com/element-hq/element-web"
+paquet = "https://github.com/YunoHost-Apps/element_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "glowingbear"
+amont = "https://github.com/glowing-bear/glowing-bear"
+paquet = "https://github.com/YunoHost-Apps/glowingbear_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "jitsi"
+amont = "https://github.com/jitsi/jitsi-meet"
+paquet = "https://github.com/YunoHost-Apps/jitsi_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "mail_relay"
+amont = "https://github.com/YunoHost-Apps/mail_relay_ynh"
+paquet = "https://github.com/YunoHost-Apps/mail_relay_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "mautrix_signal"
+amont = "https://github.com/mautrix/signal"
+paquet = "https://github.com/YunoHost-Apps/mautrix_signal_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "mirotalk"
+amont = "https://github.com/miroslavpejic85/mirotalk"
+paquet = "https://github.com/YunoHost-Apps/mirotalk_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "nextcloud-signaling"
+amont = "https://github.com/strukturag/nextcloud-spreed-signaling"
+paquet = "https://github.com/YunoHost-Apps/nextcloud-signaling_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "pretalx"
+amont = "https://github.com/pretalx/pretalx"
+paquet = "https://github.com/YunoHost-Apps/pretalx_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "roundcube"
+amont = "https://github.com/roundcube/roundcubemail"
+paquet = "https://github.com/YunoHost-Apps/roundcube_ynh"
+difficulte = "communication"
+
+[[app]]
+nom = "forgejo"
+amont = "https://codeberg.org/forgejo/forgejo"
+paquet = "https://github.com/YunoHost-Apps/forgejo_ynh"
+difficulte = "dev"
+
+[[app]]
+nom = "gitlab-runner"
+amont = "https://gitlab.com/gitlab-org/gitlab-runner"
+paquet = "https://github.com/YunoHost-Apps/gitlab-runner_ynh"
+difficulte = "dev"
+
+[[app]]
+nom = "jenkins"
+amont = "https://github.com/jenkinsci/jenkins"
+paquet = "https://github.com/YunoHost-Apps/jenkins_ynh"
+difficulte = "dev"
+
+[[app]]
+nom = "ntfy"
+amont = "https://github.com/binwiederhier/ntfy"
+paquet = "https://github.com/YunoHost-Apps/ntfy_ynh"
+difficulte = "dev"
+
+[[app]]
+nom = "digipad"
+amont = "https://codeberg.org/ladigitale/digipad"
+paquet = "https://github.com/YunoHost-Apps/digipad_ynh"
+difficulte = "education"
+
+[[app]]
+nom = "digiwords"
+amont = "https://codeberg.org/ladigitale/digiwords"
+paquet = "https://github.com/YunoHost-Apps/digiwords_ynh"
+difficulte = "education"
+
+[[app]]
+nom = "20euros"
+amont = "https://github.com/jatekos101/20euros"
+paquet = "https://github.com/YunoHost-Apps/20euros_ynh"
+difficulte = "games"
+
+[[app]]
+nom = "hextris"
+amont = "https://github.com/Hextris/Hextris"
+paquet = "https://github.com/YunoHost-Apps/hextris_ynh"
+difficulte = "games"
+
+[[app]]
+nom = "sutom"
+amont = "https://framagit.org/JonathanMM/sutom"
+paquet = "https://github.com/YunoHost-Apps/sutom_ynh"
+difficulte = "games"
+
+[[app]]
+nom = "emoncms"
+amont = "https://github.com/emoncms/emoncms"
+paquet = "https://github.com/YunoHost-Apps/emoncms_ynh"
+difficulte = "iot"
+
+[[app]]
+nom = "motioneye"
+amont = "https://github.com/motioneye-project/motioneye"
+paquet = "https://github.com/YunoHost-Apps/motioneye_ynh"
+difficulte = "iot"
+
+[[app]]
+nom = "ampache"
+amont = "https://github.com/ampache/ampache"
+paquet = "https://github.com/YunoHost-Apps/ampache_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "castopod"
+amont = "https://code.castopod.org/adaures/castopod"
+paquet = "https://github.com/YunoHost-Apps/castopod_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "funkwhale"
+amont = "https://dev.funkwhale.audio/funkwhale/funkwhale"
+paquet = "https://github.com/YunoHost-Apps/funkwhale_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "icecast2"
+amont = "https://gitlab.xiph.org/xiph/icecast-server"
+paquet = "https://github.com/YunoHost-Apps/icecast2_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "lidarr"
+amont = "https://github.com/Lidarr/Lidarr"
+paquet = "https://github.com/YunoHost-Apps/lidarr_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "navidrome"
+amont = "https://github.com/navidrome/navidrome"
+paquet = "https://github.com/YunoHost-Apps/navidrome_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "photoprism"
+amont = "https://github.com/photoprism/photoprism"
+paquet = "https://github.com/YunoHost-Apps/photoprism_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "qui"
+amont = "https://github.com/autobrr/qui"
+paquet = "https://github.com/YunoHost-Apps/qui_ynh"
+difficulte = "multimedia"
+
+[[app]]
+nom = "agora"
+amont = "https://github.com/xech/agora-project"
+paquet = "https://github.com/YunoHost-Apps/agora_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "cryptpad"
+amont = "https://github.com/cryptpad/cryptpad"
+paquet = "https://github.com/YunoHost-Apps/cryptpad_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "euro-office"
+amont = "https://github.com/Euro-Office/DocumentServer"
+paquet = "https://github.com/YunoHost-Apps/euro-office_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "grist"
+amont = "https://github.com/gristlabs/grist-core"
+paquet = "https://github.com/YunoHost-Apps/grist_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "languagetool"
+amont = "https://github.com/languagetool-org/languagetool"
+paquet = "https://github.com/YunoHost-Apps/languagetool_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "plainpad"
+amont = "https://github.com/alextselegidis/plainpad"
+paquet = "https://github.com/YunoHost-Apps/plainpad_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "snserver"
+amont = "https://github.com/standardnotes/server"
+paquet = "https://github.com/YunoHost-Apps/snserver_ynh"
+difficulte = "office"
+
+[[app]]
+nom = "actual"
+amont = "https://github.com/actualbudget/actual"
+paquet = "https://github.com/YunoHost-Apps/actual_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "benevalibre"
+amont = "https://forge.cliss21.org/cliss21/benevalibre"
+paquet = "https://github.com/YunoHost-Apps/benevalibre_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "crabfit"
+amont = "https://github.com/GRA0007/crab.fit"
+paquet = "https://github.com/YunoHost-Apps/crabfit_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "dolibarr"
+amont = "https://github.com/Dolibarr/dolibarr"
+paquet = "https://github.com/YunoHost-Apps/dolibarr_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "easyappointments"
+amont = "https://github.com/alextselegidis/easyappointments"
+paquet = "https://github.com/YunoHost-Apps/easyappointments_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "firefly-iii-di"
+amont = "https://github.com/firefly-iii/data-importer"
+paquet = "https://github.com/YunoHost-Apps/firefly-iii-di_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "galette"
+amont = "https://github.com/galette/galette"
+paquet = "https://github.com/YunoHost-Apps/galette_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "grr"
+amont = "https://github.com/JeromeDevome/GRR"
+paquet = "https://github.com/YunoHost-Apps/grr_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "kimai2"
+amont = "https://github.com/kevinpapst/kimai2"
+paquet = "https://github.com/YunoHost-Apps/kimai2_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "liberaforms"
+amont = "https://codeberg.org/LiberaForms/server"
+paquet = "https://github.com/YunoHost-Apps/liberaforms_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "localai"
+amont = "https://github.com/mudler/LocalAI"
+paquet = "https://github.com/YunoHost-Apps/localai_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "mytinytodo"
+amont = "https://github.com/maxpozdeev/mytinytodo"
+paquet = "https://github.com/YunoHost-Apps/mytinytodo_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "openproject"
+amont = "https://github.com/opf/openproject"
+paquet = "https://github.com/YunoHost-Apps/openproject_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "pollaris"
+amont = "https://framagit.org/pollaris/pollaris"
+paquet = "https://github.com/YunoHost-Apps/pollaris_ynh"
+difficulte = "productivity_and_management"
+
+[[app]]
+nom = "299ko"
+amont = "https://github.com/299Ko/299ko"
+paquet = "https://github.com/YunoHost-Apps/299ko_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "bludit"
+amont = "https://github.com/bludit/bludit"
+paquet = "https://github.com/YunoHost-Apps/bludit_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "cusdis"
+amont = "https://github.com/djyde/cusdis"
+paquet = "https://github.com/YunoHost-Apps/cusdis_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "drupal_cms"
+amont = "https://git.drupalcode.org/project/drupal_cms"
+paquet = "https://github.com/YunoHost-Apps/drupal_cms_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "fathom"
+amont = "https://github.com/usefathom/fathom"
+paquet = "https://github.com/YunoHost-Apps/fathom_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "htmly"
+amont = "https://github.com/danpros/htmly"
+paquet = "https://github.com/YunoHost-Apps/htmly_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "lionwiki-t2t"
+amont = "https://github.com/farvardin/lionwiki-t2t"
+paquet = "https://github.com/YunoHost-Apps/lionwiki-t2t_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "ojs"
+amont = "https://github.com/pkp/ojs"
+paquet = "https://github.com/YunoHost-Apps/ojs_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "pepettes"
+amont = "https://github.com/YunoHost/pepettes"
+paquet = "https://github.com/YunoHost-Apps/pepettes_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "shaarli"
+amont = "https://github.com/shaarli/Shaarli"
+paquet = "https://github.com/YunoHost-Apps/shaarli_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "umami"
+amont = "https://github.com/mikecao/umami"
+paquet = "https://github.com/YunoHost-Apps/umami_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "wikidocs"
+amont = "https://github.com/Zavy86/WikiDocs"
+paquet = "https://github.com/YunoHost-Apps/wikidocs_ynh"
+difficulte = "publishing"
+
+[[app]]
+nom = "13ft"
+amont = "https://github.com/wasi-master/13ft"
+paquet = "https://github.com/YunoHost-Apps/13ft_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "calibreweb-automated"
+amont = "https://github.com/crocodilestick/Calibre-Web-Automated"
+paquet = "https://github.com/YunoHost-Apps/calibreweb-automated_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "fusion"
+amont = "https://github.com/0x2E/fusion"
+paquet = "https://github.com/YunoHost-Apps/fusion_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "kiwix"
+amont = "https://github.com/kiwix/kiwix-tools"
+paquet = "https://github.com/YunoHost-Apps/kiwix_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "linkace"
+amont = "https://github.com/Kovah/LinkAce"
+paquet = "https://github.com/YunoHost-Apps/linkace_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "readflow"
+amont = "https://github.com/RobBrazier/readflow"
+paquet = "https://github.com/YunoHost-Apps/readflow_ynh"
+difficulte = "reading"
+
+[[app]]
+nom = "adventurelog"
+amont = "https://github.com/seanmorley15/AdventureLog"
+paquet = "https://github.com/YunoHost-Apps/adventurelog_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "chatgpt-web"
+amont = "https://github.com/Niek/chatgpt-web"
+paquet = "https://github.com/YunoHost-Apps/chatgpt-web_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "directorylister"
+amont = "https://github.com/DirectoryLister/DirectoryLister"
+paquet = "https://github.com/YunoHost-Apps/directorylister_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "filebrowser-quantum"
+amont = "https://github.com/gtsteffaniak/filebrowser"
+paquet = "https://github.com/YunoHost-Apps/filebrowser-quantum_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "garmin-to-fittrackee"
+amont = "https://github.com/Dryusdan/garmin-to-fittrackee"
+paquet = "https://github.com/YunoHost-Apps/garmin-to-fittrackee_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "holos"
+amont = "https://codeberg.org/tom79/Holos-Relay-Server"
+paquet = "https://github.com/YunoHost-Apps/holos_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "its-mytabs"
+amont = "https://github.com/louislam/its-mytabs"
+paquet = "https://github.com/YunoHost-Apps/its-mytabs_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "libretranslate"
+amont = "https://github.com/LibreTranslate/LibreTranslate"
+paquet = "https://github.com/YunoHost-Apps/libretranslate_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "lstu"
+amont = "https://framagit.org/fiat-tux/hat-softwares/lstu"
+paquet = "https://github.com/YunoHost-Apps/lstu_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "memo"
+amont = "https://codeberg.org/mrflos/memo"
+paquet = "https://github.com/YunoHost-Apps/memo_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "octoprint"
+amont = "https://github.com/OctoPrint/OctoPrint"
+paquet = "https://github.com/YunoHost-Apps/octoprint_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "pinkarrows"
+amont = "https://github.com/robbalian/pinkarrows"
+paquet = "https://github.com/YunoHost-Apps/pinkarrows_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "rmfakecloud"
+amont = "https://github.com/ddvk/rmfakecloud"
+paquet = "https://github.com/YunoHost-Apps/rmfakecloud_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "sparkyfitness"
+amont = "https://github.com/CodeWithCJ/SparkyFitness"
+paquet = "https://github.com/YunoHost-Apps/sparkyfitness_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "tinyfilemanager"
+amont = "https://github.com/prasathmani/tinyfilemanager"
+paquet = "https://github.com/YunoHost-Apps/tinyfilemanager_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "ulogger"
+amont = "https://github.com/bfabiszewski/ulogger-server"
+paquet = "https://github.com/YunoHost-Apps/ulogger_ynh"
+difficulte = "small_utilities"
+
+[[app]]
+nom = "bonfire"
+amont = "https://github.com/bonfire-networks/bonfire-app"
+paquet = "https://github.com/YunoHost-Apps/bonfire_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "epicyon"
+amont = "https://gitlab.com/bashrc2/epicyon"
+paquet = "https://github.com/YunoHost-Apps/epicyon_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "glitchsoc"
+amont = "https://github.com/glitch-soc/mastodon"
+paquet = "https://github.com/YunoHost-Apps/glitchsoc_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "loops"
+amont = "https://github.com/joinloops/loops-server"
+paquet = "https://github.com/YunoHost-Apps/loops_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "mitra"
+amont = "https://codeberg.org/silverpill/mitra"
+paquet = "https://github.com/YunoHost-Apps/mitra_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "phanpy"
+amont = "https://github.com/cheeaun/phanpy"
+paquet = "https://github.com/YunoHost-Apps/phanpy_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "pleroma"
+amont = "https://git.pleroma.social/pleroma/pleroma"
+paquet = "https://github.com/YunoHost-Apps/pleroma_ynh"
+difficulte = "social_media"
+
+[[app]]
+nom = "agendav"
+amont = "https://github.com/agendav/agendav"
+paquet = "https://github.com/YunoHost-Apps/agendav_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "dumbdrop"
+amont = "https://github.com/DumbWareio/DumbDrop"
+paquet = "https://github.com/YunoHost-Apps/dumbdrop_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "hash-calendar"
+amont = "https://github.com/supunlakmal/hash-calendar"
+paquet = "https://github.com/YunoHost-Apps/hash-calendar_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "lufi"
+amont = "https://framagit.org/fiat-tux/hat-softwares/lufi"
+paquet = "https://github.com/YunoHost-Apps/lufi_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "ots"
+amont = "https://github.com/Luzifer/ots"
+paquet = "https://github.com/YunoHost-Apps/ots_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "psitransfer"
+amont = "https://github.com/psi-4ward/psitransfer"
+paquet = "https://github.com/YunoHost-Apps/psitransfer_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "sync-in"
+amont = "https://github.com/Sync-in/server"
+paquet = "https://github.com/YunoHost-Apps/sync-in_ynh"
+difficulte = "synchronization"
+
+[[app]]
+nom = "2fauth"
+amont = "https://github.com/Bubka/2FAuth"
+paquet = "https://github.com/YunoHost-Apps/2fauth_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "antigen"
+amont = "https://github.com/zsh-users/antigen"
+paquet = "https://github.com/YunoHost-Apps/antigen_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "beszel-agent"
+amont = "https://github.com/henrygd/beszel"
+paquet = "https://github.com/YunoHost-Apps/beszel-agent_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "changedetection"
+amont = "https://github.com/dgtlmoon/changedetection.io"
+paquet = "https://github.com/YunoHost-Apps/changedetection_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "dmarcguard"
+amont = "https://github.com/dmarcguardhq/dmarcguard"
+paquet = "https://github.com/YunoHost-Apps/dmarcguard_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "glances"
+amont = "https://github.com/nicolargo/glances"
+paquet = "https://github.com/YunoHost-Apps/glances_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "headscale"
+amont = "https://github.com/juanfont/headscale"
+paquet = "https://github.com/YunoHost-Apps/headscale_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "libredb_studio"
+amont = "https://github.com/libredb/libredb-studio"
+paquet = "https://github.com/YunoHost-Apps/libredb_studio_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "lxd-ui"
+amont = "https://github.com/canonical/lxd-ui"
+paquet = "https://github.com/YunoHost-Apps/lxd-ui_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "my_webdav"
+amont = "https://github.com/YunoHost-Apps/my_webdav_ynh"
+paquet = "https://github.com/YunoHost-Apps/my_webdav_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "node_exporter"
+amont = "https://github.com/prometheus/node_exporter"
+paquet = "https://github.com/YunoHost-Apps/node_exporter_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "phplicensewatcher"
+amont = "https://github.com/rpi-dotcio/phpLicenseWatcher"
+paquet = "https://github.com/YunoHost-Apps/phplicensewatcher_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "prometheus"
+amont = "https://github.com/prometheus/prometheus"
+paquet = "https://github.com/YunoHost-Apps/prometheus_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "rspamdui"
+amont = "https://github.com/rspamd/rspamd"
+paquet = "https://github.com/YunoHost-Apps/rspamdui_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "shields"
+amont = "https://github.com/badges/shields"
+paquet = "https://github.com/YunoHost-Apps/shields_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "sshwifty"
+amont = "https://github.com/nirui/sshwifty"
+paquet = "https://github.com/YunoHost-Apps/sshwifty_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "torrelay"
+amont = "https://github.com/torproject/tor"
+paquet = "https://github.com/YunoHost-Apps/torrelay_ynh"
+difficulte = "system_tools"
+
+[[app]]
+nom = "anarchism"
+amont = "https://salsa.debian.org/debian/anarchism"
+paquet = "https://github.com/YunoHost-Apps/anarchism_ynh"
+difficulte = "wat"
