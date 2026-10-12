@@ -504,11 +504,15 @@ fn secret_interne(nom: &str) -> bool {
     ) {
         return true;
     }
-    [
-        "JWT", "SESSION", "COOKIE", "SIGNING", "HMAC", "SALT", "CSRF",
-    ]
-    .iter()
-    .any(|m| n.contains(m))
+    // `AUTH_SECRET` d'Auth.js (NEXTAUTH_SECRET, BETTER_AUTH_SECRET), que
+    // benevoles exige des la construction ; pas un secret OAuth tiers.
+    let auth = n.ends_with("AUTH_SECRET") && !n.contains("OAUTH");
+    (auth
+        || [
+            "JWT", "SESSION", "COOKIE", "SIGNING", "HMAC", "SALT", "CSRF",
+        ]
+        .iter()
+        .any(|m| n.contains(m)))
         && !["PRIVATE_KEY", "ENCRYPTION", "PUBLIC"]
             .iter()
             .any(|m| n.contains(m))
@@ -606,6 +610,46 @@ fn script_d_image(facts: &RepoFacts) -> Option<String> {
 /// installe pnpm par `npm i -gf`.
 fn option_globale(m: &str) -> bool {
     m == "--global" || (m.starts_with('-') && !m.starts_with("--") && m.contains('g'))
+}
+
+/// `gradle` et `mvn` ne sont pas installes, et le paquet Debian de Gradle
+/// est trop ancien : un projet livre presque toujours son propre lanceur
+/// (`gradlew`, `mvnw`), a la version voulue. booklore construisait son API
+/// par `gradle build`, introuvable.
+fn lanceurs_du_projet(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
+    etapes
+        .into_iter()
+        .map(|e| {
+            // Le repertoire de l'etape : `cd booklore-api && gradle build`.
+            let dossier = e
+                .strip_prefix("cd ")
+                .and_then(|r| r.split_once(" && "))
+                .map(|(d, _)| d.trim().to_string());
+            let a = |f: &str| {
+                let chemin = match &dossier {
+                    Some(d) => format!("{d}/{f}"),
+                    None => f.to_string(),
+                };
+                facts.tree.contains(&chemin)
+            };
+            let mut mots: Vec<String> = Vec::new();
+            let mut debut = true;
+            for m in e.split(' ') {
+                let remplace = match m {
+                    "gradle" if debut && a("gradlew") => Some("./gradlew"),
+                    "mvn" if debut && a("mvnw") => Some("./mvnw"),
+                    _ => None,
+                };
+                mots.push(
+                    remplace
+                        .map(str::to_string)
+                        .unwrap_or_else(|| m.to_string()),
+                );
+                debut = matches!(m, "&&" | "||" | ";");
+            }
+            mots.join(" ")
+        })
+        .collect()
 }
 
 /// `npm install -g turbo` ecrit dans le repertoire de Node, refuse a
@@ -1282,6 +1326,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
+    let etapes = lanceurs_du_projet(etapes, facts);
     let build_steps = npm_global_dans_l_installation(yarn_et_pnpm_par_corepack(bun_par_npx(
         avec_les_pairs_tolerees(outils_dans_l_installation(etapes)),
     )));
@@ -2588,6 +2633,9 @@ mod propositions {
     fn un_secret_interne_se_genere_meme_facultatif() {
         assert!(secret_interne("JWT_SIGNING_SECRET"));
         assert!(secret_interne("SECRET_KEY"));
+        assert!(secret_interne("AUTH_SECRET"));
+        assert!(secret_interne("NEXTAUTH_SECRET"));
+        assert!(!secret_interne("GITHUB_OAUTH_SECRET"));
         assert!(!secret_interne("STRIPE_SECRET_KEY"));
         assert!(secret_interne("SESSION_SECRET"));
         assert!(!secret_interne("API_KEY"));
@@ -2610,6 +2658,27 @@ mod propositions {
         f.build.as_mut().unwrap().build_steps =
             vec!["chmod +x /docker-entrypoint.d/start.sh".into()];
         assert_eq!(script_d_image(&f), None);
+    }
+
+    #[test]
+    fn gradle_et_maven_passent_par_le_lanceur_du_projet() {
+        let mut f = faits(vec![], vec![]);
+        f.tree = vec!["booklore-api/gradlew".into(), "mvnw".into()];
+        assert_eq!(
+            lanceurs_du_projet(
+                vec![
+                    "cd booklore-api && gradle clean build -x test".into(),
+                    "mvn package".into(),
+                    "gradle build".into(),
+                ],
+                &f
+            ),
+            vec![
+                "cd booklore-api && ./gradlew clean build -x test",
+                "./mvnw package",
+                "gradle build",
+            ]
+        );
     }
 
     #[test]
