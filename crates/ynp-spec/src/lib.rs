@@ -262,17 +262,56 @@ fn integration(facts: &RepoFacts) -> Integration {
         // application : on ne l'affirme jamais sans preuve.
         ldap: Triple::No,
         sso: Triple::No,
-        ram_build: if facts
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.evite_la_compilation())
-        {
-            // Rien a compiler : les paquets de reference annoncent 50M.
-            "50M".into()
-        } else {
-            "500M".into()
-        },
+        ram_build: memoire_de_construction(facts).into(),
         ..Integration::default()
+    }
+}
+
+/// La memoire qu'il faut pour construire, que YunoHost verifie avant
+/// d'installer. cap annoncait 500M, et la construction Next.js de son
+/// interface depassait 3 Go.
+fn memoire_de_construction(facts: &RepoFacts) -> &'static str {
+    if facts
+        .selection
+        .as_ref()
+        .is_some_and(|s| s.evite_la_compilation())
+    {
+        // Rien a compiler : les paquets de reference annoncent 50M.
+        return "50M";
+    }
+    let etapes = facts
+        .build
+        .as_ref()
+        .map(|b| b.build_steps.join("\n"))
+        .unwrap_or_default();
+    let deps = &facts.stack.dependances_npm;
+    let a = |d: &str| deps.iter().any(|x| x == d);
+    let lourd_en_node = [
+        "next",
+        "nuxt",
+        "@angular/core",
+        "turbo",
+        "@remix-run/node",
+        "gatsby",
+    ]
+    .iter()
+    .any(|d| a(d))
+        || ["next build", "turbo run", "ng build"]
+            .iter()
+            .any(|c| etapes.contains(c));
+    let compile = matches!(facts.stack.primary, Technology::Rust)
+        || ["cargo build", "gradle", "gradlew", "mvn", "mvnw", "dotnet"]
+            .iter()
+            .any(|c| etapes.contains(c));
+    if lourd_en_node || compile {
+        "2G"
+    } else if facts.stack.primary == Technology::NodeJs
+        || facts.stack.scripts_npm.contains_key("build")
+        || facts.stack.primary == Technology::Go
+    {
+        "1G"
+    } else {
+        "500M"
     }
 }
 
@@ -2708,6 +2747,20 @@ mod propositions {
         assert!(l.contains("DB_URL=mysql://"));
         assert!(l.contains("DB_USERNAME=__DB_USER__"));
         assert!(l.contains("DB_PASSWORD=__DB_PWD__"));
+    }
+
+    #[test]
+    fn la_memoire_de_construction_suit_ce_qu_il_faut_construire() {
+        let mut f = faits(vec![], vec![]);
+        f.stack.primary = Technology::NodeJs;
+        assert_eq!(memoire_de_construction(&f), "1G");
+        f.stack.dependances_npm = vec!["next".into()];
+        assert_eq!(memoire_de_construction(&f), "2G");
+        f.stack.dependances_npm.clear();
+        f.stack.primary = Technology::Rust;
+        assert_eq!(memoire_de_construction(&f), "2G");
+        f.stack.primary = Technology::Python;
+        assert_eq!(memoire_de_construction(&f), "500M");
     }
 
     #[test]
