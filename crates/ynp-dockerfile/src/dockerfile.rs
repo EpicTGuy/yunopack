@@ -915,6 +915,19 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
                     for e in &mut recipe.build_steps {
                         *e = e.replace(source, &format!("$PWD/{local}"));
                     }
+                    // Le `mkdir /jwt` de l'image, ecriture hors du depot, a ete
+                    // ecarte : le repertoire de sortie est cree avant sa
+                    // premiere utilisation (novosga).
+                    let cree = format!("mkdir -p $PWD/{local}");
+                    if let Some(i) = recipe
+                        .build_steps
+                        .iter()
+                        .position(|e| e.contains(&format!("$PWD/{local}")))
+                    {
+                        if !recipe.build_steps[i].starts_with("mkdir") {
+                            recipe.build_steps.insert(i, cree);
+                        }
+                    }
                     // Copiee comme tout le repertoire de travail final : c'est
                     // la que l'application tourne.
                     if workdir_final.as_deref().map(|w| w.trim_end_matches('/'))

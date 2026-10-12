@@ -787,6 +787,9 @@ fn une_sortie_de_construction_devient_le_repertoire_de_l_application() {
     assert!(r.build_steps.contains(
         &"pnpm deploy --filter=@imput/cobalt-api --prod $PWD/.sortie/prod/api".to_string()
     ));
+    assert!(r
+        .build_steps
+        .contains(&"mkdir -p $PWD/.sortie/prod/api".to_string()));
     assert_eq!(r.contexte_final.as_deref(), Some(".sortie/prod/api"));
 }
 
