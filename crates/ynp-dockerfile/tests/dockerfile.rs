@@ -791,6 +791,19 @@ fn une_sortie_de_construction_devient_le_repertoire_de_l_application() {
 }
 
 #[test]
+fn la_racine_d_une_etape_n_est_pas_une_sortie_de_construction() {
+    // Cas d'azuracast : `COPY --from=x / /` remplacait la chaine vide dans
+    // toutes les etapes.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM debian AS base\nWORKDIR /app\nCOPY . /app\nRUN bash /app/setup.sh\n\
+         FROM scratch AS final\nCOPY --from=base / /\nWORKDIR /app\nCMD [\"php\", \"run.php\"]\n",
+    );
+    assert!(r.build_steps.iter().all(|e| !e.contains(".sortie")));
+    assert_eq!(r.contexte_final, None);
+}
+
+#[test]
 fn les_outils_des_images_php_donnent_leurs_extensions() {
     // Cas de congressus.
     let r = parse_dockerfile(

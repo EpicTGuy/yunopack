@@ -570,6 +570,11 @@ fn variable_de_chemin(facts: &RepoFacts) -> Option<String> {
 /// `CALRS_SMS_BASE_URL`, `OIDC_ISSUER_URL`, `S3_PUBLIC_URL`.
 fn d_un_service_tiers(nom: &str) -> bool {
     let n = nom.to_ascii_uppercase();
+    // Auth.js et Better Auth tournent dans l'application : leur adresse et
+    // leur secret sont les siens (benevoles).
+    if !n.contains("OAUTH") && ["AUTH_URL", "AUTH_SECRET"].iter().any(|s| n.ends_with(s)) {
+        return false;
+    }
     [
         "SMS", "SMTP", "MAIL", "API", "OIDC", "OAUTH", "AUTH", "S3", "WEBHOOK", "SENTRY", "STRIPE",
         "LDAP", "PROXY", "REDIS", "DATABASE", "DB_", "CDN", "STORAGE", "MINIO", "AWS",
@@ -1026,10 +1031,25 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         if var.role == ConfigRole::BaseUrl && d_un_service_tiers(&var.name) {
             continue;
         }
+        // Un nom d'adresse dont la valeur par defaut est un hote ou ecouter :
+        // `HOSTNAME=0.0.0.0` du serveur autonome de Next.js. L'adresse
+        // publique y ferait echouer l'ecoute.
+        if var.role == ConfigRole::BaseUrl
+            && matches!(
+                var.default.as_deref(),
+                Some("0.0.0.0" | "::" | "[::]" | "127.0.0.1" | "localhost")
+            )
+        {
+            env.insert(var.name.clone(), "127.0.0.1".to_string());
+            continue;
+        }
         // L'identifiant d'un service tiers (OIDC_CLIENT_SECRET, SMTP_PASSWORD)
         // ne s'invente pas : une valeur au hasard activerait une connexion qui
         // ne peut pas marcher.
-        if var.role == ConfigRole::Secret && d_un_service_tiers(&var.name) {
+        if var.role == ConfigRole::Secret
+            && d_un_service_tiers(&var.name)
+            && !secret_interne(&var.name)
+        {
             continue;
         }
         if let Some(valeur) = valeur_yunohost(var.role) {
@@ -2636,6 +2656,42 @@ mod propositions {
         f.config.variables.clear();
         f.stack.primary = Technology::Php;
         assert!(!sans_reglage_de_chemin(&f));
+    }
+
+    #[test]
+    fn auth_js_et_l_hote_d_ecoute_de_next() {
+        // Cas de benevoles : AUTH_SECRET exige a la construction, et le
+        // HOSTNAME=0.0.0.0 du serveur autonome de Next.js.
+        let role = |nom: &str, r: ConfigRole, d: Option<&str>| ConfigVar {
+            name: nom.into(),
+            role: r,
+            default: d.map(String::from),
+            ..Default::default()
+        };
+        let f = faits(
+            vec![
+                role("AUTH_SECRET", ConfigRole::Secret, None),
+                role(
+                    "AUTH_URL",
+                    ConfigRole::BaseUrl,
+                    Some("http://localhost:3000"),
+                ),
+                role("HOSTNAME", ConfigRole::BaseUrl, Some("0.0.0.0")),
+                role("OIDC_CLIENT_SECRET", ConfigRole::Secret, None),
+            ],
+            vec![3000],
+        );
+        let env = runtime(&f, "app").env;
+        assert_eq!(
+            env.get("AUTH_SECRET").map(String::as_str),
+            Some("__SECRET__")
+        );
+        assert_eq!(
+            env.get("AUTH_URL").map(String::as_str),
+            Some("https://__DOMAIN____PATH__")
+        );
+        assert_eq!(env.get("HOSTNAME").map(String::as_str), Some("127.0.0.1"));
+        assert_eq!(env.get("OIDC_CLIENT_SECRET"), None);
     }
 
     #[test]

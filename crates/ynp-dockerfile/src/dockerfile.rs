@@ -841,6 +841,31 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
                 // elle-meme : elle devient un repertoire de l'installation.
                 None => {
                     let source = source.trim_end_matches('/');
+                    // La racine entiere d'une etape (`COPY --from=x / /`, chez
+                    // azuracast) ou un repertoire du systeme n'est pas une
+                    // sortie de construction. Remplacer la chaine vide
+                    // inserait `$PWD/.sortie` entre chaque caractere.
+                    const SYSTEME: &[&str] = &[
+                        "/usr",
+                        "/etc",
+                        "/var",
+                        "/bin",
+                        "/sbin",
+                        "/lib",
+                        "/opt",
+                        "/srv",
+                        "/tmp",
+                        "/root",
+                        "/home",
+                        "/usr/local",
+                        "/usr/bin",
+                        "/usr/local/bin",
+                        "/usr/lib",
+                        "/usr/share",
+                    ];
+                    if source.is_empty() || SYSTEME.contains(&source) {
+                        continue;
+                    }
                     if !recipe.build_steps.iter().any(|e| e.contains(source)) {
                         continue;
                     }

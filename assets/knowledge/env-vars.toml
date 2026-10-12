@@ -98,7 +98,7 @@ exact = [
 role = "base_url"
 exact = [
   "APP_URL", "BASE_URL", "PUBLIC_URL", "SITE_URL", "EXTERNAL_URL", "ROOT_URL",
-  "NEXTAUTH_URL", "APP_BASE_URL", "URL", "CANONICAL_URL", "SERVER_URL",
+  "NEXTAUTH_URL", "AUTH_URL", "BETTER_AUTH_URL", "APP_BASE_URL", "URL", "CANONICAL_URL", "SERVER_URL",
   "PUBLIC_ORIGIN", "ORIGIN", "HOSTNAME", "DOMAIN", "APP_DOMAIN",
 ]
 # Prefixees du nom de l'application : CALRS_BASE_URL. Celles d'un service
