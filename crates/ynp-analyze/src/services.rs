@@ -82,12 +82,28 @@ fn from_schemas(tree: &RepoTree, stack: &StackFacts) -> Option<(Database, String
         Database::MySql if my.is_none() => my = Some(ou.to_string()),
         _ => {}
     };
+    // L'outillage de developpement et les variantes de deploiement ne disent
+    // pas quelle base l'application attend : `tools/local-env/mysql-init.sql`
+    // chez classicpress, `settings/clever-cloud.py` chez babybuddy.
     let a_ecarter = |p: &str| {
         let l = p.to_lowercase();
-        ["test", "example", "docs/", "documentation/"]
-            .iter()
-            .any(|m| l.contains(m))
+        [
+            "test",
+            "example",
+            "docs/",
+            "documentation/",
+            "tools/",
+            "local",
+            "dev",
+            "docker",
+            "scripts/",
+            "ci/",
+            ".github/",
+        ]
+        .iter()
+        .any(|m| l.contains(m))
     };
+    let mut sqlite = false;
     for chemin in tree.paths() {
         if a_ecarter(&chemin) {
             continue;
@@ -107,7 +123,19 @@ fn from_schemas(tree: &RepoTree, stack: &StackFacts) -> Option<(Database, String
                 "mysql" => noter(Database::MySql, &chemin),
                 _ => {}
             }
-        } else if l.ends_with(".py") && (nom == "settings.py" || l.contains("/settings/")) {
+        } else if l.ends_with(".py")
+            && (nom == "settings.py"
+                || (l.contains("/settings/")
+                    && matches!(
+                        nom.as_str(),
+                        "base.py"
+                            | "common.py"
+                            | "production.py"
+                            | "prod.py"
+                            | "__init__.py"
+                            | "defaults.py"
+                    )))
+        {
             let t = tree.text(&chemin).unwrap_or("");
             if t.contains("db.backends.postgresql") || t.contains("backends.postgis") {
                 noter(Database::PostgreSql, &chemin);
@@ -128,7 +156,15 @@ fn from_schemas(tree: &RepoTree, stack: &StackFacts) -> Option<(Database, String
             if mots.iter().any(|m| matches!(*m, "mysql" | "mariadb")) {
                 noter(Database::MySql, &chemin);
             }
+            if mots.iter().any(|m| matches!(*m, "sqlite" | "sqlite3")) {
+                sqlite = true;
+            }
         }
+    }
+    // Un schema SQLite a cote : l'application tourne sans serveur de base, et
+    // c'est le plus simple (puter).
+    if sqlite {
+        return None;
     }
     let php = stack.primary == ynp_core::facts::Technology::Php;
     match (pg, my) {
