@@ -571,19 +571,25 @@ fn d_un_service_tiers(nom: &str) -> bool {
 /// chemin absolu, hors des repertoires du systeme et de l'application.
 fn script_d_image(facts: &RepoFacts) -> Option<String> {
     let etapes = facts.build.as_ref()?.build_steps.clone();
+    let du_systeme = |m: &str| {
+        [
+            "/usr/", "/bin/", "/sbin/", "/etc/", "/tmp/", "/dev/", "/proc/",
+        ]
+        .iter()
+        .any(|p| m.starts_with(p))
+    };
     etapes.into_iter().find_map(|e| {
-        e.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+        let mots: Vec<&str> = e
+            .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
             .filter(|m| !m.is_empty())
-            .find(|m| {
-                m.starts_with('/')
-                    && (m.ends_with(".sh") || m.contains("/build") || m.contains("_build"))
-                    && ![
-                        "/usr/", "/bin/", "/sbin/", "/etc/", "/tmp/", "/dev/", "/proc/",
-                    ]
-                    .iter()
-                    .any(|p| m.starts_with(p))
-            })
-            .map(str::to_string)
+            .collect();
+        // Un script, pas un repertoire : `/build` est la sortie de cmake chez
+        // drawpile. Un chemin absolu en `.sh`, ou lance par un interprete.
+        mots.iter().enumerate().find_map(|(i, m)| {
+            let lance = i > 0 && matches!(mots[i - 1], "bash" | "sh" | "source" | ".");
+            (m.starts_with('/') && !du_systeme(m) && (m.ends_with(".sh") || lance))
+                .then(|| m.to_string())
+        })
     })
 }
 
@@ -2535,6 +2541,10 @@ mod propositions {
             vec!["npm ci".into(), "bash /bd_build/prepare.sh".into()];
         assert_eq!(script_d_image(&f).as_deref(), Some("/bd_build/prepare.sh"));
         f.build.as_mut().unwrap().build_steps = vec!["/usr/bin/env node build.js".into()];
+        assert_eq!(script_d_image(&f), None);
+        // Un repertoire de sortie n'est pas un script.
+        f.build.as_mut().unwrap().build_steps =
+            vec!["cmake -S . -B /build && cmake --build /build".into()];
         assert_eq!(script_d_image(&f), None);
     }
 
