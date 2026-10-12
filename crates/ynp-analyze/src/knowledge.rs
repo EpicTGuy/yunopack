@@ -37,6 +37,7 @@ struct EnvRule {
 struct MapTable<T> {
     packages: Option<IndexMap<String, T>>,
     deps: Option<IndexMap<String, T>>,
+    pip: Option<IndexMap<String, T>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +80,7 @@ pub struct Knowledge {
     env_rules: Vec<EnvRule>,
     apk_to_deb: IndexMap<String, String>,
     npm_native: IndexMap<String, Vec<String>>,
+    pip_native: IndexMap<String, Vec<String>>,
     bookworm: BTreeMap<String, String>,
     provisionable: Vec<String>,
     unsupported: Vec<String>,
@@ -109,6 +111,7 @@ pub fn get() -> &'static Knowledge {
             env_rules: env.rule,
             apk_to_deb: apk.packages.unwrap_or_default(),
             npm_native: npm.deps.unwrap_or_default(),
+            pip_native: npm.pip.unwrap_or_default(),
             bookworm: rt.bookworm,
             provisionable: rt.resources.provisionable,
             unsupported: un.services.blocking,
@@ -155,6 +158,14 @@ impl Knowledge {
     }
 
     /// Paquets Debian exiges par un module npm qui compile du code natif.
+    /// Paquets Debian exiges par un module Python a compilation native.
+    pub fn pip_native_deps(&self, module: &str) -> &[String] {
+        self.pip_native
+            .get(&module.to_lowercase().replace('_', "-"))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
     pub fn npm_native_deps(&self, module: &str) -> &[String] {
         self.npm_native
             .get(module)

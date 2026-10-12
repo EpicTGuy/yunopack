@@ -815,3 +815,12 @@ fn npm_link_n_est_pas_une_etape() {
     );
     assert_eq!(r.build_steps, vec!["npm ci", "npm run build"]);
 }
+
+#[test]
+fn un_gestionnaire_de_versions_de_node_n_est_pas_une_etape() {
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM python:3.11\nRUN npm install -g n && n 18 && npm ci\n",
+    );
+    assert_eq!(r.build_steps, vec!["npm install -g n", "npm ci"]);
+}

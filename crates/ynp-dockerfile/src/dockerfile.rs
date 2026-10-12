@@ -605,6 +605,10 @@ fn classify(toks: &[String]) -> RunKind {
         // il ne fait qu'echouer quand le fichier manque. benevoles s'arretait
         // ainsi a l'installation.
         "[" | "[[" | "test" => RunKind::Noise,
+        // Les gestionnaires de versions de Node (`n 18`, `nvm install`) :
+        // la ressource de YunoHost fournit Node a la version voulue. pinry
+        // voyait `n` tenter d'ecrire dans /usr/local/n.
+        "n" | "nvm" | "fnm" | "volta" => RunKind::Noise,
         _ => RunKind::BuildStep,
     }
 }

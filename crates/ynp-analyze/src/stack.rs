@@ -560,12 +560,33 @@ fn build_script(tree: &RepoTree) -> Option<String> {
 /// du package.json. C'est la cause la plus frequente d'un `npm ci` en echec
 /// sur une instance YunoHost.
 fn native_deps(tree: &RepoTree) -> Vec<String> {
-    let Some(pkg) = json(tree, "package.json") else {
-        return Vec::new();
-    };
     let k = knowledge::get();
-
     let mut out = Vec::new();
+    // Les modules Python, prefixes `pip:`, depuis requirements.txt et
+    // pyproject.toml.
+    for f in ["requirements.txt", "pyproject.toml"] {
+        let Some(texte) = tree.text(f) else { continue };
+        for ligne in texte.lines() {
+            let l = ligne
+                .trim()
+                .trim_start_matches('"')
+                .trim_start_matches('\'');
+            let nom: String = l
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                .collect();
+            if !nom.is_empty() && !k.pip_native_deps(&nom).is_empty() {
+                let cle = format!("pip:{}", nom.to_lowercase().replace('_', "-"));
+                if !out.contains(&cle) {
+                    out.push(cle);
+                }
+            }
+        }
+    }
+    let Some(pkg) = json(tree, "package.json") else {
+        return out;
+    };
+
     for section in ["dependencies", "devDependencies", "optionalDependencies"] {
         let Some(Value::Object(deps)) = pkg.get(section) else {
             continue;
@@ -653,6 +674,14 @@ fn python_version(tree: &RepoTree) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn les_modules_python_natifs_sont_releves() {
+        let arbre =
+            RepoTree::from_pairs([("requirements.txt", "flask==3.0\nsecp256k1>=0.14\nPillow\n")]);
+        let f = detect(&arbre, None);
+        assert_eq!(f.native_deps, vec!["pip:secp256k1", "pip:pillow"]);
+    }
 
     #[test]
     fn les_extensions_des_dependances_viennent_du_verrou() {
