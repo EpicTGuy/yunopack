@@ -101,6 +101,9 @@ exact = [
   "NEXTAUTH_URL", "APP_BASE_URL", "URL", "CANONICAL_URL", "SERVER_URL",
   "PUBLIC_ORIGIN", "ORIGIN", "HOSTNAME", "DOMAIN", "APP_DOMAIN",
 ]
+# Prefixees du nom de l'application : CALRS_BASE_URL. Celles d'un service
+# tiers (CALRS_SMS_BASE_URL) sont ecartees au moment de les remplir.
+suffix = ["_BASE_URL", "_PUBLIC_URL", "_EXTERNAL_URL", "_ROOT_URL", "_APP_URL", "_SITE_URL"]
 
 [[rule]]
 role = "admin_email"

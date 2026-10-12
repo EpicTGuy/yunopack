@@ -86,6 +86,16 @@ fn depot_complet() -> RepoFacts {
                 source: ".env.example".into(),
                 facultative: false,
             },
+            // miniflux route d'apres son adresse publique : c'est ce qui
+            // lui permet d'etre servi sous un chemin.
+            ConfigVar {
+                name: "BASE_URL".into(),
+                role: ConfigRole::BaseUrl,
+                default: None,
+                secret: false,
+                source: ".env.example".into(),
+                facultative: false,
+            },
         ],
     };
     f

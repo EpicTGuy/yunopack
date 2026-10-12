@@ -496,6 +496,24 @@ fn sans_reglage_de_chemin(facts: &RepoFacts) -> bool {
     ) {
         return false;
     }
+    // Une adresse publique que le paquet remplit (`https://domaine/chemin`)
+    // donne aussi son prefixe : miniflux route d'apres BASE_URL, gitea
+    // d'apres ROOT_URL. calrs n'echouait que parce que CALRS_BASE_URL,
+    // prefixee, n'etait pas reconnue, donc jamais remplie.
+    let adresse_publique = facts.config.variables.iter().any(|v| {
+        v.role == ConfigRole::BaseUrl
+            && (v.name.to_ascii_uppercase().contains("URL")
+                || v.name.to_ascii_uppercase().contains("URI"))
+            && !d_un_service_tiers(&v.name)
+    });
+    variable_de_chemin(facts).is_none() && !adresse_publique
+}
+
+/// La variable par laquelle l'application apprend sous quel prefixe elle est
+/// servie (`BASE_PATH`, `URL_PREFIX`...) : le paquet y met le chemin
+/// d'installation. Une adresse publique (`BASE_URL`) ne suffit pas : elle
+/// sert souvent aux liens, pas au routage — calrs repondait 404 sous /calrs.
+fn variable_de_chemin(facts: &RepoFacts) -> Option<String> {
     const PREFIXES: &[&str] = &[
         "BASE_PATH",
         "BASEPATH",
@@ -504,32 +522,32 @@ fn sans_reglage_de_chemin(facts: &RepoFacts) -> bool {
         "SUB_PATH",
         "URL_PREFIX",
         "PATH_PREFIX",
-        "PREFIX",
-        "BASE_URL",
-        "ROOT_URL",
-        "PUBLIC_URL",
-        "EXTERNAL_URL",
-        "APP_URL",
-        "SITE_URL",
-        "SERVER_URL",
-        "WEB_ROOT",
+        "BASE_URI",
         "CONTEXT_PATH",
-        "SCRIPT_NAME",
+        "WEB_ROOT",
+        "URL_BASE",
     ];
-    let reglable = facts.config.variables.iter().any(|v| {
-        let n = v.name.to_ascii_uppercase();
-        v.role == ConfigRole::BaseUrl || PREFIXES.iter().any(|p| n.ends_with(p))
-    });
-    // Les cadres qui suivent un prefixe d'eux-memes : Spring Boot
-    // (server.servlet.context-path), Rails et Django derriere un proxy
-    // (SCRIPT_NAME), et les commandes qui en recoivent un en argument.
-    let par_le_cadre = facts.stack.cadre_web.is_some()
-        || facts
-            .ecoute
-            .options
-            .iter()
-            .any(|(o, _)| o.contains("prefix") || o.contains("base") || o.contains("root"));
-    !reglable && !par_le_cadre
+    facts
+        .config
+        .variables
+        .iter()
+        .find(|v| {
+            let n = v.name.to_ascii_uppercase();
+            PREFIXES.iter().any(|p| n.ends_with(p)) && !d_un_service_tiers(&n)
+        })
+        .map(|v| v.name.clone())
+}
+
+/// Une variable qui designe un service tiers, et non l'application :
+/// `CALRS_SMS_BASE_URL`, `OIDC_ISSUER_URL`, `S3_PUBLIC_URL`.
+fn d_un_service_tiers(nom: &str) -> bool {
+    let n = nom.to_ascii_uppercase();
+    [
+        "SMS", "SMTP", "MAIL", "API", "OIDC", "OAUTH", "AUTH", "S3", "WEBHOOK", "SENTRY", "STRIPE",
+        "LDAP", "PROXY", "REDIS", "DATABASE", "DB_", "CDN", "STORAGE", "MINIO", "AWS",
+    ]
+    .iter()
+    .any(|m| n.contains(m))
 }
 
 /// Le premier script de l'image qu'une etape de construction lance par son
@@ -804,6 +822,9 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         if var.role == ConfigRole::Secret && var.facultative && !secret_interne(&var.name) {
             continue;
         }
+        if var.role == ConfigRole::BaseUrl && d_un_service_tiers(&var.name) {
+            continue;
+        }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
         }
@@ -837,6 +858,12 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             env.entry(var.name.clone())
                 .or_insert_with(|| valeur.to_string());
         }
+    }
+
+    // Le prefixe sous lequel l'application est servie, quand elle sait le
+    // lire.
+    if let Some(v) = variable_de_chemin(facts) {
+        env.insert(v, "__PATH__".to_string());
     }
 
     // Le module de reglages que Django attend de l'environnement.
@@ -2340,9 +2367,20 @@ mod propositions {
         let mut f = faits(vec![var("SECRET_KEY", None, ".env.example")], vec![8080]);
         f.stack.primary = Technology::Python;
         assert!(sans_reglage_de_chemin(&f));
+        // Une adresse publique reconnue, que le paquet remplit, suffit.
+        let mut url = var("APP_BASE_URL", None, ".env.example");
+        url.role = ConfigRole::BaseUrl;
+        f.config.variables.push(url);
+        assert!(!sans_reglage_de_chemin(&f));
+        // Pas celle d'un service tiers.
+        f.config.variables.clear();
+        let mut sms = var("APP_SMS_BASE_URL", None, ".env.example");
+        sms.role = ConfigRole::BaseUrl;
+        f.config.variables.push(sms);
+        assert!(sans_reglage_de_chemin(&f));
         f.config
             .variables
-            .push(var("APP_BASE_URL", None, ".env.example"));
+            .push(var("APP_BASE_PATH", None, ".env.example"));
         assert!(!sans_reglage_de_chemin(&f));
         f.config.variables.clear();
         f.stack.primary = Technology::Php;
