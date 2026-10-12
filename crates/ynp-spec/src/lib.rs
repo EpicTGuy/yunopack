@@ -594,6 +594,13 @@ fn script_d_image(facts: &RepoFacts) -> Option<String> {
     })
 }
 
+/// Vrai pour l'option d'installation globale de npm, seule ou groupee
+/// avec d'autres options courtes (`-g`, `-gf`, `--global`) : ferdium
+/// installe pnpm par `npm i -gf`.
+fn option_globale(m: &str) -> bool {
+    m == "--global" || (m.starts_with('-') && !m.starts_with("--") && m.contains('g'))
+}
+
 /// `npm install -g turbo` ecrit dans le repertoire de Node, refuse a
 /// l'utilisateur de l'application (documenso). L'outil s'installe dans un
 /// prefixe de l'installation, que les etapes suivantes ont dans leur PATH ;
@@ -603,7 +610,7 @@ fn npm_global_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
         let mots: Vec<&str> = e.split_whitespace().collect();
         mots.windows(2)
             .any(|w| w[0] == "npm" && matches!(w[1], "install" | "i" | "add"))
-            && mots.iter().any(|m| matches!(*m, "-g" | "--global"))
+            && mots.iter().any(|m| option_globale(m))
             && !mots.iter().any(|m| m.starts_with("--prefix"))
     };
     if !etapes.iter().any(|e| global(e)) {
@@ -613,8 +620,17 @@ fn npm_global_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
         .into_iter()
         .map(|e| {
             let e = if global(&e) {
-                e.replacen(" -g", " -g --prefix \"$PWD/.npm-global\"", 1)
-                    .replacen(" --global", " --global --prefix \"$PWD/.npm-global\"", 1)
+                let mots: Vec<String> = e
+                    .split(' ')
+                    .map(|m| {
+                        if option_globale(m) {
+                            format!("{m} --prefix \"$PWD/.npm-global\"")
+                        } else {
+                            m.to_string()
+                        }
+                    })
+                    .collect();
+                mots.join(" ")
             } else {
                 e
             };
@@ -773,11 +789,13 @@ fn sans_activation_de_corepack(etapes: Vec<String>) -> Vec<String> {
         let mots: Vec<&str> = e.split_whitespace().collect();
         matches!(mots.first(), Some(&"npm"))
             && mots.iter().any(|m| matches!(*m, "install" | "i" | "add"))
-            && mots.iter().any(|m| matches!(*m, "-g" | "--global"))
+            && mots.iter().any(|m| option_globale(m))
             && mots
                 .iter()
                 .filter(|m| !m.starts_with('-') && !matches!(**m, "npm" | "install" | "i" | "add"))
                 .all(|m| {
+                    // `"pnpm@$(node -p …)"` chez ferdium : le nom avant la version.
+                    let m = m.trim_matches('"');
                     let nom = m.split('@').next().unwrap_or(m);
                     matches!(nom, "pnpm" | "yarn" | "corepack")
                 })
