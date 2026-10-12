@@ -773,6 +773,12 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
     }
 
+    // Le module de reglages que Django attend de l'environnement.
+    if let Some(m) = &facts.stack.reglages_django {
+        env.entry("DJANGO_SETTINGS_MODULE".to_string())
+            .or_insert_with(|| m.clone());
+    }
+
     // Rails en production : l'environnement, la cle des sessions, les
     // fichiers statiques et le journal, que l'image fixait par ses ENV.
     if facts.stack.cadre_web.as_deref() == Some("rails") {

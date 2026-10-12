@@ -137,6 +137,8 @@ pub fn defauts_lus(contenu: &str) -> Vec<(String, String)> {
             r#"os\.(?:getenv|environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"ENV\.fetch\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"process\.env\.([A-Z][A-Z0-9_]*)\s*(?:\|\||\?\?)\s*['"]([^'"]*)['"]"#,
+            // Python : `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "x.settings")`.
+            r#"os\.environ\.setdefault\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             // La meme fonction d'enveloppe, avec sa valeur par defaut.
             r#"\b[A-Za-z_]*[Ee]nv[A-Za-z_]*\(\s*["']([A-Z][A-Z0-9]*_[A-Z0-9_]+)["']\s*,\s*["']([^"']*)["']"#,
         ]

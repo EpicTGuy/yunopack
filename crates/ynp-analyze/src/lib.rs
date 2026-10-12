@@ -116,7 +116,12 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
     }
 
     facts.stack = stack::detect(tree, facts.build.as_ref());
-    facts.stack.sous_repertoire = sous_repertoire.clone();
+    facts.stack.sous_repertoire = sous_repertoire.clone().or_else(|| {
+        facts
+            .build
+            .as_ref()
+            .and_then(|b| contexte_du_dockerfile(tree, b))
+    });
 
     // Une unite systemd livree par le projet, faute de Procfile ou de point
     // d'entree declare.
@@ -242,6 +247,7 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
             cadre: cadre.clone(),
         })
         .collect();
+    facts.stack.reglages_django = reglages_django(tree);
     facts.stack.dependances_ruby = tree
         .text("Gemfile")
         .map(|t| {
@@ -388,6 +394,50 @@ mod tests {
         let back: RepoFacts = serde_json::from_str(&text).unwrap();
         assert_eq!(f, back);
     }
+}
+
+/// Le module de reglages d'un projet Django dont ni manage.py ni wsgi.py ne
+/// fixent `DJANGO_SETTINGS_MODULE` : babybuddy attend qu'on le lui donne, et
+/// ses migrations echouaient sur « settings are not configured ». Parmi les
+/// modules de son paquet `settings/`, celui de production, sinon la base.
+fn reglages_django(tree: &RepoTree) -> Option<String> {
+    if !tree.has("manage.py") || tree.defauts_lus().contains_key("DJANGO_SETTINGS_MODULE") {
+        return None;
+    }
+    let paquets: Vec<String> = tree
+        .paths()
+        .into_iter()
+        .filter(|p| p.ends_with("/settings/__init__.py") && p.matches('/').count() == 2)
+        .collect();
+    let [paquet] = paquets.as_slice() else {
+        return None;
+    };
+    let projet = paquet.split('/').next()?;
+    ["production", "prod", "base", "settings"]
+        .iter()
+        .find(|m| tree.has(&format!("{projet}/settings/{m}.py")))
+        .map(|m| format!("{projet}.settings.{m}"))
+}
+
+/// Le repertoire depuis lequel un Dockerfile range dans un sous-repertoire se
+/// construit, quand ses `COPY` designent des fichiers qui n'existent que la :
+/// beatbump construit `app/Dockerfile` depuis `app/`, ou vivent son
+/// package.json et son verrou. Les etapes doivent s'y lancer.
+fn contexte_du_dockerfile(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> Option<String> {
+    let (dossier, _) = b.dockerfile_path.rsplit_once('/')?;
+    let sources: Vec<&str> = b
+        .copies
+        .values()
+        .map(|v| v.trim_start_matches("./").trim_end_matches('/'))
+        .filter(|v| !v.is_empty() && *v != "." && !v.contains('*') && !v.starts_with('/'))
+        .collect();
+    let a = |p: &str| tree.has(p) || tree.paths().iter().any(|x| x.starts_with(&format!("{p}/")));
+    let la_seulement = sources
+        .iter()
+        .filter(|s| a(&format!("{dossier}/{s}")) && !a(s))
+        .count();
+    let a_la_racine = sources.iter().filter(|s| a(s)).count();
+    (la_seulement > 0 && a_la_racine == 0).then(|| dossier.to_string())
 }
 
 /// Le repertoire du serveur d'un monorepo : la racine ne porte aucun projet
@@ -790,6 +840,50 @@ fn texte_du_script<'a>(tree: &'a RepoTree, script: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod point_d_entree {
     use super::*;
+
+    #[test]
+    fn le_module_de_reglages_de_django_se_choisit_si_le_code_se_tait() {
+        let arbre = RepoTree::from_pairs([
+            ("manage.py", "import os\n"),
+            ("babybuddy/settings/__init__.py", ""),
+            ("babybuddy/settings/base.py", ""),
+            ("babybuddy/settings/development.py", ""),
+        ]);
+        assert_eq!(
+            reglages_django(&arbre).as_deref(),
+            Some("babybuddy.settings.base")
+        );
+        let arbre = RepoTree::from_pairs([
+            (
+                "manage.py",
+                "os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"site.settings\")\n",
+            ),
+            ("site/settings/__init__.py", ""),
+            ("site/settings/base.py", ""),
+        ]);
+        assert_eq!(reglages_django(&arbre), None);
+    }
+
+    #[test]
+    fn un_dockerfile_se_construit_depuis_son_repertoire_si_ses_copies_y_sont() {
+        let arbre = RepoTree::from_pairs([
+            ("app/Dockerfile", ""),
+            ("app/package.json", "{}"),
+            ("app/package-lock.json", "{}"),
+            ("README.md", ""),
+        ]);
+        let mut b = ynp_core::facts::BuildRecipe {
+            dockerfile_path: "app/Dockerfile".into(),
+            ..Default::default()
+        };
+        b.copies
+            .insert("./package.json".into(), "package.json".into());
+        b.copies.insert(".".into(), ".".into());
+        assert_eq!(contexte_du_dockerfile(&arbre, &b).as_deref(), Some("app"));
+        // Copies presentes a la racine : le contexte est la racine.
+        let arbre = RepoTree::from_pairs([("app/Dockerfile", ""), ("package.json", "{}")]);
+        assert_eq!(contexte_du_dockerfile(&arbre, &b), None);
+    }
 
     #[test]
     fn exec_avec_les_arguments_renvoie_au_cmd() {

@@ -442,6 +442,10 @@ pub struct StackFacts {
     /// s'y analyse ; les chemins des faits lui sont relatifs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sous_repertoire: Option<String>,
+    /// Le module de reglages de Django a donner a l'application, quand son
+    /// code ne le fixe pas lui-meme (`babybuddy.settings.base`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reglages_django: Option<String>,
     /// Le champ `main` du `package.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_npm: Option<String>,
