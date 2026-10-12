@@ -286,7 +286,17 @@ async fn verifier_le_service(
             let journal = hote
                 .executer(&format!("journalctl -u {app} -n 15 --no-pager -o cat"))
                 .await?;
-            format!("etat : {}\n{}", etat.texte(), journal.diagnostic())
+            // systemd ne dit que « exit-code » : la raison est dans le journal
+            // que l'application ecrit elle-meme.
+            let propre = hote
+                .executer(&format!("tail -n 20 /var/log/{app}/{app}.log 2>/dev/null"))
+                .await?;
+            format!(
+                "etat : {}\n{}\n--- journal de l'application ---\n{}",
+                etat.texte(),
+                journal.diagnostic(),
+                propre.stdout.trim()
+            )
         };
         etapes.push(chrono.etape("service actif", actif, detail));
         // Chaque processus annexe aussi : un worker qui redemarre en boucle
