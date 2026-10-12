@@ -131,6 +131,15 @@ exact = ["LOG_LEVEL", "LOGLEVEL", "RUST_LOG", "DEBUG_LEVEL"]
 
 # Valeurs a generer aleatoirement plutot qu'a recopier depuis l'exemple amont :
 # un secret present dans un .env.example est, par construction, public.
+# Pas un secret malgre son nom : un chemin de fichier (JWT_SECRET_FILE, la
+# convention des « Docker secrets »), une duree (TOKEN_EXPIRY), un
+# interrupteur (ALLOW_PASSWORD_CHANGES), une longueur. bytestash recevait un
+# secret dans JWT_SECRET_FILE, et cherchait un fichier de ce nom.
+[[rule]]
+role = "other"
+suffix = ["_FILE", "_PATH", "_DIR", "_EXPIRY", "_EXPIRES", "_EXPIRATION", "_TTL", "_LIFETIME", "_LENGTH", "_TIMEOUT", "_ENABLED", "_DISABLED", "_CHANGES", "_RESET", "_MIN", "_MAX"]
+contains = ["ALLOW_", "ENABLE_", "DISABLE_", "REQUIRE_", "EXPIRE", "_TTL_"]
+
 [[rule]]
 role = "secret"
 contains = ["SECRET", "PASSWORD", "PASSWD", "TOKEN", "PRIVATE_KEY", "API_KEY", "ENCRYPTION_KEY", "SALT"]

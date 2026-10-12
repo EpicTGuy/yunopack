@@ -1026,6 +1026,12 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         if var.role == ConfigRole::BaseUrl && d_un_service_tiers(&var.name) {
             continue;
         }
+        // L'identifiant d'un service tiers (OIDC_CLIENT_SECRET, SMTP_PASSWORD)
+        // ne s'invente pas : une valeur au hasard activerait une connexion qui
+        // ne peut pas marcher.
+        if var.role == ConfigRole::Secret && d_un_service_tiers(&var.name) {
+            continue;
+        }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
         }
