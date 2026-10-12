@@ -660,8 +660,16 @@ fn yarn_et_pnpm_par_corepack(etapes: Vec<String>) -> Vec<String> {
                 i += 1;
             }
             let ligne = sortie.join(" ");
-            if change && !ligne.contains("COREPACK_HOME") {
-                format!("export COREPACK_HOME=\"$PWD/.corepack\"; {ligne}")
+            // Les scripts du projet appellent eux-memes `pnpm` (emdash :
+            // `pnpm run --filter … build` dans `pnpm build`) : les raccourcis
+            // de corepack, poses dans l'installation, sont dans le PATH.
+            let raccourcis = "export COREPACK_HOME=\"$PWD/.corepack\" PATH=\"$PWD/.corepack/bin:$PATH\"; \
+                 mkdir -p .corepack/bin && corepack enable --install-directory .corepack/bin pnpm yarn;";
+            if (change || ligne.contains("corepack ")) && !ligne.contains("--install-directory") {
+                let ligne = ligne
+                    .trim_start_matches("export COREPACK_HOME=\"$PWD/.corepack\"; ")
+                    .to_string();
+                format!("{raccourcis} {ligne}")
             } else {
                 ligne
             }
@@ -2576,15 +2584,13 @@ mod propositions {
             "corepack pnpm install".into(),
             "npm run build".into(),
         ]);
-        assert_eq!(
-            e[0],
-            "export COREPACK_HOME=\"$PWD/.corepack\"; corepack yarn build"
-        );
+        let r = "export COREPACK_HOME=\"$PWD/.corepack\" PATH=\"$PWD/.corepack/bin:$PATH\"; mkdir -p .corepack/bin && corepack enable --install-directory .corepack/bin pnpm yarn;";
+        assert_eq!(e[0], format!("{r} corepack yarn build"));
         assert_eq!(
             e[1],
-            "export COREPACK_HOME=\"$PWD/.corepack\"; if [ -f yarn.lock ]; then corepack yarn --frozen-lockfile; elif [ -f pnpm-lock.yaml ]; then true && corepack pnpm i --frozen-lockfile; fi"
+            format!("{r} if [ -f yarn.lock ]; then corepack yarn --frozen-lockfile; elif [ -f pnpm-lock.yaml ]; then true && corepack pnpm i --frozen-lockfile; fi")
         );
-        assert_eq!(e[2], "corepack pnpm install");
+        assert_eq!(e[2], format!("{r} corepack pnpm install"));
         assert_eq!(e[3], "npm run build");
     }
 
