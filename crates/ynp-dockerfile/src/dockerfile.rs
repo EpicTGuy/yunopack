@@ -483,6 +483,25 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // L'installation d'un depot de paquets par un script distant
+    // (`curl … deb.nodesource.com/setup_22.x | bash -`) : Node, Yarn et les
+    // autres runtimes viennent des ressources de YunoHost. Le reglage de PHP
+    // de l'image (`$PHP_INI_DIR`) n'existe pas hors d'elle.
+    let ligne = cmd.join(" ");
+    if (matches!(bin, "curl" | "wget")
+        && [
+            "nodesource.com",
+            "dl.yarnpkg.com",
+            "packages.sury.org",
+            "download.docker.com",
+        ]
+        .iter()
+        .any(|d| ligne.contains(d)))
+        || ligne.contains("PHP_INI_DIR")
+    {
+        return RunKind::Noise;
+    }
+
     // Les outils des images PHP officielles, absents d'un serveur : les
     // extensions qu'ils nomment vont au manifeste (voir `extensions_php_de`).
     if matches!(
@@ -615,6 +634,8 @@ fn extensions_php_de(toks: &[String]) -> Vec<String> {
         // `memcache-8.2` : le nom, sans la version.
         .map(|t| t.split(['-', '@']).next().unwrap_or(t).to_lowercase())
         .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        // Des extensions de developpement, qui ralentiraient l'application.
+        .filter(|t| !matches!(t.as_str(), "xdebug" | "pcov" | "spx"))
         .collect()
 }
 
