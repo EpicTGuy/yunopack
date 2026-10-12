@@ -1245,6 +1245,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         avec_les_pairs_tolerees(outils_dans_l_installation(etapes)),
     )));
 
+    let port_binding = liaison_port(facts, execstart.value().map(String::as_str));
+    let database_binding = liaison_base(facts);
+    let a_une_liaison = port_binding.value().is_some_and(|v| !v.is_empty())
+        || database_binding.value().is_some_and(|v| !v.is_empty());
+
     Runtime {
         technology: match facts.stack.primary {
             // Rien a la racine. Si le depot porte des fichiers de projet plus
@@ -1290,7 +1295,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 .value()
                 .is_some_and(|c| c.contains("__INSTALL_DIR__/venv/")),
         port_env_var: facts.config.get(ConfigRole::Port).map(|v| v.name.clone()),
-        port_binding: liaison_port(facts, execstart.value().map(String::as_str)),
+        port_binding,
         execstart,
         migrations,
         processus_annexes,
@@ -1299,15 +1304,19 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
         repertoire_de_travail: repertoire_de_travail(facts),
-        database_binding: liaison_base(facts),
+        database_binding,
         // Un fichier de configuration est necessaire des qu'il y a quelque
         // chose a transmettre a l'application, meme si l'amont n'en publie
         // aucun exemple. C'est ce manque qui a fait installer un miniflux
         // incapable de demarrer.
+        // Une liaison a ecrire suffit : le port de farside, lu dans son
+        // code, ne figurait dans aucun fichier faute d'exemple, et
+        // l'application ecoutait sur son port par defaut.
         config_file: (facts.config.example_file.is_some()
             || facts.services.database != Database::None
-            || !env.is_empty())
-        .then(|| ".env".to_string()),
+            || !env.is_empty()
+            || a_une_liaison)
+            .then(|| ".env".to_string()),
         env,
     }
 }
