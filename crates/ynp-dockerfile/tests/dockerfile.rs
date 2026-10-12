@@ -726,3 +726,35 @@ fn un_sous_shell_d_installation_va_au_manifeste() {
         r.build_steps
     );
 }
+
+#[test]
+fn un_test_shell_isole_n_est_pas_une_etape() {
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22\nRUN [ -f doc-lastmod.json ] && npm run build\n",
+    );
+    assert_eq!(r.build_steps, vec!["npm run build"]);
+}
+
+#[test]
+fn chaque_etape_se_construit_dans_son_repertoire() {
+    // Cas de booklore : le frontal depuis booklore-ui/, l'API depuis
+    // booklore-api/, chacun sous son WORKDIR.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:22 AS front\nWORKDIR /angular-app\nCOPY booklore-ui/package.json booklore-ui/package-lock.json ./\n\
+         RUN npm ci\nCOPY booklore-ui/ ./\nRUN npm run build\n\
+         FROM gradle:8-jdk21 AS back\nWORKDIR /springboot-app\nCOPY booklore-api/ /springboot-app/\n\
+         RUN yq eval '.v = 1' -i /springboot-app/src/main/resources/application.yaml\nRUN gradle build\n\
+         FROM eclipse-temurin:21\nCOPY src ./src\nRUN echo fini\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec![
+            "cd booklore-ui && npm ci",
+            "cd booklore-ui && npm run build",
+            "cd booklore-api && yq eval '.v = 1' -i src/main/resources/application.yaml",
+            "cd booklore-api && gradle build",
+        ]
+    );
+}

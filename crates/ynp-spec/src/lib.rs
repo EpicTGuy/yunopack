@@ -377,28 +377,46 @@ fn sans_clone_du_depot(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
 /// webhook.site creait `/var/www/html/database/database.sqlite`, hors de
 /// toute installation.
 fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
-    let Some(workdir) = facts
-        .build
-        .as_ref()
-        .and_then(|b| b.workdir.as_deref())
-        .map(|w| w.trim_end_matches('/'))
-        .filter(|w| w.len() > 1)
-    else {
+    let Some(b) = facts.build.as_ref() else {
         return etapes;
     };
-    let prefixe = format!("{workdir}/");
+    // Le WORKDIR, et la ou l'image copie la racine du depot (`COPY . /buku`
+    // chez bukuserver, qui installe ensuite `/buku[server]`).
+    let mut racines: Vec<String> = b
+        .copies
+        .iter()
+        .filter(|(vers, depuis)| vers.starts_with('/') && matches!(depuis.as_str(), "." | "./"))
+        .map(|(vers, _)| vers.trim_end_matches('/').to_string())
+        .collect();
+    racines.extend(
+        b.workdir
+            .as_deref()
+            .map(|w| w.trim_end_matches('/').to_string()),
+    );
+    racines.retain(|r| r.len() > 1);
+    if racines.is_empty() {
+        return etapes;
+    }
     etapes
         .into_iter()
         .map(|e| {
             e.split(' ')
                 .map(|m| {
-                    if let Some(reste) = m.strip_prefix(&prefixe) {
-                        format!("./{reste}")
-                    } else if m == workdir {
-                        ".".to_string()
-                    } else {
-                        m.to_string()
+                    for r in &racines {
+                        if let Some(reste) = m.strip_prefix(&format!("{r}/")) {
+                            return format!("./{reste}");
+                        }
+                        if m == r {
+                            return ".".to_string();
+                        }
+                        // Des extras pip : `/buku[server]`.
+                        if let Some(reste) =
+                            m.strip_prefix(r.as_str()).filter(|x| x.starts_with('['))
+                        {
+                            return format!(".{reste}");
+                        }
                     }
+                    m.to_string()
                 })
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -2300,6 +2318,24 @@ mod propositions {
         );
         assert_eq!(e[2], "npm install -g pm2");
         assert_eq!(e[3], "npm run build");
+    }
+
+    #[test]
+    fn la_copie_du_depot_dans_l_image_designe_l_installation() {
+        let mut f = faits(vec![], vec![]);
+        f.build
+            .as_mut()
+            .unwrap()
+            .copies
+            .insert("/buku".into(), ".".into());
+        let e = relatives_au_repertoire_de_travail(
+            vec![
+                "pip install -U pip gunicorn /buku[server]".into(),
+                "ls /buku/x".into(),
+            ],
+            &f,
+        );
+        assert_eq!(e, vec!["pip install -U pip gunicorn .[server]", "ls ./x"]);
     }
 
     #[test]

@@ -110,7 +110,23 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
             // Les listes de paquets sont frequemment rangees dans un ARG
             // (`ARG RUNTIME_PACKAGES="curl gosu ..."`) puis referencees dans le
             // RUN. Sans substitution, on perdrait toutes ces dependances.
-            "RUN" => collect_run(&expand(&ins.args, &args), &mut recipe),
+            "RUN" => {
+                let avant = recipe.build_steps.len();
+                collect_run(&expand(&ins.args, &args), &mut recipe);
+                // Une etape qui construit dans un sous-repertoire du depot
+                // (`COPY booklore-ui/ .`) : ses commandes s'y lancent.
+                if let Some(s) = stages.last() {
+                    if let Some(c) = &s.contexte {
+                        for e in &mut recipe.build_steps[avant..] {
+                            let mut corps = e.clone();
+                            if let Some(w) = s.workdir.as_deref().filter(|w| w.len() > 1) {
+                                corps = corps.replace(&format!("{}/", w.trim_end_matches('/')), "");
+                            }
+                            *e = format!("cd {c} && {corps}");
+                        }
+                    }
+                }
+            }
             "ENV" => {
                 for (k, v) in parse_env(&ins.args) {
                     // Une ENV est aussi substituable dans les RUN suivants.
@@ -140,6 +156,15 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                 // `COPY docker/entry.sh $MEALIE_HOME/run.sh`.
                 let developpe = expand(&ins.args, &args);
                 for (dans_l_image, dans_le_depot) in parse_copy(&developpe) {
+                    if let Some(s) = stages.last_mut() {
+                        if s.contexte.is_none() {
+                            s.contexte = contexte_de_copie(
+                                &dans_l_image,
+                                &dans_le_depot,
+                                s.workdir.as_deref(),
+                            );
+                        }
+                    }
                     recipe.copies.insert(dans_l_image, dans_le_depot);
                 }
                 if let Some(s) = stages.last_mut() {
@@ -197,6 +222,39 @@ struct StageAccu {
     entrypoint: Option<Vec<String>>,
     /// `COPY --from=etape source destination`, tels quels.
     copies_d_etape: Vec<(String, String, String)>,
+    /// Le sous-repertoire du depot que l'etape copie dans son repertoire de
+    /// travail, et ou ses commandes se lancent.
+    contexte: Option<String>,
+}
+
+/// Le sous-repertoire du depot qu'une copie installe dans le repertoire de
+/// travail de l'etape : `COPY booklore-ui/package.json ./` ou
+/// `COPY booklore-api/ /springboot-app/` sous ce WORKDIR. Rien pour une copie
+/// de la racine, ni pour un fichier copie ailleurs.
+fn contexte_de_copie(dest: &str, source: &str, workdir: Option<&str>) -> Option<String> {
+    let dest = dest.trim_end_matches('/');
+    let source = source.trim_start_matches("./").trim_end_matches('/');
+    let dernier = source.rsplit('/').next().unwrap_or(source);
+    // Le repertoire de travail lui-meme, pas un sous-repertoire : `COPY src
+    // ./src` garde l'arborescence du depot. Avec plusieurs sources, chaque
+    // fichier y est range sous son nom (`./package.json`).
+    let w = workdir.map(|w| w.trim_end_matches('/'));
+    let dans_le_travail = matches!(dest, "" | ".")
+        || (dernier.contains('.') && dest == format!("./{dernier}"))
+        || w.is_some_and(|w| {
+            dest == w || (dernier.contains('.') && dest == format!("{w}/{dernier}"))
+        });
+    if !dans_le_travail {
+        return None;
+    }
+    // Un fichier (`booklore-ui/package.json`) : son repertoire ; un repertoire
+    // copie entier (`booklore-api`) : lui-meme.
+    let c = if dernier.contains('.') {
+        source.rsplit_once('/')?.0.to_string()
+    } else {
+        source.to_string()
+    };
+    (!c.is_empty() && !c.contains('*') && !c.starts_with('/') && !c.starts_with("..")).then_some(c)
 }
 
 fn parse_from(args: &str, vars: &IndexMap<String, String>) -> StageAccu {
@@ -457,6 +515,10 @@ fn classify(toks: &[String]) -> RunKind {
         // conserver deposerait des morceaux de syntaxe dans l'appspec.
         "if" | "then" | "else" | "elif" | "fi" | "case" | "esac" | "for" | "while" | "do"
         | "done" | "{" | "}" | "(" | ")" => RunKind::Noise,
+        // Un test isole de sa suite par le decoupage (`[ -f x ] && …`) : seul,
+        // il ne fait qu'echouer quand le fichier manque. benevoles s'arretait
+        // ainsi a l'installation.
+        "[" | "[[" | "test" => RunKind::Noise,
         _ => RunKind::BuildStep,
     }
 }
