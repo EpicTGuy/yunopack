@@ -138,9 +138,47 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                         || e.contains(&format!("${{{a}}}"))
                         || e.contains(&format!("strenv({a})"))
                 };
+                // Mais une etape qui construit reste : homepage lit $CI et
+                // $VERSION dans celle qui lance `pnpm run build`.
+                const CONSTRUIT: &[&str] = &[
+                    "npm",
+                    "npx",
+                    "pnpm",
+                    "yarn",
+                    "corepack",
+                    "node",
+                    "bun",
+                    "gradle",
+                    "./gradlew",
+                    "gradlew",
+                    "mvn",
+                    "./mvnw",
+                    "mvnw",
+                    "cargo",
+                    "go",
+                    "make",
+                    "cmake",
+                    "pip",
+                    "pip3",
+                    "python",
+                    "python3",
+                    "poetry",
+                    "uv",
+                    "composer",
+                    "php",
+                    "bundle",
+                    "rake",
+                    "mix",
+                    "dotnet",
+                ];
+                let construit = |e: &str| {
+                    e.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+                        .any(|m| CONSTRUIT.contains(&m))
+                };
                 let mut i = avant;
                 while i < recipe.build_steps.len() {
-                    if sans_valeur.iter().any(|a| lit(&recipe.build_steps[i], a)) {
+                    let e = &recipe.build_steps[i];
+                    if !construit(e) && sans_valeur.iter().any(|a| lit(e, a)) {
                         recipe.build_steps.remove(i);
                     } else {
                         i += 1;
