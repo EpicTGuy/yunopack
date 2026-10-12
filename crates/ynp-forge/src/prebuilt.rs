@@ -76,9 +76,13 @@ pub fn select(release: &Release) -> Vec<ArchAsset> {
 }
 
 fn est_une_release_de_bureau(assets: &[ReleaseAsset]) -> bool {
+    // Seuls les formats d'une interface graphique le disent : un `.exe` ou un
+    // `.apk` accompagne aussi les serveurs en Go ou en Rust (wrp, fishnet,
+    // anubis), dont le binaire Linux etait alors ignore.
+    const GRAPHIQUES: &[&str] = &[".dmg", ".appimage", ".flatpak", ".snap"];
     assets.iter().any(|a| {
         let n = a.name.to_lowercase();
-        BUREAU.iter().any(|e| n.ends_with(e))
+        GRAPHIQUES.iter().any(|e| n.ends_with(e))
     })
 }
 
@@ -314,6 +318,20 @@ mod tests {
                 ("i386", "gotify-linux-386.zip"),
             ]
         );
+    }
+
+    #[test]
+    fn un_exe_a_cote_ne_fait_pas_une_application_de_bureau() {
+        // Cas de wrp : binaires nus pour chaque systeme.
+        let r = release(&[
+            "wrp-amd64-linux",
+            "wrp-arm64-linux",
+            "wrp-amd64-windows.exe",
+            "wrp-amd64-macos",
+        ]);
+        let noms: Vec<String> = select(&r).into_iter().map(|a| a.name).collect();
+        assert!(noms.contains(&"wrp-amd64-linux".to_string()));
+        assert!(noms.contains(&"wrp-arm64-linux".to_string()));
     }
 
     #[test]
