@@ -723,12 +723,38 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
         .into_iter()
         .chain(std::iter::once(last))
         .flat_map(|s| s.copies_d_etape.iter());
+    let workdir_final = last.workdir.clone();
     for (etape, source, vers) in copies {
         let depuis = if let Some(rel) = source.strip_prefix('/') {
-            let Some(w) = workdir_de(etape) else { continue };
-            match format!("/{rel}").strip_prefix(&format!("{w}/")) {
-                Some(r) => r.to_string(),
-                None => continue,
+            let interne = workdir_de(etape).and_then(|w| {
+                format!("/{rel}")
+                    .strip_prefix(&format!("{w}/"))
+                    .map(str::to_string)
+            });
+            match interne {
+                Some(r) => r,
+                // Une sortie de construction hors du repertoire de travail
+                // (`pnpm deploy … /prod/api` chez cobalt), que l'etape produit
+                // elle-meme : elle devient un repertoire de l'installation.
+                None => {
+                    let source = source.trim_end_matches('/');
+                    if !recipe.build_steps.iter().any(|e| e.contains(source)) {
+                        continue;
+                    }
+                    let local = format!(".sortie{source}");
+                    for e in &mut recipe.build_steps {
+                        *e = e.replace(source, &format!("$PWD/{local}"));
+                    }
+                    // Copiee comme tout le repertoire de travail final : c'est
+                    // la que l'application tourne.
+                    if workdir_final.as_deref().map(|w| w.trim_end_matches('/'))
+                        == Some(vers.trim_end_matches('/'))
+                    {
+                        recipe.contexte_final = Some(local);
+                        continue;
+                    }
+                    local
+                }
             }
         } else {
             source.trim_start_matches("./").to_string()

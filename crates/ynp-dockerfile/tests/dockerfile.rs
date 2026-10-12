@@ -774,3 +774,19 @@ fn un_workdir_vers_une_copie_change_le_repertoire_des_commandes() {
     );
     assert_eq!(r.workdir.as_deref(), Some("/app/server"));
 }
+
+#[test]
+fn une_sortie_de_construction_devient_le_repertoire_de_l_application() {
+    // Cas de cobalt : `pnpm deploy … /prod/api`, copie dans /app.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node:24 AS base\nFROM base AS build\nWORKDIR /app\nCOPY . /app\n\
+         RUN pnpm install --prod --frozen-lockfile\n\
+         RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api\n\
+         FROM base AS api\nWORKDIR /app\nCOPY --from=build /prod/api /app\nCMD [\"node\", \"src/cobalt\"]\n",
+    );
+    assert!(r.build_steps.contains(
+        &"pnpm deploy --filter=@imput/cobalt-api --prod $PWD/.sortie/prod/api".to_string()
+    ));
+    assert_eq!(r.contexte_final.as_deref(), Some(".sortie/prod/api"));
+}
