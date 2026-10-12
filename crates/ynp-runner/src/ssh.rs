@@ -50,13 +50,43 @@ impl Sortie {
         } else {
             &self.stderr
         };
-        source
+        let fin: Vec<&str> = source
             .lines()
             .rev()
             .take(12)
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
+            .collect();
+        // La ligne decisive est souvent loin de la fin : « FATAL ERROR:
+        // Reached heap limit » de Node precede une pile de quarante lignes,
+        // et les douze dernieres ne disaient que « Aborted ».
+        const DECISIFS: &[&str] = &[
+            "FATAL ERROR",
+            "Traceback",
+            "ERR!",
+            "error:",
+            "Error:",
+            "command not found",
+            "commande introuvable",
+            "No such file",
+            "Permission denied",
+            "Killed",
+        ];
+        let mut decisives: Vec<&str> = Vec::new();
+        for l in source.lines() {
+            let t = l.trim();
+            if decisives.len() < 4
+                && DECISIFS.iter().any(|d| t.contains(d))
+                && !fin.contains(&l)
+                && !decisives.contains(&t)
+            {
+                decisives.push(t);
+            }
+        }
+        decisives
+            .into_iter()
+            .chain(fin)
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -262,6 +292,25 @@ fn base64(octets: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn le_diagnostic_remonte_la_ligne_decisive() {
+        // Cas de bytestash : la pile de Node masquait la cause.
+        let mut sortie = String::from("WARNING FATAL ERROR: Reached heap limit\n");
+        for i in 0..30 {
+            sortie.push_str(&format!("WARNING {i}: v8::internal\n"));
+        }
+        sortie.push_str("WARNING Aborted\n");
+        let s = Sortie {
+            code: 1,
+            stdout: String::new(),
+            stderr: sortie,
+        };
+        assert!(s
+            .diagnostic()
+            .starts_with("WARNING FATAL ERROR: Reached heap limit"));
+        assert!(s.diagnostic().ends_with("WARNING Aborted"));
+    }
+
     use super::*;
 
     #[test]
