@@ -380,6 +380,7 @@ fn collect_run(args: &str, recipe: &mut BuildRecipe) {
         if toks.is_empty() {
             continue;
         }
+        recipe.extensions_php.extend(extensions_php_de(&toks));
         match classify(&toks) {
             RunKind::AptInstall(pkgs) => recipe.apt_packages.extend(pkgs),
             RunKind::ApkAdd(pkgs) => recipe.apk_packages.extend(pkgs),
@@ -468,6 +469,22 @@ fn classify(toks: &[String]) -> RunKind {
         && (cmd.get(1).is_some_and(|s| s == "chef")
             || (cmd.get(1).is_some_and(|s| s == "install")
                 && cmd.iter().any(|t| t == "cargo-chef")))
+    {
+        return RunKind::Noise;
+    }
+
+    // Les outils des images PHP officielles, absents d'un serveur : les
+    // extensions qu'ils nomment vont au manifeste (voir `extensions_php_de`).
+    if matches!(
+        bin,
+        "docker-php-ext-install"
+            | "docker-php-ext-configure"
+            | "docker-php-ext-enable"
+            | "docker-php-source"
+            | "install-php-extensions"
+            | "pecl"
+            | "phpize"
+    ) || (bin == "git" && cmd.iter().any(|t| t.starts_with("/usr/src/php")))
     {
         return RunKind::Noise;
     }
@@ -561,6 +578,34 @@ fn classify(toks: &[String]) -> RunKind {
         "[" | "[[" | "test" => RunKind::Noise,
         _ => RunKind::BuildStep,
     }
+}
+
+/// Les extensions PHP qu'une commande d'image installe :
+/// `docker-php-ext-install pdo_mysql zip`, `pecl install memcache`,
+/// `install-php-extensions gd intl`.
+fn extensions_php_de(toks: &[String]) -> Vec<String> {
+    let Some(i) = toks.iter().position(|t| {
+        matches!(
+            t.rsplit('/').next().unwrap_or(t),
+            "docker-php-ext-install" | "install-php-extensions" | "pecl"
+        )
+    }) else {
+        return Vec::new();
+    };
+    let mut reste = &toks[i + 1..];
+    if toks[i].ends_with("pecl") {
+        match reste.first().map(String::as_str) {
+            Some("install") => reste = &reste[1..],
+            _ => return Vec::new(),
+        }
+    }
+    reste
+        .iter()
+        .filter(|t| !t.starts_with('-') && !is_dynamic(t))
+        // `memcache-8.2` : le nom, sans la version.
+        .map(|t| t.split(['-', '@']).next().unwrap_or(t).to_lowercase())
+        .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .collect()
 }
 
 fn subcommand(cmd: &[String]) -> Option<&str> {

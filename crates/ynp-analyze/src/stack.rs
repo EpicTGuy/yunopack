@@ -78,17 +78,9 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
         }
     }
     if let Some(b) = build {
-        for etape in &b.build_steps {
-            if let Some((_, reste)) = etape.split_once("docker-php-ext-install") {
-                for mot in reste
-                    .split_whitespace()
-                    .take_while(|m| *m != "&&" && *m != ";")
-                {
-                    let mot = mot.to_lowercase();
-                    if !mot.starts_with('-') && !facts.extensions_php.contains(&mot) {
-                        facts.extensions_php.push(mot);
-                    }
-                }
+        for e in &b.extensions_php {
+            if !facts.extensions_php.contains(e) {
+                facts.extensions_php.push(e.clone());
             }
         }
     }

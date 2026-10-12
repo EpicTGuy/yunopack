@@ -201,6 +201,10 @@ pub struct BuildRecipe {
     /// c'est une copie a refaire apres la construction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies_d_etape: Vec<CopieDEtape>,
+    /// Les extensions PHP que l'image installe par ses outils
+    /// (`docker-php-ext-install`, `pecl install`...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions_php: Vec<String>,
     /// Le sous-repertoire du depot que l'etape finale copie dans son
     /// repertoire de travail : la ou l'application tourne.
     #[serde(default, skip_serializing_if = "Option::is_none")]

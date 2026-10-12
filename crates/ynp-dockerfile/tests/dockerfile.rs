@@ -247,11 +247,10 @@ CMD ["php-fpm"]
     assert_eq!(r.apt_packages, vec!["libzip-dev", "libpng-dev"]);
     assert_eq!(
         r.build_steps,
-        vec![
-            "composer install --no-dev --no-scripts --prefer-dist",
-            "docker-php-ext-install pdo_mysql zip gd",
-        ]
+        vec!["composer install --no-dev --no-scripts --prefer-dist",]
     );
+    // Les extensions de l'image vont au manifeste, pas aux etapes.
+    assert_eq!(r.extensions_php, vec!["pdo_mysql", "zip", "gd"]);
     assert_eq!(r.expose, vec![9000]);
     assert_eq!(r.env.get("APP_ENV").map(String::as_str), Some("production"));
     assert_eq!(r.start_command().as_deref(), Some("php-fpm"));
@@ -789,4 +788,21 @@ fn une_sortie_de_construction_devient_le_repertoire_de_l_application() {
         &"pnpm deploy --filter=@imput/cobalt-api --prod $PWD/.sortie/prod/api".to_string()
     ));
     assert_eq!(r.contexte_final.as_deref(), Some(".sortie/prod/api"));
+}
+
+#[test]
+fn les_outils_des_images_php_donnent_leurs_extensions() {
+    // Cas de congressus.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM php:8.2-apache\nRUN docker-php-ext-install pdo pdo_mysql && docker-php-source extract\n\
+         RUN git clone https://github.com/php-memcached-dev/php-memcached.git /usr/src/php/ext/memcached/\n\
+         RUN docker-php-ext-configure memcached && docker-php-ext-install -j4 zip memcached\n\
+         RUN pecl install memcache-8.2 && docker-php-ext-enable memcache\nRUN composer install\n",
+    );
+    assert_eq!(r.build_steps, vec!["composer install"]);
+    assert_eq!(
+        r.extensions_php,
+        vec!["pdo", "pdo_mysql", "zip", "memcached", "memcache"]
+    );
 }
