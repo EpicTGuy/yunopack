@@ -439,6 +439,10 @@ pub struct StackFacts {
     /// Les objets d'application web des modules Python (`app = Flask(...)`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub applications_web: Vec<ApplicationWeb>,
+    /// Les contraintes de version de PHP des paquets du verrou composer
+    /// (`^5.6 || ^7.0`) : la version installee doit toutes les satisfaire.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contraintes_php_verrou: Vec<String>,
     /// Les paquets que le `composer.json` exige (`require`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_php: Vec<String>,

@@ -197,24 +197,94 @@ fn sert_a_construire(paquet: &str) -> bool {
     OUTILS.contains(&paquet) || paquet.ends_with("-dev")
 }
 
-/// La version de PHP a installer : celle qu'exige `composer.json`, jamais
-/// en dessous de celle de Debian bookworm, sauf pour un projet reste en
-/// PHP 7, que YunoHost sait encore fournir.
+/// La version de PHP a installer : la premiere qui satisfait toutes les
+/// contraintes — celle du composer.json et celles des paquets du verrou —
+/// dans l'ordre de preference 8.2 (celle de bookworm), 8.3, 8.4, puis les
+/// anciennes. organizr exige `^5.6 || ^7.0` par une dependance : PHP 8.2
+/// faisait refuser l'installation a composer.
 fn version_php(facts: &RepoFacts) -> String {
-    let exigee = facts.stack.runtime_version.as_deref().unwrap_or("");
-    let mut morceaux = exigee.split('.').filter_map(|m| m.parse::<u32>().ok());
-    // PHP 7 seulement si la contrainte l'impose (`^7.4`, `~7.3`, `7.4.*`) ;
-    // `>=7.4` admet PHP 8, et PHP 7 n'est plus maintenu.
-    let seulement_7 = facts
+    const PREFERENCE: &[(u32, u32)] = &[(8, 2), (8, 3), (8, 4), (8, 1), (8, 0), (7, 4)];
+    let contraintes: Vec<&str> = facts
         .stack
         .contrainte_php
-        .as_deref()
-        .is_some_and(|c| !c.contains('>') && !c.contains("|| ^8") && !c.contains("|8"));
+        .iter()
+        .map(String::as_str)
+        .chain(
+            facts
+                .stack
+                .contraintes_php_verrou
+                .iter()
+                .map(String::as_str),
+        )
+        .collect();
+    if !contraintes.is_empty() {
+        if let Some((a, b)) = PREFERENCE
+            .iter()
+            .find(|v| contraintes.iter().all(|c| satisfait(c, **v)))
+        {
+            return format!("{a}.{b}");
+        }
+    }
+    // Sans contrainte lisible : la version annoncee, au moins 8.2.
+    let exigee = facts.stack.runtime_version.as_deref().unwrap_or("");
+    let mut morceaux = exigee.split('.').filter_map(|m| m.parse::<u32>().ok());
     match (morceaux.next(), morceaux.next()) {
-        (Some(7), _) if seulement_7 => "7.4".to_string(),
         (Some(8), Some(mineure)) if mineure > 2 => format!("8.{mineure}"),
         _ => "8.2".to_string(),
     }
+}
+
+/// Vrai si la version `majeure.mineure` satisfait une contrainte composer :
+/// `^7.4`, `~8.1`, `>=7.2 <8.3`, `7.4.*`, `^5.6 || ^7.0`, `*`.
+fn satisfait(contrainte: &str, (ma, mi): (u32, u32)) -> bool {
+    let v = (ma, mi);
+    let lire = |t: &str| -> Option<(u32, u32)> {
+        let mut p = t.split('.').map(|x| x.parse::<u32>().ok());
+        Some((p.next()??, p.next().flatten().unwrap_or(0)))
+    };
+    contrainte
+        .split("||")
+        .flat_map(|a| a.split('|'))
+        .any(|alternative| {
+            alternative
+                .split([' ', ','])
+                .filter(|t| !t.is_empty())
+                .all(|t| {
+                    let t = t.trim_start_matches('v');
+                    if t == "*" {
+                        return true;
+                    }
+                    if let Some(r) = t.strip_prefix('^') {
+                        return lire(r).is_some_and(|b| v >= b && ma == b.0);
+                    }
+                    if let Some(r) = t.strip_prefix('~') {
+                        return lire(r).is_some_and(|b| v >= b && ma == b.0);
+                    }
+                    if let Some(r) = t.strip_prefix(">=") {
+                        return lire(r).is_some_and(|b| v >= b);
+                    }
+                    if let Some(r) = t.strip_prefix("<=") {
+                        return lire(r).is_some_and(|b| v <= b);
+                    }
+                    if let Some(r) = t.strip_prefix('>') {
+                        return lire(r).is_some_and(|b| v > b);
+                    }
+                    if let Some(r) = t.strip_prefix('<') {
+                        return lire(r).is_some_and(|b| v < b);
+                    }
+                    // `7.4.*`, `7.*`, `7.4.3` : la meme branche.
+                    let r = t.trim_end_matches(".*").trim_end_matches('*');
+                    match r
+                        .split('.')
+                        .filter_map(|x| x.parse::<u32>().ok())
+                        .collect::<Vec<_>>()[..]
+                    {
+                        [a] => a == ma,
+                        [a, b, ..] => (a, b) == v,
+                        _ => true,
+                    }
+                })
+        })
 }
 
 /// Les paquets PHP d'une application : le moteur, le socle que tout
@@ -313,6 +383,22 @@ mod php {
         assert_eq!(en_bookworm("libgssapi-krb5-2"), "libgssapi-krb5-2");
         assert_eq!(en_bookworm("libicu-dev"), "libicu-dev");
         assert_eq!(en_bookworm("libpng16-16t64"), "libpng16-16");
+    }
+
+    #[test]
+    fn la_version_de_php_satisfait_aussi_le_verrou() {
+        assert!(satisfait("^7.4", (7, 4)));
+        assert!(!satisfait("^7.4", (8, 2)));
+        assert!(satisfait(">=7.2 <8.3", (8, 2)));
+        assert!(satisfait("^5.6 || ^7.0", (7, 4)));
+        assert!(satisfait("7.4.*", (7, 4)));
+        assert!(satisfait("*", (8, 4)));
+        let mut f = php(Some("8.0"), &[], Database::None);
+        f.stack.contrainte_php = Some(">=7.4".into());
+        assert_eq!(version_php(&f), "8.2");
+        // organizr : une dependance du verrou exige PHP 7.
+        f.stack.contraintes_php_verrou = vec!["^5.6 || ^7.0".into()];
+        assert_eq!(version_php(&f), "7.4");
     }
 
     #[test]

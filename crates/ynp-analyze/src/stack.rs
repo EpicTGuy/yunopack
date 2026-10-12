@@ -67,6 +67,15 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
         json(tree, "composer.lock").and_then(|c| c.get("packages").cloned())
     {
         for p in &paquets {
+            if let Some(c) = p
+                .get("require")
+                .and_then(|r| r.get("php"))
+                .and_then(Value::as_str)
+            {
+                if !facts.contraintes_php_verrou.iter().any(|x| x == c) {
+                    facts.contraintes_php_verrou.push(c.to_string());
+                }
+            }
             if let Some(Value::Object(requis)) = p.get("require") {
                 for e in requis.keys().filter_map(|k| k.strip_prefix("ext-")) {
                     let e = e.to_lowercase();
