@@ -116,7 +116,23 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                 // Une etape qui construit dans un sous-repertoire du depot
                 // (`COPY booklore-ui/ .`) : ses commandes s'y lancent.
                 if let Some(s) = stages.last() {
-                    if let Some(c) = &s.contexte {
+                    // Le depot entier copie au-dessus du WORKDIR (`COPY .
+                    // /broadcast-box` sous `WORKDIR /broadcast-box/web`) : le
+                    // contexte est le sous-repertoire ou l'etape travaille.
+                    let sous_la_racine = s.contexte.is_none().then(|| {
+                        let w = s.workdir.as_deref()?;
+                        s.destinations.iter().rev().find_map(|(d, src)| {
+                            let src = src.trim_start_matches("./").trim_end_matches('/');
+                            if !matches!(src, "" | ".") {
+                                return None;
+                            }
+                            w.strip_prefix(&format!("{}/", d.trim_end_matches('/')))
+                                .filter(|r| !r.is_empty())
+                                .map(str::to_string)
+                        })
+                    });
+                    let contexte = s.contexte.clone().or(sous_la_racine.flatten());
+                    if let Some(c) = &contexte {
                         for e in &mut recipe.build_steps[avant..] {
                             let mut corps = e.clone();
                             if let Some(w) = s.workdir.as_deref().filter(|w| w.len() > 1) {

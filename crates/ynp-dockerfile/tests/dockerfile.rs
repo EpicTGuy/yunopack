@@ -833,3 +833,22 @@ fn un_outil_global_de_composer_n_est_pas_une_etape() {
     );
     assert_eq!(r.build_steps, vec!["composer install --no-dev"]);
 }
+
+#[test]
+fn le_depot_copie_au_dessus_du_workdir_donne_le_contexte() {
+    // Cas de broadcast-box.
+    let r = parse_dockerfile(
+        "Dockerfile",
+        "FROM node AS web-build\nWORKDIR /broadcast-box/web\nCOPY . /broadcast-box\n\
+         RUN npm install && npm run build\nFROM golang:alpine AS go-build\nWORKDIR /broadcast-box\n\
+         COPY . /broadcast-box\nRUN go build\n",
+    );
+    assert_eq!(
+        r.build_steps,
+        vec![
+            "cd web && npm install",
+            "cd web && npm run build",
+            "go build"
+        ]
+    );
+}
