@@ -1860,6 +1860,11 @@ fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
         .iter()
         .find(|r| w.starts_with(**r) && w.len() > r.len())?;
     let sous = w[racine.len()..].trim_end_matches('/').to_string();
+    // Le WORKDIR est le sous-repertoire de l'application lui-meme : celui-ci
+    // s'applique deja a tout (analytodon, apps/frontend).
+    if facts.stack.sous_repertoire.as_deref() == Some(sous.as_str()) {
+        return None;
+    }
     facts
         .tree
         .iter()

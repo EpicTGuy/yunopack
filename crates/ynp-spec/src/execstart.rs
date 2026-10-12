@@ -393,7 +393,24 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
             );
         }
         if let Some(outil) = mots.first() {
-            if facts.stack.dependances_npm.iter().any(|d| d == outil) {
+            // Un paquet a portee fournit souvent l'outil sous un nom compose :
+            // `@remix-run/serve` installe `remix-serve`.
+            let fournit = |d: &str| {
+                d == *outil
+                    || d.strip_prefix('@')
+                        .and_then(|r| r.split_once('/'))
+                        .is_some_and(|(portee, nom)| {
+                            let tete = portee.split('-').next().unwrap_or(portee);
+                            [
+                                nom.to_string(),
+                                format!("{portee}-{nom}"),
+                                format!("{tete}-{nom}"),
+                            ]
+                            .iter()
+                            .any(|c| c == outil)
+                        })
+            };
+            if facts.stack.dependances_npm.iter().any(|d| fournit(d)) {
                 let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
                 return Some(
                     format!(

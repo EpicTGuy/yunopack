@@ -117,11 +117,29 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
 
     facts.stack = stack::detect(tree, facts.build.as_ref());
     facts.stack.sous_repertoire = sous_repertoire.clone().or_else(|| {
-        facts
-            .build
-            .as_ref()
-            .and_then(|b| contexte_du_dockerfile(tree, b))
+        facts.build.as_ref().and_then(|b| {
+            contexte_du_dockerfile(tree, b).or_else(|| workdir_dans_le_depot(tree, b))
+        })
     });
+    // Le paquet d'un monorepo : ses scripts et ses dependances sont ceux qui
+    // comptent (`pnpm run start` d'analytodon est celui d'apps/frontend).
+    if sous_repertoire.is_none() {
+        if let Some(d) = facts.stack.sous_repertoire.clone() {
+            let sous = stack::detect(&tree.sous_arbre(&d), None);
+            if sous.primary == ynp_core::facts::Technology::NodeJs && !sous.scripts_npm.is_empty() {
+                facts.stack.scripts_npm = sous.scripts_npm;
+                for dep in sous.dependances_npm {
+                    if !facts.stack.dependances_npm.contains(&dep) {
+                        facts.stack.dependances_npm.push(dep);
+                    }
+                }
+                facts.stack.bins_npm.extend(sous.bins_npm);
+                if sous.main_npm.is_some() {
+                    facts.stack.main_npm = sous.main_npm;
+                }
+            }
+        }
+    }
 
     // Une unite systemd livree par le projet, faute de Procfile ou de point
     // d'entree declare.
@@ -444,6 +462,47 @@ fn contexte_du_dockerfile(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> 
     let un_projet = stack::detect(&tree.sous_arbre(dossier), None).primary
         != ynp_core::facts::Technology::Unknown;
     (la_seulement > 0 && a_la_racine == 0 && un_projet).then(|| dossier.to_string())
+}
+
+/// Le paquet du depot ou l'etape finale travaille : `WORKDIR
+/// /app/apps/frontend` designe `apps/frontend/`, qui porte son propre
+/// manifeste. La racine de l'image (`/app`, `/usr/src/app`) n'a pas
+/// d'equivalent dans le depot : on cherche le plus long suffixe qui en a un.
+fn workdir_dans_le_depot(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> Option<String> {
+    let w = b.workdir.as_deref()?.trim_matches('/');
+    let parts: Vec<&str> = w.split('/').filter(|p| !p.is_empty()).collect();
+    const MANIFESTES: &[&str] = &[
+        "package.json",
+        "go.mod",
+        "pyproject.toml",
+        "Gemfile",
+        "composer.json",
+        "Cargo.toml",
+    ];
+    (0..parts.len()).find_map(|i| {
+        let rel = parts[i..].join("/");
+        // Un nom de racine d'image seul (`/usr/src/app`) ne designe pas le
+        // dossier `app/` du depot.
+        const RACINES: &[&str] = &[
+            "app",
+            "code",
+            "src",
+            "srv",
+            "opt",
+            "home",
+            "workspace",
+            "build",
+            "usr",
+        ];
+        if !rel.contains('/') && RACINES.contains(&rel.as_str()) {
+            return None;
+        }
+        // Au moins un niveau sous la racine du depot, et un projet a cet endroit.
+        (rel.contains('/') || i > 0)
+            .then_some(())
+            .filter(|_| MANIFESTES.iter().any(|m| tree.has(&format!("{rel}/{m}"))))
+            .map(|_| rel)
+    })
 }
 
 /// Le repertoire du serveur d'un monorepo : la racine ne porte aucun projet
