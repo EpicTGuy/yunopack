@@ -570,6 +570,53 @@ fn script_d_image(facts: &RepoFacts) -> Option<String> {
     })
 }
 
+/// yarn et pnpm ne sont pas installes : corepack, livre avec Node, les
+/// fournit a la demande. cronmaster lancait `yarn build`, introuvable.
+/// `corepack enable` ecrirait dans le repertoire de Node, qui appartient a
+/// root : il devient `true`. Les blocs `if … then … fi` sont parcourus aussi.
+fn yarn_et_pnpm_par_corepack(etapes: Vec<String>) -> Vec<String> {
+    const SEPARATEURS: &[&str] = &["&&", "||", ";", "|", "then", "else", "do", "(", "{"];
+    etapes
+        .into_iter()
+        .map(|e| {
+            let mut sortie: Vec<String> = Vec::new();
+            let mut debut = true;
+            let mut change = false;
+            let mots: Vec<&str> = e.split(' ').collect();
+            let mut i = 0;
+            while i < mots.len() {
+                let m = mots[i];
+                if debut && matches!(m, "yarn" | "pnpm") {
+                    sortie.push(format!("corepack {m}"));
+                    change = true;
+                } else if debut && m == "corepack" && mots.get(i + 1) == Some(&"enable") {
+                    // `corepack enable [pnpm|yarn]` : rien a activer.
+                    sortie.push("true".into());
+                    i += 2;
+                    while i < mots.len() && matches!(mots[i], "pnpm" | "yarn" | "npm") {
+                        i += 1;
+                    }
+                    change = true;
+                    debut = false;
+                    continue;
+                } else {
+                    sortie.push(m.to_string());
+                }
+                debut = SEPARATEURS.contains(&m.trim_end_matches(';'))
+                    || m.ends_with(';')
+                    || (debut && m.contains('=') && !m.starts_with('-'));
+                i += 1;
+            }
+            let ligne = sortie.join(" ");
+            if change && !ligne.contains("COREPACK_HOME") {
+                format!("export COREPACK_HOME=\"$PWD/.corepack\"; {ligne}")
+            } else {
+                ligne
+            }
+        })
+        .collect()
+}
+
 /// Bun, que YunoHost ne fournit pas, est publie sur npm avec ses binaires :
 /// `npx --yes bun` le lance sans rien installer dans le systeme. cap
 /// construisait par `bun install`, introuvable.
@@ -1120,7 +1167,9 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     let outils_locaux = etapes
         .iter()
         .any(|e| ecrit_dans_un_repertoire_de_binaires(e));
-    let build_steps = bun_par_npx(avec_les_pairs_tolerees(outils_dans_l_installation(etapes)));
+    let build_steps = yarn_et_pnpm_par_corepack(bun_par_npx(avec_les_pairs_tolerees(
+        outils_dans_l_installation(etapes),
+    )));
 
     Runtime {
         technology: match facts.stack.primary {
@@ -2428,6 +2477,26 @@ mod propositions {
         assert_eq!(script_d_image(&f).as_deref(), Some("/bd_build/prepare.sh"));
         f.build.as_mut().unwrap().build_steps = vec!["/usr/bin/env node build.js".into()];
         assert_eq!(script_d_image(&f), None);
+    }
+
+    #[test]
+    fn yarn_et_pnpm_passent_par_corepack() {
+        let e = yarn_et_pnpm_par_corepack(vec![
+            "yarn build".into(),
+            "if [ -f yarn.lock ]; then yarn --frozen-lockfile; elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; fi".into(),
+            "corepack pnpm install".into(),
+            "npm run build".into(),
+        ]);
+        assert_eq!(
+            e[0],
+            "export COREPACK_HOME=\"$PWD/.corepack\"; corepack yarn build"
+        );
+        assert_eq!(
+            e[1],
+            "export COREPACK_HOME=\"$PWD/.corepack\"; if [ -f yarn.lock ]; then corepack yarn --frozen-lockfile; elif [ -f pnpm-lock.yaml ]; then true && corepack pnpm i --frozen-lockfile; fi"
+        );
+        assert_eq!(e[2], "corepack pnpm install");
+        assert_eq!(e[3], "npm run build");
     }
 
     #[test]
