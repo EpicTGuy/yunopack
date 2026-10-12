@@ -1,0 +1,26 @@
+# Explications etablies a la main, apres analyse d'un echec.
+#
+# Une entree n'a sa place ici que si la cause a ete verifiee et qu'elle ne
+# releve pas de yunopack : une incompatibilite avec YunoHost ou ses regles de
+# packaging (« incompatible »), ou un defaut du projet lui-meme (« amont »).
+# Un echec que yunopack pourrait lever n'y entre pas : il reste a debloquer.
+
+[aliasvault]
+categorie = "incompatible"
+etat = "RUN002"
+cause = "application .NET : YunoHost ne fournit pas ce langage, et l'amont ne publie pas de binaire autonome pour Debian"
+
+[azuracast]
+categorie = "incompatible"
+etat = "image"
+cause = "suite radio qui assemble dans son image mariadb, supervisor et des services de diffusion par une vingtaine de scripts propres a l'image"
+
+[linguacafe]
+categorie = "amont"
+etat = "construction"
+cause = "pas de package-lock.json : npm install tire un webpack recent, incompatible avec le laravel-mix 6 du projet (module webpack/lib/SizeFormatHelpers absent)"
+
+[gogocarto]
+categorie = "amont"
+etat = "construction"
+cause = "le champ name de composer.json ne respecte pas le schema de Composer, que Composer 2 impose ; Composer 1 n'est plus maintenu"
