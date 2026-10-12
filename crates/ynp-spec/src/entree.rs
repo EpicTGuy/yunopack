@@ -64,12 +64,30 @@ fn go(facts: &RepoFacts) -> Option<Entree> {
         } else {
             return None;
         };
+    let binaire = sans_collision(facts, &binaire);
+    let mut etapes = Vec::new();
+    if let Some((dossier, _)) = binaire.rsplit_once('/') {
+        etapes.push(format!("mkdir -p {dossier}"));
+    }
+    etapes.push(format!("go build -o {binaire} {paquet}"));
     Some(Entree {
-        etapes: vec![format!("go build -o {binaire} {paquet}")],
+        etapes,
         binaire,
         commande: None,
         migrations: Vec::new(),
     })
+}
+
+/// Ou deposer le binaire construit : a la racine, sauf si un repertoire du
+/// depot y porte deja son nom. Le crate `fx/` de fx recevait le binaire en
+/// `fx/fx`, et systemd refusait d'executer un repertoire.
+fn sans_collision(facts: &RepoFacts, nom: &str) -> String {
+    let prefixe = format!("{nom}/");
+    if facts.tree.iter().any(|p| p.starts_with(&prefixe)) {
+        format!(".bin/{nom}")
+    } else {
+        nom.to_string()
+    }
 }
 
 fn rust(facts: &RepoFacts) -> Option<Entree> {
@@ -79,12 +97,15 @@ fn rust(facts: &RepoFacts) -> Option<Entree> {
     } else {
         ""
     };
+    let binaire = sans_collision(facts, &nom);
+    let mut etapes = vec![format!("cargo build --release{verrou} --bin {nom}")];
+    if let Some((dossier, _)) = binaire.rsplit_once('/') {
+        etapes.push(format!("mkdir -p {dossier}"));
+    }
+    etapes.push(format!("cp target/release/{nom} {binaire}"));
     Some(Entree {
-        etapes: vec![
-            format!("cargo build --release{verrou} --bin {nom}"),
-            format!("cp target/release/{nom} {nom}"),
-        ],
-        binaire: nom,
+        etapes,
+        binaire,
         commande: None,
         migrations: Vec::new(),
     })
@@ -358,6 +379,23 @@ mod tests {
         f.source.repo = depot.into();
         f.tree = arbre.iter().map(|s| s.to_string()).collect();
         f
+    }
+
+    #[test]
+    fn un_binaire_ne_se_copie_pas_dans_le_repertoire_de_son_nom() {
+        // Cas de fx : le crate `fx/` porte le nom du binaire.
+        let mut f = faits(Technology::Rust, "fx", &["Cargo.lock", "fx/Cargo.toml"]);
+        f.stack.binaire_rust = Some("fx".into());
+        let e = deduite(&f).unwrap();
+        assert_eq!(e.binaire, ".bin/fx");
+        assert_eq!(
+            e.etapes,
+            vec![
+                "cargo build --release --locked --bin fx",
+                "mkdir -p .bin",
+                "cp target/release/fx .bin/fx"
+            ]
+        );
     }
 
     #[test]
