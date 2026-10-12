@@ -137,6 +137,13 @@ if [ -z "${secret:-}" ]; then
     ynh_app_setting_set --key=secret --value="$secret"
 fi
 {%- endif %}
+{%- for s in runtime.secrets_formates %}
+
+if [ -z "${{ '{' }}{{ s.nom }}:-}" ]; then
+    {{ s.nom }}=$({{ s.commande }})
+    ynh_app_setting_set --key={{ s.nom }} --value="${{ s.nom }}"
+fi
+{%- endfor %}
 {%- if runtime.a_une_cle_32 %}
 
 if [ -z "${cle_32:-}" ]; then

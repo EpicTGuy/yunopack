@@ -45,6 +45,12 @@ ynh_app_setting_set --key=redis_db --value="$redis_db"
 secret=$(ynh_string_random --length=64)
 ynh_app_setting_set --key=secret --value="$secret"
 {%- endif %}
+{%- for s in runtime.secrets_formates %}
+
+# Un secret au format que le projet prescrit
+{{ s.nom }}=$({{ s.commande }})
+ynh_app_setting_set --key={{ s.nom }} --value="${{ s.nom }}"
+{%- endfor %}
 {%- if runtime.a_une_cle_32 %}
 
 # Une cle de chiffrement de 32 octets exactement (celle de Laravel), tiree

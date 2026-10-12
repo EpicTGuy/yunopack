@@ -1052,6 +1052,17 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         {
             continue;
         }
+        // Un secret au format que le projet prescrit : `__SECRET_BASE64_32__`,
+        // que les scripts tirent par la meme commande openssl.
+        if var.role == ConfigRole::Secret {
+            if let Some((f, n)) = var.format_secret.as_deref().and_then(|f| f.split_once(':')) {
+                env.insert(
+                    var.name.clone(),
+                    format!("__SECRET_{}_{n}__", f.to_ascii_uppercase()),
+                );
+                continue;
+            }
+        }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
         }
@@ -2401,6 +2412,7 @@ mod propositions {
             secret: false,
             source: source.into(),
             facultative: false,
+            format_secret: None,
         }
     }
 

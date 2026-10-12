@@ -222,6 +222,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "has_config": spec.a_une_configuration(),
             "env": spec.runtime.env,
             "a_un_secret": spec.runtime.env.values().any(|v| v.contains("__SECRET__")),
+            "secrets_formates": secrets_formates(spec),
         },
         "features": {
             "nginx": spec.features.nginx,
@@ -462,4 +463,32 @@ fn env_docker(etape: &str) -> &'static str {
     } else {
         ""
     }
+}
+
+/// Les secrets au format prescrit par le projet (`__SECRET_BASE64_32__`) :
+/// le nom de leur reglage et la commande qui les tire.
+fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
+    let mut vus = std::collections::BTreeSet::new();
+    for v in spec.runtime.env.values() {
+        for (i, _) in v.match_indices("__SECRET_") {
+            let reste = &v[i + 9..];
+            let Some(fin) = reste.find("__") else {
+                continue;
+            };
+            let jeton = &reste[..fin];
+            if let Some((f, n)) = jeton.split_once('_') {
+                if matches!(f, "BASE64" | "HEX") && n.chars().all(|c| c.is_ascii_digit()) {
+                    vus.insert((f.to_ascii_lowercase(), n.to_string()));
+                }
+            }
+        }
+    }
+    vus.into_iter()
+        .map(|(f, n)| {
+            serde_json::json!({
+                "nom": format!("secret_{f}_{n}"),
+                "commande": format!("openssl rand -{f} {n}"),
+            })
+        })
+        .collect()
 }

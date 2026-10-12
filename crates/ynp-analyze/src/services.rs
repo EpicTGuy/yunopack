@@ -227,6 +227,7 @@ mod tests {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             }],
         }
     }

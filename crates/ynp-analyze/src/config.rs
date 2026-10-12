@@ -366,23 +366,44 @@ fn ajouter_facultative(facts: &mut ConfigFacts, name: &str, valeur: Option<Strin
 fn parse_dotenv(content: &str, source: &str) -> Vec<ConfigVar> {
     let mut out: Vec<ConfigVar> = Vec::new();
     let mut commented: Vec<ConfigVar> = Vec::new();
+    // Les commentaires qui precedent une affectation : ils disent souvent
+    // comment tirer un secret (`openssl rand -base64 32`, chez benevoles).
+    let mut notes: Vec<&str> = Vec::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
+        if trimmed.is_empty() {
+            notes.clear();
+            continue;
+        }
         let (is_comment, body) = match trimmed.strip_prefix('#') {
             Some(rest) => (true, rest.trim()),
             None => (false, trimmed),
         };
 
         let Some((name, value)) = body.split_once('=') else {
+            if is_comment {
+                notes.push(body);
+            }
             continue;
         };
         let name = name.trim().trim_start_matches("export ").trim();
         if name.is_empty() || !is_env_name(name) {
+            if is_comment {
+                notes.push(body);
+            }
             continue;
         }
 
         let mut var = make_var(name, non_empty(value.trim()), source);
+        if var.secret {
+            var.format_secret = notes
+                .iter()
+                .copied()
+                .chain(std::iter::once(value))
+                .find_map(format_de_secret);
+        }
+        notes.clear();
         if is_comment {
             var.facultative = true;
             commented.push(var);
@@ -399,6 +420,19 @@ fn parse_dotenv(content: &str, source: &str) -> Vec<ConfigVar> {
     out
 }
 
+/// `openssl rand -base64 32` → `base64:32` ; `openssl rand -hex 16` → `hex:16`.
+fn format_de_secret(texte: &str) -> Option<String> {
+    let mots: Vec<&str> = texte.split_whitespace().collect();
+    mots.windows(4).find_map(|m| match m {
+        ["openssl", "rand", f @ ("-base64" | "-hex"), n] => {
+            let n: String = n.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let n: u32 = n.parse().ok().filter(|n| (8..=128).contains(n))?;
+            Some(format!("{}:{n}", f.trim_start_matches('-')))
+        }
+        _ => None,
+    })
+}
+
 fn make_var(name: &str, default: Option<String>, source: &str) -> ConfigVar {
     let k = knowledge::get();
     ConfigVar {
@@ -410,6 +444,7 @@ fn make_var(name: &str, default: Option<String>, source: &str) -> ConfigVar {
         name: name.to_string(),
         source: source.to_string(),
         facultative: false,
+        format_secret: None,
     }
 }
 
@@ -434,6 +469,27 @@ mod tests {
 
     fn var(nom: &str, defaut: Option<&str>) -> ConfigVar {
         make_var(nom, defaut.map(String::from), "test")
+    }
+
+    #[test]
+    fn le_commentaire_d_un_secret_donne_son_format() {
+        // Cas de benevoles.
+        let v = parse_dotenv(
+            "# 32 octets en base64 : openssl rand -base64 32. Ne jamais la perdre\n\
+             TOKEN_ENCRYPTION_KEY=\"\"\n\nCRON_SECRET=\"\"\n\
+             SESSION_SECRET= # openssl rand -hex 32\n",
+            ".env.example",
+        );
+        let f = |n: &str| {
+            v.iter()
+                .find(|x| x.name == n)
+                .unwrap()
+                .format_secret
+                .clone()
+        };
+        assert_eq!(f("TOKEN_ENCRYPTION_KEY").as_deref(), Some("base64:32"));
+        assert_eq!(f("CRON_SECRET"), None);
+        assert_eq!(f("SESSION_SECRET").as_deref(), Some("hex:32"));
     }
 
     #[test]

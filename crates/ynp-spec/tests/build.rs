@@ -77,6 +77,7 @@ fn depot_complet() -> RepoFacts {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
             ConfigVar {
                 name: "DATABASE_URL".into(),
@@ -85,6 +86,7 @@ fn depot_complet() -> RepoFacts {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
             // L'adresse publique de miniflux, qui recoit celle du domaine.
             ConfigVar {
@@ -94,6 +96,7 @@ fn depot_complet() -> RepoFacts {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
         ],
     };
@@ -194,6 +197,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
             ConfigVar {
                 name: "DATABASE_URL".into(),
@@ -202,6 +206,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
             ConfigVar {
                 name: "BASE_URL".into(),
@@ -210,6 +215,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
                 secret: false,
                 source: ".env.example".into(),
                 facultative: false,
+                format_secret: None,
             },
         ],
     };

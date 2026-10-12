@@ -607,6 +607,10 @@ pub struct ConfigVar {
     /// lecture dans le code. Lire une variable ne veut pas dire l'exiger.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub facultative: bool,
+    /// Le format d'un secret que le projet dit comment tirer, en
+    /// commentaire : `openssl rand -base64 32` donne `base64:32`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_secret: Option<String>,
 }
 
 /// Role canonique d'une variable de configuration.
