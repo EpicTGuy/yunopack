@@ -201,6 +201,10 @@ pub struct BuildRecipe {
     /// c'est une copie a refaire apres la construction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies_d_etape: Vec<CopieDEtape>,
+    /// Le sous-repertoire du depot que l'etape finale copie dans son
+    /// repertoire de travail : la ou l'application tourne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contexte_final: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<BuildStage>,
     /// Paquets Debian, extraits litteralement des `apt-get install`.

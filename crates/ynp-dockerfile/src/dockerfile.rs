@@ -610,6 +610,9 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
     recipe.stages = stages.iter().map(|s| s.stage.clone()).collect();
 
     let Some(last) = stages.last() else { return };
+    // Le repertoire du depot ou l'etape finale travaille : bytestash lance
+    // `node src/app.js` depuis ce qu'elle copie de server/.
+    recipe.contexte_final = last.contexte.clone();
 
     // Une etape qui part d'une etape precedente en herite tout : environnement,
     // ports, commande de demarrage, volumes. Docker fait de meme.

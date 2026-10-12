@@ -1463,6 +1463,9 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
 /// travaillait a la racine de l'installation, ou ces chemins ne designent
 /// rien. Le repertoire n'est retenu que s'il existe dans le depot.
 fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
+    if let Some(c) = facts.build.as_ref().and_then(|b| b.contexte_final.clone()) {
+        return Some(c);
+    }
     const RACINES: &[&str] = &[
         "/app/",
         "/usr/src/app/",
