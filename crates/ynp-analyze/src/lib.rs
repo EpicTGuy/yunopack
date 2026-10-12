@@ -437,7 +437,12 @@ fn contexte_du_dockerfile(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> 
         .filter(|s| a(&format!("{dossier}/{s}")) && !a(s))
         .count();
     let a_la_racine = sources.iter().filter(|s| a(s)).count();
-    (la_seulement > 0 && a_la_racine == 0).then(|| dossier.to_string())
+    // Le repertoire doit porter un projet : celui de checkmk ou de duplicati
+    // ne range que les scripts de l'image (docker-entrypoint.sh), et le
+    // programme ne s'y trouve pas.
+    let un_projet = stack::detect(&tree.sous_arbre(dossier), None).primary
+        != ynp_core::facts::Technology::Unknown;
+    (la_seulement > 0 && a_la_racine == 0 && un_projet).then(|| dossier.to_string())
 }
 
 /// Le repertoire du serveur d'un monorepo : la racine ne porte aucun projet
@@ -882,6 +887,15 @@ mod point_d_entree {
         assert_eq!(contexte_du_dockerfile(&arbre, &b).as_deref(), Some("app"));
         // Copies presentes a la racine : le contexte est la racine.
         let arbre = RepoTree::from_pairs([("app/Dockerfile", ""), ("package.json", "{}")]);
+        assert_eq!(contexte_du_dockerfile(&arbre, &b), None);
+        // Seuls les scripts de l'image vivent la : pas de projet, pas de contexte.
+        let arbre = RepoTree::from_pairs([("docker/Dockerfile", ""), ("docker/entrypoint.sh", "")]);
+        let mut b = ynp_core::facts::BuildRecipe {
+            dockerfile_path: "docker/Dockerfile".into(),
+            ..Default::default()
+        };
+        b.copies
+            .insert("/entrypoint.sh".into(), "entrypoint.sh".into());
         assert_eq!(contexte_du_dockerfile(&arbre, &b), None);
     }
 
