@@ -34,6 +34,34 @@ impl GitLab {
         &self.hote
     }
 
+    /// Le projet principal d'un groupe : le plus etoile, hors archives. Rend
+    /// son chemin complet (`groupe/sous-groupe/projet`).
+    pub async fn depot_principal(&self, groupe: &str) -> Result<Option<String>, ForgeError> {
+        #[derive(serde::Deserialize)]
+        struct Projet {
+            path_with_namespace: String,
+            #[serde(default)]
+            star_count: u32,
+            #[serde(default)]
+            archived: bool,
+        }
+        let chemin = format!(
+            "/groups/{}/projects?include_subgroups=true&per_page=100",
+            groupe.replace('/', "%2F")
+        );
+        let corps = match self.get(&chemin).await {
+            Ok(b) => b,
+            Err(ForgeError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let projets: Vec<Projet> = serde_json::from_str(&corps).unwrap_or_default();
+        Ok(projets
+            .into_iter()
+            .filter(|p| !p.archived)
+            .max_by_key(|p| p.star_count)
+            .map(|p| p.path_with_namespace))
+    }
+
     async fn get(&self, chemin: &str) -> Result<String, ForgeError> {
         let (status, body) = crate::obtenir(|| {
             let req = self.client.get(format!("{}/api/v4{chemin}", self.hote));

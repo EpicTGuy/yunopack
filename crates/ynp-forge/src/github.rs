@@ -60,6 +60,43 @@ impl GitHub {
         })
     }
 
+    /// Le depot principal d'une organisation ou d'un utilisateur : le plus
+    /// etoile, hors fourches et archives. Une URL d'organisation
+    /// (`github.com/exoplatform`) designe d'ordinaire ce depot-la.
+    pub async fn depot_principal(&self, proprietaire: &str) -> Result<Option<String>, ForgeError> {
+        #[derive(serde::Deserialize)]
+        struct Depot {
+            name: String,
+            #[serde(default)]
+            stargazers_count: u32,
+            #[serde(default)]
+            fork: bool,
+            #[serde(default)]
+            archived: bool,
+        }
+        let mut corps = None;
+        for chemin in [
+            format!("/orgs/{proprietaire}/repos?per_page=100"),
+            format!("/users/{proprietaire}/repos?per_page=100"),
+        ] {
+            match self.get(&chemin).await {
+                Ok(b) => {
+                    corps = Some(b);
+                    break;
+                }
+                Err(ForgeError::NotFound(_)) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        let Some(corps) = corps else { return Ok(None) };
+        let depots: Vec<Depot> = serde_json::from_str(&corps).unwrap_or_default();
+        Ok(depots
+            .into_iter()
+            .filter(|d| !d.fork && !d.archived)
+            .max_by_key(|d| d.stargazers_count)
+            .map(|d| d.name))
+    }
+
     async fn get(&self, path: &str) -> Result<String, ForgeError> {
         let (status, body) = crate::obtenir(|| {
             let req = self.client.get(format!("{API}{path}"));

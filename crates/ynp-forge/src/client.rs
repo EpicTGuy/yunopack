@@ -74,6 +74,16 @@ impl Client {
         }
     }
 
+    /// Le depot principal d'une organisation, pour une URL qui n'en nomme
+    /// pas : son nom (GitHub) ou son chemin complet (GitLab).
+    pub async fn depot_principal(&self, proprietaire: &str) -> Result<Option<String>, ForgeError> {
+        match self {
+            Client::GitHub(c) => c.depot_principal(proprietaire).await,
+            Client::GitLab(c) => c.depot_principal(proprietaire).await,
+            _ => Ok(None),
+        }
+    }
+
     pub async fn releases(&self, source: &SourceRef) -> Result<Vec<Release>, ForgeError> {
         match self {
             Client::GitHub(c) => c.releases(source).await,

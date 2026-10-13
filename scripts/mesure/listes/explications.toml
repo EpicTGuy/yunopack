@@ -58,3 +58,13 @@ cause = "moteur Rails distribue en gemmes : une application se genere avec la co
 categorie = "incompatible"
 etat = "application de bureau"
 cause = "application de bureau (Tauri) qui fait tourner des modeles en local, sans composant serveur"
+
+[brandcraft]
+categorie = "amont"
+etat = "depot disparu"
+cause = "le depot github.com/sevleo/BrandCraft n'existe plus (404) : supprime ou rendu prive"
+
+[ephemera]
+categorie = "amont"
+etat = "depot disparu"
+cause = "le depot github.com/OrwellianEpilogue/ephemera n'existe plus (404) : supprime ou rendu prive"

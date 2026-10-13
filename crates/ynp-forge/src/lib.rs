@@ -116,7 +116,35 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     let mut source = url::parse(&repo_url)?;
     let client = client::Client::pour(&source).await?;
 
-    let meta = client.repo(&mut source).await?;
+    // Une page d'organisation : le depot du meme nom, sinon son depot
+    // principal (exo-platform, wikisuite).
+    let meta = match client.repo(&mut source).await {
+        Err(ForgeError::NotFound(_)) if source.owner == source.repo => {
+            match client.depot_principal(&source.owner).await? {
+                Some(chemin) => {
+                    let (proprietaire, depot) = match chemin.rsplit_once('/') {
+                        Some((p, d)) => (p.to_string(), d.to_string()),
+                        None => (source.owner.clone(), chemin.clone()),
+                    };
+                    tracing::info!(
+                        "{repo_url} est une organisation : depot {proprietaire}/{depot}"
+                    );
+                    let hote: String = source
+                        .url
+                        .splitn(4, '/')
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    source.url = format!("{hote}/{proprietaire}/{depot}");
+                    source.owner = proprietaire;
+                    source.repo = depot;
+                    client.repo(&mut source).await?
+                }
+                None => return Err(ForgeError::NotFound(repo_url.to_string()).into()),
+            }
+        }
+        autre => autre?,
+    };
     let releases = client.releases(&source).await?;
     let tags = client.tags(&source).await?;
 
