@@ -515,7 +515,7 @@ mod tests {
         );
         assert_eq!(
             e.commande.as_deref(),
-            Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
+            Some("__INSTALL_DIR__/node_modules/.bin/next start")
         );
 
         // Sans script start, `server.js` a la racine.

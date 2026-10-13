@@ -371,8 +371,9 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
     }
 
     // Un outil installe par npm s'appelle par son nom dans un script
-    // (`next start`) ; il vit dans `node_modules/.bin`, et s'execute avec
-    // l'interprete de la resource.
+    // (`next start`) ; il vit dans `node_modules/.bin`, et s'y lance tel quel,
+    // le Node de la resource etant dans le PATH du service. Pas par `node` :
+    // pnpm y pose des scripts shell, que Node ne sait pas lire (analytodon).
     if facts.stack.primary == Technology::NodeJs {
         let c = guillemets_du_shell(&c);
         let mots = sans_enveloppe(&mots_de(&c));
@@ -411,7 +412,7 @@ pub(crate) fn traduire_avec(commande: &str, facts: &RepoFacts) -> Option<String>
                 let args: Vec<String> = mots[1..].iter().map(|m| chemin(m)).collect();
                 return Some(
                     format!(
-                        "__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/{outil} {}",
+                        "__INSTALL_DIR__/node_modules/.bin/{outil} {}",
                         args.join(" ")
                     )
                     .trim()
@@ -1178,9 +1179,7 @@ mod tests {
         );
         assert_eq!(
             traduire_avec("remix-serve build/index.js", &f).as_deref(),
-            Some(
-                "__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/remix-serve build/index.js"
-            )
+            Some("__INSTALL_DIR__/node_modules/.bin/remix-serve build/index.js")
         );
         // L'hote et le port ensemble (gunicorn chez fireshare).
         assert_eq!(
@@ -1356,7 +1355,7 @@ mod tests {
         let f = facts_node("npm start", &[("start", "next start")], &["next", "react"]);
         assert_eq!(
             derive(&f, "x").value().map(String::as_str),
-            Some("__NODEJS_DIR__/node __INSTALL_DIR__/node_modules/.bin/next start")
+            Some("__INSTALL_DIR__/node_modules/.bin/next start")
         );
     }
 
