@@ -32,7 +32,9 @@ INCOMPATIBLES = {
 # est cherche dans le compte rendu du test.
 CAUSES = [
     ("reseau", r"Could not handshake|Temporary failure in name resolution|ETIMEDOUT|ECONNRESET|Broken pipe|client_loop|reseau :"),
-    ("memoire", r"heap out of memory|Reached heap limit|Out of memory|Killed process|oom-kill|code 137\b|exit code 137"),
+    ("memoire", r"heap out of memory|Reached heap limit|Out of memory|Killed process|oom-kill|code 137\b|exit code 137|^\s*WARNING Killed\s*$|exited \(134\)|code 134\b|^\s*WARNING Aborted\s*$"),
+    ("dependances systeme", r"Failed to build gem native extension|pkg-config .* not found|fatal error: .*\.h: No such file"),
+    ("outil absent", r"Composer\\Pcre|composer: not found"),
     ("apt", r"Unable to install apt dependencies|Depends: .* but it is not going to be installed|Unable to locate package"),
     ("outil absent", r"command not found|commande introuvable|not found: [a-z]|No such file or directory.*bin/"),
     ("script absent", r"Missing script|missing script:"),
@@ -63,7 +65,7 @@ def cause_g3(texte):
     # l'utilisateur root : sans rapport avec l'echec.
     texte = "\n".join(l for l in texte.splitlines() if "could not change directory" not in l)
     for nom, motif in CAUSES:
-        if re.search(motif, texte):
+        if re.search(motif, texte, re.M):
             return nom
     return "non classee"
 
@@ -119,6 +121,16 @@ def main():
                 continue
             nom, reste = parts
             texte = lire(MESURE / c / nom / "test.txt")
+            # Le detail complet (journal de l'application compris) est dans
+            # test.json ; le compte rendu n'en montre que le debut.
+            j = MESURE / c / nom / "test.json"
+            if j.exists():
+                try:
+                    import json
+                    d = json.loads(j.read_text())
+                    texte += "\n" + "\n".join(e.get("detail", "") for e in d.get("etapes", []))
+                except Exception:
+                    pass
             g3[nom] = (reste.split()[0], texte, c)
 
     lignes = []
