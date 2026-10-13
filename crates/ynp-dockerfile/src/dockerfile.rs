@@ -36,15 +36,34 @@ fn parse_copy_d_etape(args: &str) -> Vec<(String, String, String)> {
         return Vec::new();
     };
     let repertoire = dest.ends_with('/') || sources.len() > 1;
+    // Un dossier copie vers un repertoire y depose son contenu, pas lui-meme :
+    // `COPY --from=builder /app/.next/standalone ./` met server.js a la
+    // racine (benevoles). Le Dockerfile ne dit pas si la source est un
+    // dossier ; les noms de sortie usuels le disent, sans confondre un
+    // binaire nu (`/app/server`).
+    const DOSSIERS: &[&str] = &[
+        "standalone",
+        "dist",
+        "build",
+        "out",
+        ".output",
+        "public",
+        "static",
+        "www",
+        "html",
+    ];
     sources
         .iter()
         .map(|s| {
-            let d = if repertoire {
-                let nom = s.trim_end_matches('/').rsplit('/').next().unwrap_or(s);
+            let nom = s.trim_end_matches('/').rsplit('/').next().unwrap_or(s);
+            let d = if repertoire && sources.len() == 1 && DOSSIERS.contains(&nom) {
+                dest.trim_end_matches('/').to_string()
+            } else if repertoire {
                 format!("{}/{}", dest.trim_end_matches('/'), nom)
             } else {
                 dest.to_string()
             };
+            let d = if d.is_empty() { ".".to_string() } else { d };
             (etape.clone(), s.to_string(), d)
         })
         .collect()

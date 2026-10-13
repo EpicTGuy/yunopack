@@ -946,8 +946,20 @@ fn copies_apres_construction(facts: &RepoFacts) -> Vec<String> {
         .iter()
         .filter_map(|c| {
             let vers = execstart::chemin(&c.vers);
-            let vers = vers.strip_prefix("__INSTALL_DIR__/")?.to_string();
-            if vers.is_empty() || vers == c.depuis {
+            let vers = match vers.as_str() {
+                "." | "./" | "__INSTALL_DIR__" => String::new(),
+                v => v
+                    .strip_prefix("__INSTALL_DIR__/")?
+                    .trim_end_matches('/')
+                    .to_string(),
+            };
+            // Le contenu d'un dossier a la racine de l'installation : server.js
+            // de Next.js en mode autonome.
+            if vers.is_empty() {
+                return (!c.depuis.is_empty() && c.depuis != ".")
+                    .then(|| format!("cp -a {}/. .", c.depuis));
+            }
+            if vers == c.depuis {
                 return None;
             }
             let parent = vers.rsplit_once('/').map(|(p, _)| p);
