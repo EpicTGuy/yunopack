@@ -97,7 +97,12 @@ impl Gitea {
 
     pub async fn releases(&self, source: &SourceRef) -> Result<Vec<Release>, ForgeError> {
         let chemin = format!("/repos/{}/{}/releases?limit=30", source.owner, source.repo);
-        let body = self.get(&chemin).await?;
+        // Codeberg repond 404 quand les releases sont desactivees pour le
+        // depot (geeftlist, gothub) : il n'y en a simplement pas.
+        let body = match self.get(&chemin).await {
+            Err(ForgeError::NotFound(_)) => return Ok(Vec::new()),
+            autre => autre?,
+        };
         let raw: Vec<RawRelease> = serde_json::from_str(&body).unwrap_or_default();
 
         Ok(raw
@@ -126,7 +131,10 @@ impl Gitea {
 
     pub async fn tags(&self, source: &SourceRef) -> Result<Vec<String>, ForgeError> {
         let chemin = format!("/repos/{}/{}/tags?limit=50", source.owner, source.repo);
-        let body = self.get(&chemin).await?;
+        let body = match self.get(&chemin).await {
+            Err(ForgeError::NotFound(_)) => return Ok(Vec::new()),
+            autre => autre?,
+        };
         let raw: Vec<RawTag> = serde_json::from_str(&body).unwrap_or_default();
         Ok(raw.into_iter().map(|t| t.name).collect())
     }

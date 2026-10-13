@@ -116,7 +116,12 @@ fn normaliser(repo: &str) -> Result<String, CoreError> {
     }
     let id = id.trim_matches('-').to_string();
 
-    if id.is_empty() || !id.starts_with(|c: char| c.is_ascii_lowercase()) {
+    // Un chiffre en tete est admis, comme au catalogue (13ft, 2fauth) ; il
+    // faut au moins une lettre.
+    if id.is_empty()
+        || !id.starts_with(|c: char| c.is_ascii_alphanumeric())
+        || !id.chars().any(|c| c.is_ascii_lowercase())
+    {
         return Err(CoreError::InvalidAppId(repo.to_string()));
     }
     Ok(id)
@@ -156,6 +161,8 @@ mod tests {
     #[test]
     fn un_nom_qui_ne_peut_pas_donner_d_identifiant_valide_echoue() {
         assert!(app_id_from_repo("123").is_err());
+        assert_eq!(app_id_from_repo("3x-ui").unwrap(), "3x-ui");
+        assert_eq!(app_id_from_repo("2FAuth").unwrap(), "2fauth");
         assert!(app_id_from_repo("___").is_err());
     }
 }
