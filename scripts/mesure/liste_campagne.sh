@@ -13,4 +13,9 @@ N="$1"; L="$MESURE/listes"
       grep -h -m1 "^$n " "$L/echantillon.txt" "$L/lot2.txt" | head -1
     done
   done
-} | sort -u
+} | sort -u | {
+  # Les depots deja expliques (listes/explications.toml) ne se retestent pas :
+  # leur cause est etablie et ne releve pas de yunopack.
+  exclus=$(grep -oE '^\[[A-Za-z0-9_.-]+\]' "$L/explications.toml" 2>/dev/null | tr -d '[]')
+  if [ -n "$exclus" ]; then grep -v -w -F -e "$(printf '%s\n' $exclus)" || true; else cat; fi
+}
