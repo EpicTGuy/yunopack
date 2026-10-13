@@ -316,6 +316,29 @@ pub fn langage_hors_perimetre(tree: &RepoTree) -> Option<&'static str> {
             return Some(langage);
         }
     }
+    // Un seul dossier de premier niveau qui l'annonce, la racine n'annoncant
+    // rien : teslamate range son application Elixir dans `elixir/`.
+    const ANNEXES: &[&str] = &[
+        "doc", "docs", "example", "examples", "sample", "samples", "test", "tests", "sdk",
+        "bindings", "clients", "client", "contrib", "tools", "scripts", "website", "bench",
+    ];
+    let mut trouves: Vec<&'static str> = Vec::new();
+    for chemin in tree.paths() {
+        let Some((dossier, fichier)) = chemin.split_once('/') else {
+            continue;
+        };
+        if fichier.contains('/') || ANNEXES.contains(&dossier.to_lowercase().as_str()) {
+            continue;
+        }
+        if let Some((_, langage)) = ANNONCES.iter().find(|(f, _)| *f == fichier) {
+            if !trouves.contains(langage) {
+                trouves.push(langage);
+            }
+        }
+    }
+    if let [seul] = trouves.as_slice() {
+        return Some(seul);
+    }
     // Les projets .NET et Lua nomment leur fichier d'apres le projet : c'est
     // l'extension qui les identifie, pas un nom fixe.
     for (extension, langage) in [(".csproj", ".NET"), (".sln", ".NET"), (".rockspec", "Lua")] {
