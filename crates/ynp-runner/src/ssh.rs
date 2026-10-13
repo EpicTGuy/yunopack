@@ -160,6 +160,10 @@ impl Hote {
         // 3,7 Go, est reste injoignable plus d'une heure pendant celle de cap.
         // Avec de l'echange permis et celui de l'hote plein, le noyau recuperait
         // de la memoire en boucle une heure durant sans rien tuer.
+        // systemd arrete toute une unite quand le noyau y tue un processus
+        // (`OOMPolicy=stop`) : la construction Angular de booklore tuee, le
+        // script qui devait ecrire le code l'etait aussi. `continue` ne tue que
+        // le fautif ; et l'enveloppe ecrit le code a defaut.
         // L'operation ecrit elle-meme son code de sortie, depuis son cgroup :
         // ecrit par une enveloppe restee dans la session ssh, il s'est perdu
         // une fois (la sauvegarde de flaresolverr avait reussi, le runner l'a
@@ -169,9 +173,13 @@ impl Hote {
         let enveloppe = format!(
             "lim=$(awk '/MemTotal/ {{print int($2 * 0.8)}}' /proc/meminfo)\n\
              if [ \"$(id -u)\" = 0 ] && command -v systemd-run > /dev/null 2>&1; then\n\
-             exec systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=0 bash {base}.op\n\
+             systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=0 \
+             -p OOMPolicy=continue bash {base}.op\n\
+             else\n\
+             bash {base}.op\n\
              fi\n\
-             exec bash {base}.op\n"
+             rc=$?\n\
+             [ -e {base}.code ] || echo $rc > {base}.code\n"
         );
         // Les scripts passent en base64 : aucune citation a echapper.
         let lancement = format!(
