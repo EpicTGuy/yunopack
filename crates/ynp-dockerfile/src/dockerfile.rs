@@ -318,11 +318,7 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                                 if let Some((dossier, _)) =
                                     src.trim_start_matches("./").rsplit_once('/')
                                 {
-                                    let c = contexte_de_copie(
-                                        dest,
-                                        &format!("{dossier}/fichier.json"),
-                                        s.workdir.as_deref(),
-                                    );
+                                    let c = contexte_de_copie(dest, dossier, s.workdir.as_deref());
                                     if c.is_some() {
                                         s.contexte = c;
                                         break;
@@ -493,6 +489,33 @@ fn contexte_de_copie(dest: &str, source: &str, workdir: Option<&str>) -> Option<
             dest == w || (dernier.contains('.') && dest == format!("{w}/{dernier}"))
         });
     if !dans_le_travail {
+        return None;
+    }
+    // Un fichier seul ne designe un contexte que s'il decrit un projet : le
+    // `docker/.env` de ferdium-server, copie en `/app/.env`, n'en est pas un.
+    const MANIFESTES: &[&str] = &[
+        "package.json",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "requirements.txt",
+        "pyproject.toml",
+        "poetry.lock",
+        "uv.lock",
+        "go.mod",
+        "go.sum",
+        "Gemfile",
+        "Gemfile.lock",
+        "composer.json",
+        "composer.lock",
+        "Cargo.toml",
+        "Cargo.lock",
+        "pom.xml",
+        "build.gradle",
+        "setup.py",
+        "mix.exs",
+    ];
+    if dernier.contains('.') && !dernier.contains('*') && !MANIFESTES.contains(&dernier) {
         return None;
     }
     // Un fichier (`booklore-ui/package.json`) : son repertoire ; un repertoire

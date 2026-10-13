@@ -160,20 +160,27 @@ impl Hote {
         // 3,7 Go, est reste injoignable plus d'une heure pendant celle de cap.
         // Avec de l'echange permis et celui de l'hote plein, le noyau recuperait
         // de la memoire en boucle une heure durant sans rien tuer.
+        // L'operation ecrit elle-meme son code de sortie, depuis son cgroup :
+        // ecrit par une enveloppe restee dans la session ssh, il s'est perdu
+        // une fois (la sauvegarde de flaresolverr avait reussi, le runner l'a
+        // attendue un jour entier).
+        let operation =
+            format!("bash {base}.sh > {base}.out 2> {base}.err\necho $? > {base}.code\n");
         let enveloppe = format!(
             "lim=$(awk '/MemTotal/ {{print int($2 * 0.8)}}' /proc/meminfo)\n\
              if [ \"$(id -u)\" = 0 ] && command -v systemd-run > /dev/null 2>&1; then\n\
-             exec systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=0 bash {base}.sh\n\
+             exec systemd-run --scope --quiet -p MemoryMax=${{lim}}K -p MemorySwapMax=0 bash {base}.op\n\
              fi\n\
-             exec bash {base}.sh\n"
+             exec bash {base}.op\n"
         );
         // Les scripts passent en base64 : aucune citation a echapper.
         let lancement = format!(
             "mkdir -p /tmp/yunopack/operations && echo {} | base64 -d > {base}.sh && \
+             echo {} | base64 -d > {base}.op && \
              echo {} | base64 -d > {base}.run && \
-             setsid nohup bash -c 'bash {base}.run > {base}.out 2> {base}.err; echo $? > {base}.code' \
-             > /dev/null 2>&1 < /dev/null &",
+             setsid nohup bash {base}.run > /dev/null 2>&1 < /dev/null &",
             base64(commande.as_bytes()),
+            base64(operation.as_bytes()),
             base64(enveloppe.as_bytes())
         );
         // Le lancement lui-meme peut tomber sur une coupure : on reessaie,

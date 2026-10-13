@@ -1076,7 +1076,10 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         // Un nom d'adresse dont la valeur par defaut est un hote ou ecouter :
         // `HOSTNAME=0.0.0.0` du serveur autonome de Next.js. L'adresse
         // publique y ferait echouer l'ecoute.
+        // Un nom d'hote, pas une URL : APP_URL=localhost chez ferdium-server
+        // est l'adresse publique a remplir.
         if var.role == ConfigRole::BaseUrl
+            && !var.name.to_ascii_uppercase().contains("URL")
             && matches!(
                 var.default.as_deref(),
                 Some("0.0.0.0" | "::" | "[::]" | "127.0.0.1" | "localhost")
