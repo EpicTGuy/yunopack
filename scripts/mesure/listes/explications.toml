@@ -24,3 +24,37 @@ cause = "pas de package-lock.json : npm install tire un webpack recent, incompat
 categorie = "amont"
 etat = "construction"
 cause = "le champ name de composer.json ne respecte pas le schema de Composer, que Composer 2 impose ; Composer 1 n'est plus maintenu"
+
+# Des depots qui ne sont pas une application a installer : un cadre, une
+# bibliotheque ou une application de bureau. Un paquet YunoHost installe un
+# service ; il n'y a ici rien a faire tourner sur un serveur.
+
+[docusaurus]
+categorie = "incompatible"
+etat = "pas une application"
+cause = "generateur de sites statiques : le depot est l'outil, chaque site se cree a part avec create-docusaurus"
+
+[strapi]
+categorie = "incompatible"
+etat = "pas une application"
+cause = "cadre de CMS : le depot est le cadre et ses paquets ; une application se cree avec create-strapi-app"
+
+[decap-cms]
+categorie = "incompatible"
+etat = "pas une application"
+cause = "CMS en JavaScript integre a un site statique et adosse a un depot git : aucun serveur propre"
+
+[altcha]
+categorie = "incompatible"
+etat = "pas une application"
+cause = "bibliotheque de captcha (widget) a integrer dans un site, pas un service"
+
+[decidim]
+categorie = "incompatible"
+etat = "pas une application"
+cause = "moteur Rails distribue en gemmes : une application se genere avec la commande decidim"
+
+[jan]
+categorie = "incompatible"
+etat = "application de bureau"
+cause = "application de bureau (Tauri) qui fait tourner des modeles en local, sans composant serveur"
