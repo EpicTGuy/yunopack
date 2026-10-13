@@ -72,7 +72,7 @@ pub fn etape_composer(facts: &RepoFacts) -> Option<String> {
             ""
         };
         format!(
-            "{env}COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" install \
+            "export PATH=\"$PWD/.composer-bin:$PATH\"; {env}COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" install \
              --no-dev --optimize-autoloader --no-interaction --no-progress"
         )
     })
@@ -84,7 +84,8 @@ pub fn avec_le_php_du_manifeste(etape: &str) -> String {
     match etape.strip_prefix("composer ") {
         Some(reste) => {
             format!(
-                "COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" {reste}"
+                "export PATH=\"$PWD/.composer-bin:$PATH\"; COMPOSER_HOME=\"$PWD/.composer\" \
+                 php$PHP_VERSION \"$PWD/composer.phar\" {reste}"
             )
         }
         None => etape.to_string(),
@@ -251,7 +252,8 @@ mod tests {
     fn une_etape_composer_de_l_image_prend_le_php_du_manifeste() {
         assert_eq!(
             avec_le_php_du_manifeste("composer install --no-dev"),
-            "COMPOSER_HOME=\"$PWD/.composer\" php$PHP_VERSION \"$PWD/composer.phar\" install --no-dev"
+            "export PATH=\"$PWD/.composer-bin:$PATH\"; COMPOSER_HOME=\"$PWD/.composer\" \
+             php$PHP_VERSION \"$PWD/composer.phar\" install --no-dev"
         );
         assert_eq!(avec_le_php_du_manifeste("npm ci"), "npm ci");
     }

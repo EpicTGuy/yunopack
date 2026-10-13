@@ -96,6 +96,12 @@ pushd "$install_dir"
     composer_version="{{ runtime.version_composer }}"
     ynh_composer_install
     chown "$app:$app" "$install_dir/composer.phar"
+    # Les scripts de composer l'appellent par son nom (`composer install`
+    # dans un sous-projet, chez anonaddy).
+    mkdir -p "$install_dir/.composer-bin"
+    printf '#!/bin/sh\nexec php%s %s/composer.phar "$@"\n' "$php_version" "$install_dir" > "$install_dir/.composer-bin/composer"
+    chmod +x "$install_dir/.composer-bin/composer"
+    chown -R "$app:$app" "$install_dir/.composer-bin"
 {%- endif %}
 {%- if runtime.installer_rust %}
     # YunoHost ne fournit pas Rust : la chaine est posee ici le temps de la
