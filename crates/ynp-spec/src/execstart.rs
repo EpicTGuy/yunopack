@@ -678,6 +678,26 @@ pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
     let mut c = sans_cross_env(&derniere_etape(commande));
     // Le script d'un paquet de l'espace de travail, deplie avec les scripts
     // de ce paquet : `yarn workspace @chibisafe/backend start`.
+    // Le paquet ou se place le script d'entree : `yarn start` y designe son
+    // propre script (automatisch, `cd packages/backend`).
+    if let (Some(p), Some(s)) = (
+        facts.stack.paquet_du_processus.as_ref(),
+        script_npm_appele(&c).map(str::to_string),
+    ) {
+        if ynp_core::noms::commande_d_espace_de_travail(&c).is_none() {
+            if let Some(corps) = p.scripts.get(&s) {
+                c = sans_cross_env(&derniere_etape(corps));
+                for _ in 0..2 {
+                    let Some(n) = script_npm_appele(&c) else {
+                        break;
+                    };
+                    let Some(corps) = p.scripts.get(n) else { break };
+                    c = sans_cross_env(&derniere_etape(corps));
+                }
+                return relatif_au_paquet(&c, &p.dossier);
+            }
+        }
+    }
     if let (Some((nom, script)), Some(p)) = (
         ynp_core::noms::commande_d_espace_de_travail(&c),
         facts.stack.paquet_du_processus.as_ref(),
@@ -692,7 +712,7 @@ pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
                     let Some(corps) = p.scripts.get(n) else { break };
                     c = sans_cross_env(&derniere_etape(corps));
                 }
-                return c;
+                return relatif_au_paquet(&c, &p.dossier);
             }
         }
     }
@@ -708,6 +728,20 @@ pub(crate) fn developper(commande: &str, facts: &RepoFacts) -> String {
         c = sans_cross_env(&derniere_etape(corps));
     }
     c
+}
+
+/// Un script de paquet parle de son propre dossier, qui est le repertoire de
+/// travail du service : `./alias-loader.mjs` y designe un fichier de ce dossier,
+/// pas de la racine de l'installation (automatisch).
+fn relatif_au_paquet(commande: &str, dossier: &str) -> String {
+    commande
+        .split(' ')
+        .map(|m| match m.strip_prefix("./") {
+            Some(reste) => format!("__INSTALL_DIR__/{dossier}/{reste}"),
+            None => m.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `cross-env NODE_ENV=production node index` est, hors de Windows,

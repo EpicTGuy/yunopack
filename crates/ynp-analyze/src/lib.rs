@@ -236,6 +236,13 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
             .unwrap_or_default();
         facts.stack.exec_du_point_d_entree = ligne_exec_suivant_les_copies(tree, &script, &copies);
         facts.stack.migrations_du_point_d_entree = migrations_du_script(tree, &script, &copies);
+        // Le paquet ou le script se place : ses scripts et son dossier font
+        // le processus (`cd packages/backend` puis `yarn start`).
+        if facts.stack.paquet_du_processus.is_none() {
+            if let Some(d) = repertoire_du_script(tree, &script, &copies) {
+                facts.stack.paquet_du_processus = paquet_npm_dans(tree, &d);
+            }
+        }
         // Un script qui lance un autre script (`exec bash /entrypoint.sh`
         // chez fireshare) : on suit le second, un niveau seulement.
         if let Some(second) = facts
@@ -494,6 +501,29 @@ fn contexte_du_dockerfile(tree: &RepoTree, b: &ynp_core::facts::BuildRecipe) -> 
     let un_projet = stack::detect(&tree.sous_arbre(dossier), None).primary
         != ynp_core::facts::Technology::Unknown;
     (la_seulement > 0 && a_la_racine == 0 && un_projet).then(|| dossier.to_string())
+}
+
+/// Le paquet npm d'un dossier du depot.
+fn paquet_npm_dans(tree: &RepoTree, dossier: &str) -> Option<ynp_core::facts::PaquetNpm> {
+    let v: serde_json::Value =
+        serde_json::from_str(tree.text(&format!("{dossier}/package.json"))?).ok()?;
+    Some(ynp_core::facts::PaquetNpm {
+        nom: v
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or(dossier)
+            .to_string(),
+        dossier: dossier.to_string(),
+        scripts: v
+            .get("scripts")
+            .and_then(|s| s.as_object())
+            .map(|o| {
+                o.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// Le paquet npm du depot qui porte ce nom, avec son dossier et ses scripts.
@@ -792,7 +822,48 @@ pub fn ligne_exec_suivant_les_copies(
     // l'application. `uwsgi "$@"` termine le script de Kitchenowl ; `node
     // build/server.js` celui de Ferdium, apres ses migrations. Une derniere
     // ligne quelconque, elle, peut etre un nettoyage.
+    // Un script qui se termine par un choix (`if [ -n "$WORKER" ]; then ...
+    // else ... fi`, chez automatisch) : la branche `else` est celle qui
+    // s'applique sans variable particuliere, et sa derniere commande lance
+    // l'application.
+    if derniere.as_deref() == Some("fi") {
+        let lignes: Vec<&str> = recolle
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        if let Some(i) = lignes.iter().rposition(|l| *l == "else") {
+            let branche = &lignes[i + 1..lignes.len() - 1];
+            if let Some(l) = branche.last().filter(|l| lance_une_application(l)) {
+                return Some(avec_les_variables_du_script(l, &recolle));
+            }
+        }
+    }
     derniere.filter(|l| l.ends_with("\"$@\"") || l.ends_with("$@") || lance_une_application(l))
+}
+
+/// Le repertoire ou un script d'entree se place avant de lancer
+/// l'application : `cd packages/backend` en tete de script (automatisch).
+pub fn repertoire_du_script(
+    tree: &RepoTree,
+    script: &str,
+    copies: &indexmap::IndexMap<String, String>,
+) -> Option<String> {
+    let texte = source_copiee(script, copies)
+        .and_then(|source| tree.text(&source))
+        .or_else(|| texte_du_script(tree, script))?;
+    texte.lines().map(str::trim).find_map(|l| {
+        let d = l
+            .strip_prefix("cd ")?
+            .trim()
+            .trim_matches('"')
+            .trim_start_matches("./");
+        (!d.is_empty()
+            && !d.starts_with('/')
+            && !d.contains('$')
+            && tree.has(&format!("{d}/package.json")))
+        .then(|| d.trim_end_matches('/').to_string())
+    })
 }
 
 /// Retire les tableaux d'un script (`"${args[@]}"`), sans valeur hors de
