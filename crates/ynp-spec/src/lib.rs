@@ -2485,6 +2485,28 @@ fn a_besoin_d_un_port(facts: &RepoFacts) -> bool {
     if statique::site(facts).is_some() || facts.stack.primary == Technology::Static {
         return false;
     }
+    // Une application PHP passe par php-fpm : le port 80 qu'expose son image
+    // est celui de son Apache ou de son nginx (roundcube, dolibarr, ojs).
+    // Sauf si elle lance son propre serveur (Octane, RoadRunner, `php -S`).
+    let serveur_php = facts
+        .build
+        .as_ref()
+        .and_then(|b| b.start_command())
+        .is_some_and(|c| {
+            [
+                "octane",
+                "rr serve",
+                "roadrunner",
+                "swoole",
+                "php -S",
+                "frankenphp php-server",
+            ]
+            .iter()
+            .any(|m| c.contains(m))
+        });
+    if facts.stack.primary == Technology::Php && !serveur_php {
+        return false;
+    }
     if expose_un_port(facts) {
         return true;
     }
