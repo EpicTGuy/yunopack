@@ -1069,7 +1069,30 @@ fn version_de_resource(facts: &RepoFacts, tech: Technology) -> Option<String> {
         return None;
     }
     tech.manifest_resource()?;
-    facts.stack.runtime_version.clone()
+    facts
+        .stack
+        .runtime_version
+        .clone()
+        .map(|v| au_plancher(tech, &v))
+}
+
+/// Une version annoncee comme minimum (`"engines": ">=0.8"`, `go 1.13` dans
+/// go.mod) n'est pas a installer : sous le plancher des versions maintenues,
+/// la resource recoit le plancher. Node 0.8 et Go 1.13 ne s'installent plus
+/// (framaestro-hub, counter).
+fn au_plancher(tech: Technology, version: &str) -> String {
+    let (plancher, plancher_txt): ((u32, u32), &str) = match tech {
+        Technology::NodeJs => ((20, 0), "20"),
+        Technology::Go => ((1, 22), "1.22"),
+        _ => return version.to_string(),
+    };
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let v = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    if v < plancher {
+        plancher_txt.to_string()
+    } else {
+        version.to_string()
+    }
 }
 
 fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
@@ -2887,6 +2910,14 @@ mod propositions {
         assert!(l.contains("DB_URL=mysql://"));
         assert!(l.contains("DB_USERNAME=__DB_USER__"));
         assert!(l.contains("DB_PASSWORD=__DB_PWD__"));
+    }
+
+    #[test]
+    fn une_version_minimale_ancienne_monte_au_plancher() {
+        assert_eq!(au_plancher(Technology::NodeJs, "0.8"), "20");
+        assert_eq!(au_plancher(Technology::NodeJs, "22"), "22");
+        assert_eq!(au_plancher(Technology::Go, "1.13"), "1.22");
+        assert_eq!(au_plancher(Technology::Go, "1.24"), "1.24");
     }
 
     #[test]
