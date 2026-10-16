@@ -199,6 +199,8 @@ fn from_database_type(config: &ConfigFacts) -> Option<(Database, String)> {
 fn from_connection_string(config: &ConfigFacts) -> Option<(Database, String)> {
     let var = config.get(ConfigRole::DatabaseUrl)?;
     let value = var.default.as_deref()?;
+    // L'adresse JDBC d'une application Java : `jdbc:mariadb://mariadb:3306/x`.
+    let value = value.strip_prefix("jdbc:").unwrap_or(value);
     let scheme = value.split("://").next()?.to_lowercase();
 
     let db = match scheme.as_str() {

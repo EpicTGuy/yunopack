@@ -962,9 +962,12 @@ fn copies_apres_construction(facts: &RepoFacts) -> Vec<String> {
             };
             // Le contenu d'un dossier a la racine de l'installation : server.js
             // de Next.js en mode autonome.
+            // Sans ecraser ce qui est deja en place : la configuration que les
+            // scripts ont ecrite (`.env`, en lecture seule) restait sinon
+            // la cible d'une copie refusee (benevoles).
             if vers.is_empty() {
                 return (!c.depuis.is_empty() && c.depuis != ".")
-                    .then(|| format!("cp -a {}/. .", c.depuis));
+                    .then(|| format!("cp -an {}/. .", c.depuis));
             }
             if vers == c.depuis {
                 return None;
@@ -1977,6 +1980,16 @@ fn avec_le_schema_attendu(adresse: &str, v: &ynp_core::facts::ConfigVar, base: D
     let Some((_, reste)) = adresse.split_once("://") else {
         return adresse.to_string();
     };
+    // Une adresse JDBC ne porte pas les identifiants, qui passent par leurs
+    // propres variables (booklore : DATABASE_USERNAME, DATABASE_PASSWORD).
+    if let Some(jdbc) = v.default.as_deref().and_then(|d| d.strip_prefix("jdbc:")) {
+        let schema = jdbc.split("://").next().unwrap_or("").to_ascii_lowercase();
+        let port = match base {
+            Database::PostgreSql => 5432,
+            _ => 3306,
+        };
+        return format!("jdbc:{schema}://127.0.0.1:{port}/__DB_NAME__");
+    }
     let exemple = v
         .default
         .as_deref()
@@ -2096,11 +2109,15 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
         (ConfigRole::DatabasePassword, "__DB_PWD__"),
     ]
     .iter()
-    .filter_map(|(role, valeur)| {
+    // Toutes les variables du role, pas la premiere : booklore declare DB_USER
+    // et DATABASE_USERNAME, et Spring lit la seconde.
+    .flat_map(|(role, valeur)| {
         facts
             .config
-            .get(*role)
-            .map(|v| format!("{}={valeur}", v.name))
+            .variables
+            .iter()
+            .filter(move |v| v.role == *role)
+            .map(move |v| format!("{}={valeur}", v.name))
     })
     .collect();
 
