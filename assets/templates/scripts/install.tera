@@ -159,6 +159,14 @@ ynh_config_add_nginx
 {%- endif %}
 {%- if features.systemd %}
 
+{%- if runtime.volumes_lies | length > 0 %}
+# Les volumes de l'image, montes pour le service depuis le repertoire de
+# donnees.
+{%- for v in runtime.volumes_lies %}
+mkdir -p "$data_dir/{{ v }}"
+{%- endfor %}
+chown -R "$app:$app" "$data_dir"
+{%- endif %}
 ynh_config_add_systemd
 {%- for p in runtime.processus_annexes %}
 ynh_config_add_systemd --service="$app-{{ p.nom }}" --template="{{ p.nom }}.service"

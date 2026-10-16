@@ -82,6 +82,9 @@ fn dans_le_sous_repertoire(r: &mut Runtime, d: &str) {
 /// repertoire de donnees.
 fn designe_les_donnees(r: &Runtime) -> bool {
     let d = |v: &str| v.contains("__DATA_DIR__");
+    if !r.volumes_lies.is_empty() {
+        return true;
+    }
     r.env.values().any(|v| d(v))
         || r.execstart.value().is_some_and(|v| d(v))
         || r.port_binding.value().is_some_and(|v| d(v))
@@ -89,6 +92,72 @@ fn designe_les_donnees(r: &Runtime) -> bool {
         || r.migrations.iter().any(|v| d(v))
         || r.processus_annexes.iter().any(|p| d(&p.execstart))
         || r.cron.iter().any(|v| d(v))
+}
+
+/// Le repertoire de travail de l'image finale, quand le code peut y supposer
+/// ses fichiers : absolu, hors du systeme et de la racine. Monte pour le
+/// service depuis le repertoire d'installation, il rend valides les chemins
+/// ecrits en dur (`/downtify/frontend/dist` chez downtify).
+fn repertoire_de_l_image(facts: &RepoFacts) -> Option<String> {
+    let b = facts.build.as_ref()?;
+    let w = b.workdir.as_deref()?.trim_end_matches('/');
+    const SYSTEME: &[&str] = &[
+        "/etc", "/var", "/run", "/tmp", "/proc", "/sys", "/dev", "/root", "/home", "/bin", "/sbin",
+        "/lib", "/boot",
+    ];
+    (w.starts_with('/')
+        && w.len() > 1
+        && !w.contains('$')
+        && !SYSTEME
+            .iter()
+            .any(|s| w == *s || w.starts_with(&format!("{s}/"))))
+    .then(|| w.to_string())
+}
+
+/// Les volumes de l'image a monter pour le service : absolus, hors du
+/// systeme et du repertoire de l'application. Le code y ecrit souvent en dur
+/// (`/data/server.json` chez downtify), sans variable pour le deplacer.
+fn volumes_lies(facts: &RepoFacts) -> Vec<String> {
+    let Some(b) = &facts.build else {
+        return Vec::new();
+    };
+    let travail = b.workdir.as_deref().unwrap_or("/").trim_end_matches('/');
+    const SYSTEME: &[&str] = &[
+        "/etc",
+        "/var/lib/postgresql",
+        "/var/lib/mysql",
+        "/var/run",
+        "/run",
+        "/tmp",
+        "/usr",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/root",
+        "/home",
+    ];
+    let mut out: Vec<String> = Vec::new();
+    for v in &b.volumes {
+        let v = v.trim().trim_matches('"').trim_end_matches('/');
+        let interne = !travail.is_empty()
+            && travail != "/"
+            && (v == travail || v.starts_with(&format!("{travail}/")));
+        if !v.starts_with('/')
+            || v.len() < 2
+            || v.contains('$')
+            || interne
+            || SYSTEME
+                .iter()
+                .any(|s| v == *s || v.starts_with(&format!("{s}/")))
+        {
+            continue;
+        }
+        let rel = v.trim_start_matches('/').to_string();
+        if !out.contains(&rel) {
+            out.push(rel);
+        }
+    }
+    out
 }
 
 /// Vrai si une etape lance un outil de Node.
@@ -1574,6 +1643,8 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         processus_annexes,
         racine_web: php::racine_web(facts).or_else(|| statique::site(facts).map(|s| s.racine)),
         a_garder: php::a_garder(facts),
+        volumes_lies: volumes_lies(facts),
+        repertoire_de_l_image: repertoire_de_l_image(facts),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
         repertoire_de_travail: repertoire_de_travail(facts),

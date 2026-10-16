@@ -561,6 +561,16 @@ pub struct Runtime {
     /// deposes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub a_garder: Vec<String>,
+    /// Les volumes de l'image ou le code ecrit en dur (`/data` chez
+    /// downtify) : chacun est monte pour le service depuis le repertoire de
+    /// donnees (`BindPaths=`). Le chemin dans l'image, sans la barre initiale.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes_lies: Vec<String>,
+    /// Le repertoire de travail de l'image, ou le code suppose etre installe
+    /// (`/downtify/frontend/dist`) : le repertoire d'installation y est monte
+    /// pour le service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repertoire_de_l_image: Option<String>,
     /// Les lignes de `/etc/cron.d/$app` : le planificateur de Laravel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cron: Vec<String>,

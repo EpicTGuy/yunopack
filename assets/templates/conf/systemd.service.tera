@@ -30,6 +30,14 @@ ExecStartPre={{ m }}
 TimeoutStartSec=15min
 {%- endif %}
 ExecStart={{ runtime.execstart }}
+{%- if runtime.repertoire_de_l_image %}
+# Le code suppose ses fichiers sous {{ runtime.repertoire_de_l_image }}, le repertoire de son image.
+BindPaths=__INSTALL_DIR__:{{ runtime.repertoire_de_l_image }}
+{%- endif %}
+{%- for v in runtime.volumes_lies %}
+# Le code ecrit en dur dans /{{ v }}, un volume de son image.
+BindPaths=__DATA_DIR__/{{ v }}:/{{ v }}
+{%- endfor %}
 {%- if runtime.outils_locaux or resources.nodejs_version or resources.ruby_version %}
 Environment="PATH={% if runtime.outils_locaux %}__INSTALL_DIR__:{% endif %}{% if resources.ruby_version %}__INSTALL_DIR__/vendor/gems/bin:__PATH_WITH_RUBY__{% elif resources.nodejs_version %}__PATH_WITH_NODEJS__{% else %}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{% endif %}"
 {%- endif %}
