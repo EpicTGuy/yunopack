@@ -115,7 +115,35 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         _ => {}
     }
 
+    // Ce que bookworm n'a pas : traduit quand le nom a change, retire sinon.
+    // Une image sur une Debian plus recente ou sur Ubuntu nommait des paquets
+    // absents (convertx : imagemagick-7.q16, dasel), et un seul suffisait a
+    // faire echouer l'installation entiere.
+    let mut out: Vec<String> = out
+        .into_iter()
+        .filter_map(|p| {
+            let d_un_depot_ajoute = ["php", "temurin", "mongodb"]
+                .iter()
+                .any(|x| p.starts_with(x));
+            if d_un_depot_ajoute || ynp_core::debian::absent(&p) != Some(true) {
+                return Some(p);
+            }
+            const RENOMMES: &[(&str, &str)] = &[
+                ("imagemagick-7.q16", "imagemagick"),
+                ("imagemagick-7", "imagemagick"),
+                ("libmagickwand-7.q16-dev", "libmagickwand-dev"),
+                ("python3-pip-whl", "python3-pip"),
+                ("libssl3t64", "libssl3"),
+            ];
+            RENOMMES
+                .iter()
+                .find(|(de, _)| *de == p)
+                .map(|(_, vers)| vers.to_string())
+                .filter(|v| ynp_core::debian::absent(v) != Some(true))
+        })
+        .collect();
     out.sort_unstable();
+    out.dedup();
     out
 }
 

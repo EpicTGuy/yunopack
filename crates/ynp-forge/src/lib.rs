@@ -104,6 +104,7 @@ pub struct Fetched {
 /// manifest. Telecharger deux fois exposerait a ce que l'amont change entre
 /// les deux, et donc a publier une somme qui ne correspond a rien.
 pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
+    charger_l_index_debian().await;
     // Une image Docker Hub designe un projet, pas son depot : on suit le lien
     // que sa description cite.
     let repo_url = match redirection::depot_d_une_image(repo_url).await {
@@ -312,4 +313,53 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
         sha256,
         selection,
     })
+}
+
+/// Charge l'index des paquets de bookworm : depuis le cache s'il a moins d'un
+/// mois, sinon depuis Debian. Une erreur laisse simplement l'index absent.
+async fn charger_l_index_debian() {
+    let Some(cache) = std::env::var_os("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".cache/yunopack/bookworm-main.txt"))
+    else {
+        return;
+    };
+    let frais = std::fs::metadata(&cache)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|d| d < std::time::Duration::from_secs(30 * 24 * 3600));
+    if !frais {
+        let url = "https://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.gz";
+        let corps = match reqwest::get(url).await {
+            Ok(r) if r.status().is_success() => r.bytes().await.ok(),
+            _ => None,
+        };
+        if let Some(gz) = corps {
+            use std::io::Read;
+            let mut texte = String::new();
+            if flate2::read::GzDecoder::new(&gz[..])
+                .read_to_string(&mut texte)
+                .is_ok()
+            {
+                let mut noms: Vec<String> = ynp_core::debian::noms_du_fichier_packages(&texte)
+                    .into_iter()
+                    .collect();
+                noms.sort();
+                if let Some(d) = cache.parent() {
+                    let _ = std::fs::create_dir_all(d);
+                }
+                let _ = std::fs::write(&cache, noms.join("\n"));
+            }
+        }
+    }
+    if let Ok(texte) = std::fs::read_to_string(&cache) {
+        let noms: std::collections::HashSet<String> = texte
+            .lines()
+            .map(str::to_string)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if noms.len() > 10_000 {
+            ynp_core::debian::installer_index(noms);
+        }
+    }
 }
