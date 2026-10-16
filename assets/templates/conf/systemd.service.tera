@@ -31,7 +31,10 @@ TimeoutStartSec=15min
 {%- endif %}
 ExecStart={{ runtime.execstart }}
 {%- if runtime.outils_locaux or resources.nodejs_version or resources.ruby_version %}
-Environment="PATH={% if runtime.outils_locaux %}__INSTALL_DIR__:{% endif %}{% if resources.ruby_version %}__PATH_WITH_RUBY__{% elif resources.nodejs_version %}__PATH_WITH_NODEJS__{% else %}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{% endif %}"
+Environment="PATH={% if runtime.outils_locaux %}__INSTALL_DIR__:{% endif %}{% if resources.ruby_version %}__INSTALL_DIR__/vendor/gems/bin:__PATH_WITH_RUBY__{% elif resources.nodejs_version %}__PATH_WITH_NODEJS__{% else %}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{% endif %}"
+{%- endif %}
+{%- if resources.ruby_version %}
+Environment="GEM_HOME=__INSTALL_DIR__/vendor/gems" "BUNDLE_PATH=__INSTALL_DIR__/vendor/bundle"
 {%- endif %}
 Restart=always
 RestartSec=5

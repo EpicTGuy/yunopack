@@ -174,7 +174,8 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                     };
                     let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
                     let node = if lance_node(e) { ENV_NODE } else { "" };
-                    let corps = entre_apostrophes(&format!("{rust}{node}{venv}{e}"));
+                    let ruby = if spec.resources.ruby_version.is_some() { ENV_RUBY } else { "" };
+                    let corps = entre_apostrophes(&format!("{rust}{ruby}{node}{venv}{e}"));
                     format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
                 })
                 .collect::<Vec<_>>(),
@@ -507,7 +508,9 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
 /// Le tas de Node a 75 % de la memoire de l'hote : sa limite par defaut est
 /// plus basse, et `tsc && vite build` de bytestash s'arretait sur « Reached
 /// heap limit » sur un serveur de 4 Go qui avait encore de quoi.
-const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\"; ";
+/// Et un repertoire global pour pnpm dans l'installation : `pnpm add -g`
+/// s'arretait sur ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH (reactive-resume).
+const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home:$PATH\"; ";
 
 /// Vrai si une etape lance un outil de Node.
 fn lance_node(etape: &str) -> bool {
@@ -525,3 +528,9 @@ fn lance_node(etape: &str) -> bool {
 /// Celui de Debian, lance par un autre PHP que le sien, ne trouve plus ses
 /// bibliotheques (« Class Composer\Pcre\Preg not found », domain-watchdog).
 const VERSION_COMPOSER: &str = "2.10.3";
+
+/// Les gemmes de l'application dans son repertoire : bundler y installe aussi
+/// la version de lui-meme que fige le Gemfile.lock, qu'il ne peut pas ecrire
+/// dans le Ruby partage (fizzy, « Bundler::PermissionError »).
+const ENV_RUBY: &str = "export GEM_HOME=\"$PWD/vendor/gems\" BUNDLE_PATH=\"$PWD/vendor/bundle\" \
+                        PATH=\"$PWD/vendor/gems/bin:$PATH\"; ";
