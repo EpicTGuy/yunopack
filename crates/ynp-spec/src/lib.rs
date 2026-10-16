@@ -609,6 +609,13 @@ fn variable_de_chemin(facts: &RepoFacts) -> Option<String> {
 /// `CALRS_SMS_BASE_URL`, `OIDC_ISSUER_URL`, `S3_PUBLIC_URL`.
 fn d_un_service_tiers(nom: &str) -> bool {
     let n = nom.to_ascii_uppercase();
+    // Le secret qui signe les webhooks de l'application est le sien
+    // (`WEBHOOK_SECRET_KEY`, chez automatisch) ; seule une adresse de
+    // webhook designe un service exterieur.
+    if n.contains("WEBHOOK") && (n.ends_with("WEBHOOK_SECRET") || n.ends_with("WEBHOOK_SECRET_KEY"))
+    {
+        return false;
+    }
     // Auth.js et Better Auth tournent dans l'application : leur adresse et
     // leur secret sont les siens (benevoles).
     if !n.contains("OAUTH") && ["AUTH_URL", "AUTH_SECRET"].iter().any(|s| n.ends_with(s)) {
@@ -2913,6 +2920,8 @@ mod propositions {
         );
         assert_eq!(env.get("HOSTNAME").map(String::as_str), Some("127.0.0.1"));
         assert_eq!(env.get("OIDC_CLIENT_SECRET"), None);
+        assert!(!d_un_service_tiers("WEBHOOK_SECRET_KEY"));
+        assert!(d_un_service_tiers("SLACK_WEBHOOK_URL"));
     }
 
     #[test]
