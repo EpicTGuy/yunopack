@@ -376,6 +376,18 @@ fn integration(facts: &RepoFacts) -> Integration {
 /// inutilisable sur arm64 (« cannot execute binary file: Exec format error »).
 /// Une etape qui lit l'architecture (`uname -m`, `$TARGETARCH`) s'adapte.
 fn telecharge_pour_une_architecture(facts: &RepoFacts) -> Option<&'static str> {
+    // Des paquets npm qui telechargent un binaire publie pour amd64 seul :
+    // phantomjs s'arretait sur arm64 (« Unexpected platform or architecture:
+    // linux/arm64 », framaestro-hub).
+    const AMD64_SEUL: &[&str] = &["phantomjs", "phantomjs-prebuilt"];
+    if facts
+        .stack
+        .dependances_npm
+        .iter()
+        .any(|d| AMD64_SEUL.contains(&d.as_str()))
+    {
+        return Some("amd64");
+    }
     let etapes = &facts.build.as_ref()?.build_steps;
     let adapte = |e: &str| e.contains("uname") || e.contains("ARCH") || e.contains("arch)");
     let telecharge = |e: &str| {
@@ -1067,15 +1079,28 @@ fn sans_elagage(etapes: Vec<String>) -> Vec<String> {
             .is_some_and(|c| c.contains(" install") || c.contains(" ci") || c.ends_with(" i"))
     };
     let elague = |e: &str| installe(e) && e.split_whitespace().any(|m| PROD.contains(&m));
-    let Some(premiere) = etapes.iter().position(|e| installe(e) && !elague(e)) else {
-        return etapes;
+    // Le dossier ou l'etape s'execute : ses `cd` de tete. Une installation de
+    // production dans un autre dossier que l'installation complete est la
+    // seule de ce dossier (bytestash : `cd client && npm ci`, puis `cd
+    // server && npm install --omit=dev`) : elle reste.
+    let dossier = |e: &str| -> String {
+        e.split(" && ")
+            .take_while(|c| c.starts_with("cd "))
+            .collect::<Vec<_>>()
+            .join(" && ")
     };
-    etapes
-        .into_iter()
-        .enumerate()
-        .filter(|(i, e)| !(*i > premiere && elague(e)))
-        .map(|(_, e)| e)
-        .collect()
+    let mut complets: Vec<String> = Vec::new();
+    let mut garde = Vec::new();
+    for e in etapes {
+        if elague(&e) && complets.contains(&dossier(&e)) {
+            continue;
+        }
+        if installe(&e) && !elague(&e) {
+            complets.push(dossier(&e));
+        }
+        garde.push(e);
+    }
+    garde
 }
 
 #[cfg(test)]
@@ -1088,6 +1113,11 @@ mod elagage {
             "bun run build".into(),
         ]);
         assert_eq!(e, vec!["bun install --frozen-lockfile", "bun run build"]);
+        let e = super::sans_elagage(vec![
+            "cd client && npm ci".into(),
+            "cd server && npm install --omit=dev".into(),
+        ]);
+        assert_eq!(e.len(), 2);
     }
 }
 
