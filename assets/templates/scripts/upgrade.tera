@@ -248,6 +248,19 @@ ynh_config_add_phpfpm
 {%- if features.nginx %}
 ynh_config_add_nginx
 {%- endif %}
+{%- if runtime.volumes_internes | length > 0 %}
+# Les volumes de l'image sous son repertoire de travail : leurs donnees
+# vivent dans le repertoire de donnees, l'installation y pointe.
+{%- for v in runtime.volumes_internes %}
+mkdir -p "$data_dir/{{ v }}"
+if [ -d "$install_dir/{{ v }}" ] && [ ! -L "$install_dir/{{ v }}" ]; then
+    cp -an "$install_dir/{{ v }}/." "$data_dir/{{ v }}/"
+    ynh_safe_rm "$install_dir/{{ v }}"
+fi
+ln -sfn "$data_dir/{{ v }}" "$install_dir/{{ v }}"
+{%- endfor %}
+chown -R "$app:$app" "$data_dir"
+{%- endif %}
 {%- if features.systemd %}
 ynh_config_add_systemd
 {%- for p in runtime.processus_annexes %}

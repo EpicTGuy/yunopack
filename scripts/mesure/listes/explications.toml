@@ -68,3 +68,8 @@ cause = "le depot github.com/sevleo/BrandCraft n'existe plus (404) : supprime ou
 categorie = "amont"
 etat = "depot disparu"
 cause = "le depot github.com/OrwellianEpilogue/ephemera n'existe plus (404) : supprime ou rendu prive"
+
+[webhook-site]
+categorie = "amont"
+etat = "construction"
+cause = "depend de node-sass 4.12, abandonne par l'amont : il ne se compile qu'avec Node <= 12 et Python 2, absents de Debian 12 (constate sur la VM : gyp cherche python2)"

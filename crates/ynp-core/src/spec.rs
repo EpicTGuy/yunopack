@@ -566,6 +566,11 @@ pub struct Runtime {
     /// donnees (`BindPaths=`). Le chemin dans l'image, sans la barre initiale.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes_lies: Vec<String>,
+    /// Les volumes de l'image sous son repertoire de travail (`/app/db` chez
+    /// rsspub, qui ouvre `./db/rpub.db`) : relatifs a l'installation, ou un
+    /// lien les fait pointer dans le repertoire de donnees.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes_internes: Vec<String>,
     /// Le repertoire de travail de l'image, ou le code suppose etre installe
     /// (`/downtify/frontend/dist`) : le repertoire d'installation y est monte
     /// pour le service.

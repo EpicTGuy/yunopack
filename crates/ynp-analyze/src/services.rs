@@ -61,6 +61,10 @@ pub fn detect(
             let nom = v.name.to_ascii_uppercase();
             let valeur = v.default.as_deref().unwrap_or("").to_ascii_lowercase();
             (matches!(nom.as_str(), "REDIS_HOST" | "REDIS_URL") && !valeur.is_empty())
+                // Une adresse Redis sous un autre nom (`MESSENGER_ASYNC_
+                // TRANSPORT_DSN: redis://valkey:6379/messages`, domain-watchdog).
+                || valeur.starts_with("redis://")
+                || valeur.starts_with("rediss://")
                 || (valeur == "redis"
                     && ["QUEUE", "CACHE", "SESSION", "BROADCAST"]
                         .iter()

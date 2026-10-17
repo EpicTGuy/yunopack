@@ -27,6 +27,14 @@ un_depot() {
     if grep -qE "$RESEAU" "$d/plan.txt"; then echo "$nom RESEAU"; else echo "$nom STATIQUE"; fi
     return
   fi
+  # Un paquet d'un test precedent reste installe (puter, le 17/10) : il
+  # occuperait le domaine de test et tout echouerait sans rapport avec le
+  # paquet. On le signale, sans le retirer.
+  local reste
+  reste=$(ssh "$H" 'grep -l "Genere par yunopack" /etc/yunohost/apps/*/manifest.toml 2>/dev/null | cut -d/ -f5 | tr "\n" " "' 2>/dev/null)
+  if [ -n "$reste" ]; then
+    echo "$nom RESTE ${reste% }"; return
+  fi
   local archs
   archs=$(grep -m1 '^architectures' "$d"/*_ynh/manifest.toml 2>/dev/null)
   if [ -n "$ARCH" ] && [ -n "$archs" ] && ! echo "$archs" | grep -qE "\"all\"|\"$ARCH\""; then

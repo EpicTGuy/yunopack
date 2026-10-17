@@ -114,7 +114,7 @@ fn dans_le_sous_repertoire(r: &mut Runtime, d: &str, existe: impl Fn(&str) -> bo
 /// repertoire de donnees.
 fn designe_les_donnees(r: &Runtime) -> bool {
     let d = |v: &str| v.contains("__DATA_DIR__");
-    if !r.volumes_lies.is_empty() {
+    if !r.volumes_lies.is_empty() || !r.volumes_internes.is_empty() {
         return true;
     }
     r.env.values().any(|v| d(v))
@@ -192,6 +192,36 @@ fn volumes_lies(facts: &RepoFacts) -> Vec<String> {
     out
 }
 
+/// Les volumes de l'image (VOLUME, ou ceux que le compose monte pour
+/// l'application) sous son repertoire de travail, relatifs a celui-ci.
+fn volumes_internes(facts: &RepoFacts) -> Vec<String> {
+    let Some(b) = &facts.build else {
+        return Vec::new();
+    };
+    let travail = b.workdir.as_deref().unwrap_or("/").trim_end_matches('/');
+    if travail.is_empty() {
+        return Vec::new();
+    }
+    let du_compose = facts
+        .compose
+        .iter()
+        .flat_map(|c| c.services.iter().filter(|s| s.is_app || s.image.is_none()))
+        .flat_map(|s| s.volumes.iter());
+    let mut out: Vec<String> = Vec::new();
+    for v in b.volumes.iter().chain(du_compose) {
+        let v = v.trim().trim_matches('"').trim_end_matches('/');
+        let Some(rel) = v.strip_prefix(&format!("{travail}/")) else {
+            continue;
+        };
+        if rel.is_empty() || rel.contains('$') || rel.contains("..") || out.iter().any(|o| o == rel)
+        {
+            continue;
+        }
+        out.push(rel.to_string());
+    }
+    out
+}
+
 /// Vrai si une etape lance un outil de Node.
 fn appelle_node(etapes: &[String]) -> bool {
     appelle(
@@ -235,6 +265,16 @@ fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut R
     if !runtime.venv_python && appelle(&etapes, &["pip", "pip3"]) {
         runtime.venv_python = true;
     }
+    // uv, que l'image tient de son image de base ou d'un `COPY --from=uv`,
+    // s'installe dans le venv (endurain : « uv: command not found »). Pas
+    // s'il est deja pose a la racine de l'installation par une etape.
+    let uv_pose = etapes
+        .iter()
+        .any(|e| e.contains("$PWD/uv") || e.contains("pip install uv"));
+    if appelle(&etapes, &["uv"]) && !uv_pose {
+        runtime.venv_python = true;
+        runtime.build_steps.insert(0, "pip install uv".into());
+    }
     let mut apt = |p: &str| {
         if !resources.apt_packages.iter().any(|a| a == p) {
             resources.apt_packages.push(p.to_string());
@@ -261,6 +301,10 @@ fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut R
             "libyaml-dev",
             "zlib1g-dev",
             "libssl-dev",
+            // Les extensions natives s'y referent pour trouver leurs
+            // bibliotheques, y compris celles d'une gemme transitive que le
+            // depot ne verrouille pas (rugged sous gollum-lib).
+            "pkg-config",
         ] {
             apt(p);
         }
@@ -409,6 +453,58 @@ fn telecharge_pour_une_architecture(facts: &RepoFacts) -> Option<&'static str> {
                 None
             }
         })
+}
+
+/// Un chemin absolu de l'image, rapporte sur le serveur : sous son
+/// repertoire de travail, dans l'installation ; ailleurs hors du systeme,
+/// dans les donnees ; un repertoire du systeme n'est pas repris.
+fn chemin_de_l_image(facts: &RepoFacts, chemin: &str) -> Option<String> {
+    const SYSTEME: &[&str] = &[
+        "/usr", "/bin", "/sbin", "/etc", "/lib", "/opt", "/tmp", "/var", "/run", "/proc", "/dev",
+        "/root", "/home",
+    ];
+    let b = facts.build.as_ref()?;
+    let mut racines: Vec<String> = b
+        .copies
+        .iter()
+        .filter(|(_, depuis)| matches!(depuis.as_str(), "." | "./"))
+        .map(|(vers, _)| {
+            vers.trim_end_matches('/')
+                .trim_end_matches("/.")
+                .to_string()
+        })
+        .collect();
+    racines.extend(
+        b.workdir
+            .as_deref()
+            .map(|w| w.trim_end_matches('/').to_string()),
+    );
+    racines.retain(|r| r.len() > 1);
+    for r in &racines {
+        if chemin == r {
+            return Some("__INSTALL_DIR__".into());
+        }
+        if let Some(reste) = chemin.strip_prefix(&format!("{r}/")) {
+            return Some(format!("__INSTALL_DIR__/{reste}"));
+        }
+    }
+    // Les dossiers que l'image copie du depot (`/app/server` chez fireshare).
+    for (vers, depuis) in &b.copies {
+        let d = depuis.trim_start_matches("./").trim_end_matches('/');
+        let v = vers.trim_end_matches('/');
+        if v.len() > 1 && !matches!(d, "" | ".") && !d.starts_with('/') {
+            if let Some(reste) = chemin.strip_prefix(&format!("{v}/")) {
+                return Some(format!("__INSTALL_DIR__/{d}/{reste}"));
+            }
+        }
+    }
+    if SYSTEME
+        .iter()
+        .any(|s| chemin == *s || chemin.starts_with(&format!("{s}/")))
+    {
+        return None;
+    }
+    Some(format!("__DATA_DIR__{chemin}"))
 }
 
 /// La memoire qu'il faut pour construire, que YunoHost verifie avant
@@ -1089,10 +1185,36 @@ fn sans_elagage(etapes: Vec<String>) -> Vec<String> {
             .collect::<Vec<_>>()
             .join(" && ")
     };
+    let construit = |e: &str| {
+        e.contains(" build")
+            || e.contains("tsc")
+            || e.split(" && ")
+                .last()
+                .is_some_and(|c| c.contains("run build"))
+    };
     let mut complets: Vec<String> = Vec::new();
     let mut garde = Vec::new();
-    for e in etapes {
+    let toutes = etapes.clone();
+    for (i, e) in etapes.into_iter().enumerate() {
         if elague(&e) && complets.contains(&dossier(&e)) {
+            continue;
+        }
+        // Seule installation du dossier, et une construction y suit : elle
+        // doit fournir les outils de construction (gathio : `pnpm install
+        // --prod` puis `tsc`, « Could not find a declaration file for module
+        // 'express' »).
+        if elague(&e)
+            && toutes[i + 1..]
+                .iter()
+                .any(|x| construit(x) && dossier(x) == dossier(&e))
+        {
+            let complet = e
+                .split(' ')
+                .filter(|m| !PROD.contains(m))
+                .collect::<Vec<_>>()
+                .join(" ");
+            complets.push(dossier(&complet));
+            garde.push(complet);
             continue;
         }
         if installe(&e) && !elague(&e) {
@@ -1118,6 +1240,8 @@ mod elagage {
             "cd server && npm install --omit=dev".into(),
         ]);
         assert_eq!(e.len(), 2);
+        let e = super::sans_elagage(vec!["pnpm install --prod".into(), "pnpm run build".into()]);
+        assert_eq!(e[0], "pnpm install");
     }
 }
 
@@ -1481,9 +1605,20 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
     // arretait ferdium-server sur « Missing environment variable "HOST" »,
     // que l'exemple fixait a 127.0.0.1. Pas une adresse vers un autre
     // service de l'image, ni un jeton que YunoHost substituerait.
-    if let Some(exemple) = &facts.config.example_file {
+    // Les ENV de l'image aussi : ce qu'elle fixe au demarrage. Un chemin y
+    // est ramene dans l'installation (le repertoire de travail de l'image) ou
+    // dans les donnees (`DATA_DIRECTORY=/data` chez fireshare, « not found in
+    // environment »).
+    let dockerfile = facts.build.as_ref().map(|b| b.dockerfile_path.clone());
+    let exemple = facts
+        .config
+        .example_file
+        .clone()
+        .or_else(|| dockerfile.clone());
+    if let Some(exemple) = &exemple {
         for var in &facts.config.variables {
-            if var.source != *exemple
+            let de_l_image = Some(&var.source) == dockerfile.as_ref();
+            if (var.source != *exemple && !de_l_image)
                 || var.facultative
                 || var.role != ConfigRole::Other
                 || env.contains_key(&var.name)
@@ -1528,7 +1663,15 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 continue;
             }
             let d = if d == "0.0.0.0" { "127.0.0.1" } else { d };
-            env.insert(var.name.clone(), d.to_string());
+            let d = if de_l_image && d.starts_with('/') {
+                match chemin_de_l_image(facts, d) {
+                    Some(c) => c,
+                    None => continue,
+                }
+            } else {
+                d.to_string()
+            };
+            env.insert(var.name.clone(), d);
         }
     }
 
@@ -1555,7 +1698,23 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                     env.insert(var.name.clone(), String::new());
                     continue;
                 }
-                _ => continue,
+                // Une adresse Redis vers un service de l'image : l'hote
+                // devient le Redis du serveur, le chemin (un flux, une base)
+                // reste.
+                _ => {
+                    let Some(reste) = var
+                        .default
+                        .as_deref()
+                        .and_then(|d| d.strip_prefix("redis://"))
+                    else {
+                        continue;
+                    };
+                    let reste = reste.rsplit('@').next().unwrap_or(reste);
+                    let chemin = reste.find('/').map_or("", |i| &reste[i..]);
+                    env.entry(var.name.clone())
+                        .or_insert_with(|| format!("redis://127.0.0.1:6379{chemin}"));
+                    continue;
+                }
             };
             env.entry(var.name.clone())
                 .or_insert_with(|| valeur.to_string());
@@ -1931,6 +2090,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         racine_web: php::racine_web(facts).or_else(|| statique::site(facts).map(|s| s.racine)),
         a_garder: php::a_garder(facts),
         volumes_lies: volumes_lies(facts),
+        volumes_internes: volumes_internes(facts),
         repertoire_de_l_image: repertoire_de_l_image(facts),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),

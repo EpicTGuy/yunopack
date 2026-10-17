@@ -439,12 +439,38 @@ async fn repondre_sur_son_port(
     let hors_chemin = c == "404";
     let repond = !muet && !hors_chemin;
 
+    // Muette : ou ecoute-t-elle, et que dit-elle ? booklore et puter
+    // tournaient sans rien ecrire dans le compte rendu.
+    let temoins = if muet {
+        let ecoutes = hote
+            .executer(&format!(
+                "ss -ltnpH 2>/dev/null | grep -E \"pid=($(pgrep -u {app} -d '|' . | head -c 400)),\" | awk '{{print $4}}' | sort -u | head -5"
+            ))
+            .await?;
+        let journal = hote
+            .executer(&format!(
+                "journalctl -u {app} -n 15 --no-pager -o cat; tail -n 15 /var/log/{app}/{app}.log 2>/dev/null"
+            ))
+            .await?;
+        format!(
+            "\necoute sur : {}\n--- journal de l'application ---\n{}",
+            ecoutes
+                .stdout
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+            journal.stdout.trim()
+        )
+    } else {
+        String::new()
+    };
+
     Ok(chrono.etape(
         "reponse sur le port",
         repond,
         match (muet, hors_chemin) {
             (true, _) => {
-                format!("rien n'ecoute sur {adresse} — le service tourne mais ne sert pas")
+                format!("rien n'ecoute sur {adresse} — le service tourne mais ne sert pas{temoins}")
             }
             (_, true) => format!(
                 "404 sur {adresse} — l'application ne sert pas le chemin ou elle est installee ; \

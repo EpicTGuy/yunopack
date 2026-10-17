@@ -67,7 +67,7 @@
 "ffi" = ["libffi-dev"]
 "psych" = ["libyaml-dev"]
 "idn" = ["libidn-dev"]
-"rugged" = ["cmake", "pkg-config", "libssl-dev"]
+"rugged" = ["cmake", "pkg-config", "libssl-dev", "zlib1g-dev", "libssh2-1-dev"]
 "gpgme" = ["libgpgme-dev"]
 "cld3" = ["libprotobuf-dev", "protobuf-compiler"]
 "mini_racer" = ["build-essential"]

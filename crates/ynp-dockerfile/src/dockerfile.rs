@@ -745,6 +745,18 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // Le menage de l'image par une liste de fichiers (`ruby -e "puts
+    // Dir['/usr/local/bundle/**/doc']" | xargs rm -rf` chez docuseal) : il
+    // vise les repertoires de l'image, pas l'installation.
+    if cmd.iter().any(|t| t == "xargs")
+        && cmd.windows(2).any(|w| w[0] == "xargs" && w[1] == "rm")
+        && cmd
+            .iter()
+            .any(|t| t.contains("/usr/") || t.contains("/var/lib/") || t.contains("/opt/"))
+    {
+        return RunKind::Noise;
+    }
+
     // Un gestionnaire de versions de Node (`bash n 18` chez pinry,
     // node-build chez klaxon) installe dans /usr/local, refuse a
     // l'utilisateur de l'application : la resource nodejs de YunoHost fournit

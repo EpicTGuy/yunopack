@@ -173,8 +173,25 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                         venv.to_string()
                     };
                     let rust = if spec.runtime.rust_toolchain.is_some() { ENV_RUST } else { "" };
-                    let node = if lance_node(e) { ENV_NODE } else { "" };
-                    let ruby = if spec.resources.ruby_version.is_some() { ENV_RUBY } else { "" };
+                    // La configuration du paquet est vue de la construction :
+                    // Next.js inscrit les `NEXT_PUBLIC_*` dans ce qu'il construit,
+                    // et cap s'arretait sur `NEXT_PUBLIC_WEB_URL` « Required »,
+                    // qu'il tire de WEB_URL. Le `.env` du paquet est a la racine
+                    // de l'installation, la ou Next.js ne le lit pas.
+                    let config = spec.runtime.config_file.as_deref() == Some(".env") && lance_node(e);
+                    let node = match (lance_node(e), config) {
+                        (true, true) => format!("{ENV_NODE}{CHARGER_ENV}"),
+                        (true, false) => ENV_NODE.to_string(),
+                        _ => String::new(),
+                    };
+                    let bundle = e
+                        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '('))
+                        .any(|m| m == "bundle");
+                    let ruby = match (spec.resources.ruby_version.is_some(), bundle) {
+                        (true, true) => format!("{ENV_RUBY}{PREPARER_BUNDLER}"),
+                        (true, false) => ENV_RUBY.to_string(),
+                        _ => String::new(),
+                    };
                     let corps = entre_apostrophes(&format!("{rust}{ruby}{node}{venv}{e}"));
                     format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
                 })
@@ -215,6 +232,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "cron": spec.runtime.cron,
             "a_une_cle_32": spec.runtime.env.values().any(|v| v.contains("__CLE_32__")),
             "volumes_lies": spec.runtime.volumes_lies,
+            "volumes_internes": spec.runtime.volumes_internes,
             "repertoire_de_l_image": spec.runtime.repertoire_de_l_image,
             "a_un_prefixe": spec.runtime.env.values().any(|v| v.contains("__PREFIXE__")),
             "version_composer": spec
@@ -514,6 +532,11 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
 /// s'arretait sur ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH (reactive-resume).
 /// pnpm 10 y range ses executables globaux dans `bin/` : les deux sont dans
 /// le PATH.
+/// Exporte les reglages du `.env` du paquet, ligne a ligne : `source`
+/// casserait sur une valeur contenant une espace.
+/// Sans `NODE_ENV` : a `production`, `npm ci` laisserait les dependances de
+/// developpement, dont la construction a besoin.
+const CHARGER_ENV: &str = "while IFS= read -r l; do case \"$l\" in NODE_ENV=*) ;; [A-Za-z_]*=*) export \"$l\";; esac; done < \"$PWD/.env\" 2>/dev/null; ";
 const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home/bin:$PWD/.pnpm-home:$PATH\"; ";
 
 /// Vrai si une etape lance un outil de Node.
@@ -536,5 +559,15 @@ const VERSION_COMPOSER: &str = "2.10.3";
 /// Les gemmes de l'application dans son repertoire : bundler y installe aussi
 /// la version de lui-meme que fige le Gemfile.lock, qu'il ne peut pas ecrire
 /// dans le Ruby partage (fizzy, « Bundler::PermissionError »).
+///
+/// Un Ruby d'avant 2.6 ne livre pas bundler (helpy, Ruby 2.4 : « bundle:
+/// command not found ») : il s'installe a la version du Gemfile.lock. Et la
+/// plateforme de la machine s'ajoute au Gemfile.lock qui ne la connait pas
+/// (feedbin : « Your bundle only supports platforms [...] x86_64-linux but
+/// your local platform is aarch64-linux »).
 const ENV_RUBY: &str = "export GEM_HOME=\"$PWD/vendor/gems\" BUNDLE_PATH=\"$PWD/vendor/bundle\" \
                         PATH=\"$PWD/vendor/gems/bin:$PATH\"; ";
+
+/// Avant une etape qui lance bundler seulement.
+const PREPARER_BUNDLER: &str = "command -v bundle >/dev/null || { v=$(awk '/BUNDLED WITH/ {getline; print $1}' Gemfile.lock 2>/dev/null); gem install bundler ${v:+-v \"$v\"} >/dev/null; }; \
+                        [ -f Gemfile.lock ] && ! grep -q \"$(uname -m)-linux\" Gemfile.lock && bundle lock --add-platform \"$(uname -m)-linux\" >/dev/null 2>&1; ";

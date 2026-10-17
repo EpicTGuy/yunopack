@@ -321,6 +321,18 @@ fn container_port(spec: &PortSpec) -> Option<u16> {
 /// Chemin monte dans le conteneur, qui indique ou l'application range ses
 /// donnees — candidat pour `[resources.data_dir]`.
 fn named_volume_target(v: &str) -> Option<String> {
+    // `${EPUBS_HOST_DIR:-./db}:/app/db` (rsspub) : la valeur par defaut d'une
+    // variable tient lieu de source, et ses `:` ne separent rien.
+    let mut v = v.to_string();
+    while let Some(i) = v.find("${") {
+        let Some(fin) = v[i..].find('}') else { break };
+        let expr = &v[i + 2..i + fin];
+        let defaut = expr
+            .split_once(":-")
+            .or_else(|| expr.split_once('-'))
+            .map_or("", |(_, d)| d);
+        v = format!("{}{}{}", &v[..i], defaut, &v[i + fin + 1..]);
+    }
     let parts: Vec<&str> = v.split(':').collect();
     match parts.len() {
         1 => Some(parts[0].to_string()),
@@ -442,6 +454,14 @@ impl Environment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_valeur_par_defaut_d_une_variable_ne_coupe_pas_le_volume() {
+        assert_eq!(
+            named_volume_target("${EPUBS_HOST_DIR:-./db}:/app/db").as_deref(),
+            Some("/app/db")
+        );
+    }
 
     #[test]
     fn un_booleen_dans_l_environnement_ne_fait_pas_perdre_le_fichier() {
