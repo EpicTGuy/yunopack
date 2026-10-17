@@ -2468,6 +2468,7 @@ dependencies = [
 name = "ynp-gen"
 version = "0.8.1"
 dependencies = [
+ "indexmap",
  "serde",
  "serde_json",
  "tera",

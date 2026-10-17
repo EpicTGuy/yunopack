@@ -26,8 +26,10 @@ fn options_adresse() -> &'static [Regex] {
     static M: OnceLock<Vec<Regex>> = OnceLock::new();
     M.get_or_init(|| {
         [
-            // Go, paquet flag : `flag.String("bind", ":8923", ...)`.
-            r#"flag\.String(?:Var)?\((?:&?[\w.]+\s*,\s*)?"([\w-]+)"\s*,\s*"([^"]*)""#,
+            // Go, paquet flag ou un FlagSet du projet : `flag.String("bind",
+            // ":8923", ...)`, `fs.StringVar(&a, "listen", ":8080", ...)`. La
+            // valeur par defaut, une adresse, garantit le sens.
+            r#"\b\w+\.String(?:Var)?\((?:&?[\w.]+\s*,\s*)?"([\w-]+)"\s*,\s*"([^"]*)""#,
             // Go, cobra et pflag : `StringVarP(&a, "bind", "b", ":8080", ...)`.
             r#"\.String(?:Var)?P\((?:&[\w.]+\s*,\s*)?"([\w-]+)"\s*,\s*"\w?"\s*,\s*"([^"]*)""#,
         ]
@@ -143,6 +145,20 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
             }
         }
     }
+    // zli (goatcounter) : la valeur par defaut d'abord, `f.String(":8080",
+    // "listen")`.
+    static INVERSE: OnceLock<Regex> = OnceLock::new();
+    let inverse = INVERSE.get_or_init(|| {
+        Regex::new(r#"\b\w+\.String\(\s*"([^"]*)"\s*,\s*"([\w-]+)"\s*\)"#).expect("motif valide")
+    });
+    for c in inverse.captures_iter(contenu) {
+        if est_une_adresse(&c[1]) {
+            let i = Indice::OptionAdresse(format!("--{}", &c[2]));
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+    }
     for m in options_adresse() {
         for c in m.captures_iter(contenu) {
             if est_une_adresse(&c[2]) {
@@ -169,6 +185,19 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_option_d_adresse_d_un_flagset_ou_de_zli_est_reconnue() {
+        let go = r#"listen = f.String(":8080", "listen")"#;
+        assert!(indices(go).contains(&Indice::OptionAdresse("--listen".into())));
+        let go = r#"fs.StringVar(&cfg.Addr, "addr", "127.0.0.1:3000", "address")"#;
+        assert!(indices(go).contains(&Indice::OptionAdresse("--addr".into())));
+        let go = r#"dbConn = f.String("16,4", "dbconn")"#;
+        assert!(
+            indices(go).is_empty()
+                || !indices(go).contains(&Indice::OptionAdresse("--dbconn".into()))
+        );
+    }
 
     #[test]
     fn l_option_d_une_sous_commande_porte_la_sous_commande() {

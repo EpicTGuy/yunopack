@@ -571,6 +571,10 @@ pub struct Runtime {
     /// lien les fait pointer dans le repertoire de donnees.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes_internes: Vec<String>,
+    /// Le fichier de configuration que l'application lit, ecrit d'apres
+    /// l'exemple du depot, ses cles connues reglees pour YunoHost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fichier_de_configuration: Option<FichierDeConfiguration>,
     /// Le repertoire de travail de l'image, ou le code suppose etre installe
     /// (`/downtify/frontend/dist`) : le repertoire d'installation y est monte
     /// pour le service.
@@ -936,4 +940,13 @@ pub struct AptExtra {
     pub repo: String,
     pub key: String,
     pub packages: Vec<String>,
+}
+
+/// Un fichier de configuration ecrit d'apres l'exemple du depot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FichierDeConfiguration {
+    /// Le chemin que l'application lit, relatif a l'installation.
+    pub cible: String,
+    /// Le contenu, jetons YunoHost compris (`__PORT__`).
+    pub contenu: String,
 }

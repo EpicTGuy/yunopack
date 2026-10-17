@@ -206,6 +206,15 @@ pub fn generate(spec: &AppSpec, parent: &Path) -> Result<Genere, GenError> {
         ecrits.push(destination);
     }
 
+    // Le fichier de configuration ecrit d'apres l'exemple du depot : tel
+    // quel, sans passer par Tera, qui interpreterait ses accolades.
+    if let Some(f) = &spec.runtime.fichier_de_configuration {
+        let nom = nom_du_fichier_de_configuration(&f.cible);
+        let destination = format!("conf/{nom}");
+        ecrire(&racine.join(&destination), &f.contenu, false)?;
+        ecrits.push(destination);
+    }
+
     ecrits.sort();
     Ok(Genere {
         racine,
@@ -255,4 +264,10 @@ fn ecrire(chemin: &Path, contenu: &str, executable: bool) -> Result<(), GenError
         std::fs::set_permissions(chemin, std::fs::Permissions::from_mode(0o755)).map_err(echec)?;
     }
     Ok(())
+}
+
+/// Le nom du modele, dans `conf/`, du fichier de configuration d'exemple :
+/// son nom de fichier, distingue de celui du `.env`.
+pub fn nom_du_fichier_de_configuration(cible: &str) -> String {
+    cible.rsplit('/').next().unwrap_or(cible).to_string()
 }

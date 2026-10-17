@@ -595,6 +595,19 @@ pub struct ConfigFacts {
     /// Strapi. C'est ce qu'attend la variable qui choisit le moteur.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub moteurs_cites: std::collections::BTreeMap<String, usize>,
+    /// Un fichier de configuration d'exemple sans son pendant reel
+    /// (`config/config.example.toml` chez gathio, qui refuse de demarrer sans
+    /// `config/config.toml`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fichier_d_exemple: Option<FichierDExemple>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FichierDExemple {
+    pub exemple: String,
+    /// Le chemin que l'application lit, relatif a la racine du depot.
+    pub cible: String,
+    pub texte: String,
 }
 
 impl ConfigFacts {

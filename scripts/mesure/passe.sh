@@ -28,6 +28,8 @@ rejouer() { # <script> <liste> <dossier>
   done
 }
 for j in t m l; do rm -rf "$OUT/$j$N"; mkdir -p "$OUT/$j$N"; done
+# Le binaire de la passe, fige au depart.
+cp "$Y" "$OUT/yunopack-p$N"; export YUNOPACK_BINAIRE="$OUT/yunopack-p$N"
 lancer "$MESURE/temoin1.sh" "$L/temoins.txt" "$OUT/t$N" 6;  rejouer "$MESURE/temoin1.sh" "$L/temoins.txt" "$OUT/t$N"
 lancer "$MESURE/plan1.sh" "$L/echantillon.txt" "$OUT/m$N" 6; rejouer "$MESURE/plan1.sh" "$L/echantillon.txt" "$OUT/m$N"
 lancer "$MESURE/plan1.sh" "$L/lot2.txt" "$OUT/l$N" 6;        rejouer "$MESURE/plan1.sh" "$L/lot2.txt" "$OUT/l$N"

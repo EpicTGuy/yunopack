@@ -248,8 +248,36 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "database_binding": database_binding,
             "config_file": spec.runtime.config_file,
             "has_config": spec.a_une_configuration(),
-            "env": spec.runtime.env,
-            "a_un_secret": spec.runtime.env.values().any(|v| v.contains("__SECRET__")),
+            // Une valeur qui contient une espace ou un `#` est entouree de
+            // guillemets : le dotenv de Symfony la refusait sinon (domain-
+            // watchdog : « A value containing spaces must be surrounded by
+            // quotes »), et `#` y ouvrirait un commentaire.
+            "env": spec
+                .runtime
+                .env
+                .iter()
+                .map(|(k, v)| {
+                    let a_proteger = v.chars().any(|c| c.is_whitespace() || matches!(c, '#' | '"' | '\''));
+                    let v = if a_proteger {
+                        format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+                    } else {
+                        v.clone()
+                    };
+                    (k.clone(), v)
+                })
+                .collect::<indexmap::IndexMap<_, _>>(),
+            "a_un_secret": spec.runtime.env.values().any(|v| v.contains("__SECRET__"))
+                || spec
+                    .runtime
+                    .fichier_de_configuration
+                    .as_ref()
+                    .is_some_and(|f| f.contenu.contains("__SECRET__")),
+            "fichier_de_configuration": spec.runtime.fichier_de_configuration.as_ref().map(|f| {
+                serde_json::json!({
+                    "cible": f.cible,
+                    "nom": crate::nom_du_fichier_de_configuration(&f.cible),
+                })
+            }),
             "secrets_formates": secrets_formates(spec),
         },
         "features": {
@@ -531,13 +559,15 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
 /// Et un repertoire global pour pnpm dans l'installation : `pnpm add -g`
 /// s'arretait sur ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH (reactive-resume).
 /// pnpm 10 y range ses executables globaux dans `bin/` : les deux sont dans
-/// le PATH.
+/// le PATH. Et pnpm 10 n'execute plus les scripts de construction des
+/// dependances sans approbation (gathio : ERR_PNPM_IGNORED_BUILDS) : ils
+/// s'executent, comme sous npm et yarn.
 /// Exporte les reglages du `.env` du paquet, ligne a ligne : `source`
 /// casserait sur une valeur contenant une espace.
 /// Sans `NODE_ENV` : a `production`, `npm ci` laisserait les dependances de
 /// developpement, dont la construction a besoin.
-const CHARGER_ENV: &str = "while IFS= read -r l; do case \"$l\" in NODE_ENV=*) ;; [A-Za-z_]*=*) export \"$l\";; esac; done < \"$PWD/.env\" 2>/dev/null; ";
-const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home/bin:$PWD/.pnpm-home:$PATH\"; ";
+const CHARGER_ENV: &str = "while IFS= read -r l; do case \"$l\" in NODE_ENV=*) ;; [A-Za-z_]*=*) k=${l%%=*}; v=${l#*=}; v=${v#\\\"}; v=${v%\\\"}; export \"$k=$v\";; esac; done < \"$PWD/.env\" 2>/dev/null; ";
+const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home/bin:$PWD/.pnpm-home:$PATH\" npm_config_dangerously_allow_all_builds=true pnpm_config_dangerously_allow_all_builds=true npm_config_strict_dep_builds=false pnpm_config_strict_dep_builds=false; ";
 
 /// Vrai si une etape lance un outil de Node.
 fn lance_node(etape: &str) -> bool {

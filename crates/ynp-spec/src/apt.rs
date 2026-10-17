@@ -392,7 +392,7 @@ fn extension_php_en_paquet(ext: &str) -> Option<String> {
             | "session" | "iconv" | "pcre" | "spl" | "reflection" | "standard" | "phar"
             | "posix" | "sockets" | "sodium" | "exif" | "gettext" | "calendar" | "ffi"
             | "shmop" | "sysvmsg" | "sysvsem" | "sysvshm" | "date" | "zlib" | "random" | "ftp"
-            | "core" | "libsodium" => return None,
+            | "core" | "libsodium" | "pcntl" | "uri" => return None,
             // Les autres portent le nom de leur paquet : `php8.3-mailparse`,
             // `php8.3-gnupg`, `php8.3-yaml`. anonaddy exige mailparse ; faute de
             // la reconnaitre, l'outil ne l'installait pas, et composer refusait

@@ -368,6 +368,7 @@ mod tests {
         ConfigFacts {
             example_file: Some(".env.example".into()),
             moteurs_cites: Default::default(),
+            fichier_d_exemple: None,
             variables: vec![ConfigVar {
                 name: name.into(),
                 role,

@@ -28,6 +28,9 @@
 [pip]
 "secp256k1" = ["build-essential", "pkg-config", "autoconf", "automake", "libtool", "libsecp256k1-dev"]
 "psycopg2" = ["build-essential", "libpq-dev"]
+# Sans roue pour le Python de Debian, la variante -binary se compile aussi
+# (pinry : psycopg2-binary 2.8.6 sous Python 3.11).
+"psycopg2-binary" = ["build-essential", "libpq-dev"]
 "mysqlclient" = ["build-essential", "pkg-config", "default-libmysqlclient-dev"]
 "lxml" = ["build-essential", "libxml2-dev", "libxslt1-dev"]
 "pillow" = ["build-essential", "libjpeg-dev", "zlib1g-dev"]

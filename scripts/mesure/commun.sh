@@ -13,7 +13,9 @@ fi
 RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MESURE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${YUNOPACK_MESURE:-$RACINE/target/mesure}"
-Y="$RACINE/target/release/yunopack"
+# Une passe fige son binaire (YUNOPACK_BINAIRE) : recompiler pendant qu'elle
+# tourne ne la fausse pas.
+Y="${YUNOPACK_BINAIRE:-$RACINE/target/release/yunopack}"
 mkdir -p "$OUT"
 if [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null; then
   GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"; export GITHUB_TOKEN

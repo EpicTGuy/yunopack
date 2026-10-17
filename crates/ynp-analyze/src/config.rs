@@ -58,6 +58,8 @@ pub fn detect_avec_build(
     if let Some((path, content)) = exemple(tree) {
         facts.variables = parse_dotenv(content, &path);
         facts.example_file = Some(path);
+    } else {
+        facts.fichier_d_exemple = fichier_d_exemple(tree);
     }
 
     // Le compose complete : il porte souvent les variables reellement
@@ -153,6 +155,84 @@ pub fn ajouter_par_prefixe(facts: &mut ConfigFacts, tree: &RepoTree, depot: &str
             ajouter(facts, &nom, valeur, &provenance);
         }
     }
+}
+
+/// Un fichier de configuration d'exemple dont le pendant reel n'est pas dans
+/// le depot : `config/config.example.toml` donne `config/config.toml`,
+/// `settings.yml.sample` donne `settings.yml`. Pas un fichier de deploiement
+/// (compose, Helm), ni un fichier ou YunoHost verrait des jetons a remplacer.
+pub fn fichier_d_exemple(tree: &RepoTree) -> Option<ynp_core::facts::FichierDExemple> {
+    const MARQUES: &[&str] = &[
+        ".example",
+        ".sample",
+        ".dist",
+        "-example",
+        "_example",
+        ".template",
+    ];
+    const EXTENSIONS: &[&str] = &[".toml", ".yaml", ".yml", ".json", ".ini", ".conf"];
+    const ECARTES: &[&str] = &[
+        "compose", "docker", "helm", "values", "k8s", "kube", "nginx", "caddy", "apache",
+    ];
+    let jeton = regex::Regex::new(r"__[A-Z0-9_]+__").expect("motif valide");
+    let mut candidats: Vec<(String, String)> = tree
+        .paths()
+        .into_iter()
+        .filter(|p| p.matches('/').count() <= 2)
+        .filter(|p| {
+            let bas = p.to_lowercase();
+            ![
+                "docs/",
+                "doc/",
+                "examples/",
+                "example/",
+                "test/",
+                "tests/",
+                ".github/",
+                "charts/",
+                "deploy/",
+            ]
+            .iter()
+            .any(|d| bas.starts_with(d) || bas.contains(&format!("/{d}")))
+        })
+        .filter_map(|p| {
+            let (dossier, nom) = p.rsplit_once('/').map_or(("", p.as_str()), |(d, n)| (d, n));
+            let bas = nom.to_lowercase();
+            if ECARTES.iter().any(|e| bas.contains(e)) {
+                return None;
+            }
+            // `nom.example.ext` ou `nom.ext.example`.
+            let cible = MARQUES.iter().find_map(|m| {
+                EXTENSIONS.iter().find_map(|e| {
+                    if bas.ends_with(&format!("{m}{e}")) {
+                        Some(format!("{}{e}", &nom[..nom.len() - m.len() - e.len()]))
+                    } else if bas.ends_with(&format!("{e}{m}")) {
+                        Some(nom[..nom.len() - m.len()].to_string())
+                    } else {
+                        None
+                    }
+                })
+            })?;
+            let cible = if dossier.is_empty() {
+                cible
+            } else {
+                format!("{dossier}/{cible}")
+            };
+            Some((p.clone(), cible))
+        })
+        .filter(|(_, cible)| !tree.has(cible))
+        .collect();
+    candidats.sort_by_key(|(p, _)| (p.matches('/').count(), p.len()));
+    let (exemple, cible) = candidats.into_iter().next()?;
+    let texte = tree.text(&exemple)?;
+    if texte.len() > 64 * 1024 || jeton.is_match(texte) {
+        return None;
+    }
+    Some(ynp_core::facts::FichierDExemple {
+        exemple,
+        cible,
+        texte: texte.to_string(),
+    })
 }
 
 /// Le fichier de configuration d'exemple : `conduwuit-example.toml`,

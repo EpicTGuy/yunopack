@@ -69,6 +69,7 @@ fn depot_complet() -> RepoFacts {
     f.config = ConfigFacts {
         example_file: Some(".env.example".into()),
         moteurs_cites: Default::default(),
+        fichier_d_exemple: None,
         variables: vec![
             ConfigVar {
                 name: "PORT".into(),
@@ -189,6 +190,7 @@ fn la_configuration_reconnue_est_cablee_sur_les_valeurs_yunohost() {
     facts.config = ConfigFacts {
         example_file: Some(".env.example".into()),
         moteurs_cites: Default::default(),
+        fichier_d_exemple: None,
         variables: vec![
             ConfigVar {
                 name: "PORT".into(),

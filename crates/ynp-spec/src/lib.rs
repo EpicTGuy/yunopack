@@ -222,6 +222,128 @@ fn volumes_internes(facts: &RepoFacts) -> Vec<String> {
     out
 }
 
+/// Le fichier de configuration que l'application lit, d'apres son exemple :
+/// gathio refusait de demarrer sans `config/config.toml` (« Have you renamed
+/// './config/config.example.toml' to './config/config.toml'? »). Les cles
+/// dont le sens est sur prennent les valeurs de YunoHost ; les autres gardent
+/// celles de l'exemple.
+fn fichier_de_configuration(facts: &RepoFacts) -> Option<ynp_core::spec::FichierDeConfiguration> {
+    let f = facts.config.fichier_d_exemple.as_ref()?;
+    let contenu = f
+        .texte
+        .lines()
+        .map(regler_une_ligne)
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(ynp_core::spec::FichierDeConfiguration {
+        cible: f.cible.clone(),
+        contenu: format!("{contenu}\n"),
+    })
+}
+
+/// Une ligne `cle = valeur` (TOML, INI), `cle: valeur` (YAML) ou `"cle":
+/// valeur` (JSON), sa valeur reglee si la cle est connue.
+fn regler_une_ligne(ligne: &str) -> String {
+    let net = ligne.trim_start();
+    if net.starts_with('#') || net.starts_with(';') || net.starts_with("//") {
+        return ligne.to_string();
+    }
+    let Some(i) = net.find(['=', ':']) else {
+        return ligne.to_string();
+    };
+    let cle = net[..i]
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_ascii_lowercase();
+    if cle.is_empty()
+        || !cle
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return ligne.to_string();
+    }
+    let decalage = ligne.len() - net.len();
+    let apres = &net[i + 1..];
+    let debut_valeur = apres.len() - apres.trim_start().len();
+    let v = apres.trim_start();
+    // La valeur : entre guillemets, ou jusqu'a un commentaire ou une virgule.
+    let (guillemet, brute, fin) = match v.chars().next() {
+        Some(q @ ('"' | '\'')) => match v[1..].find(q) {
+            Some(j) => (Some(q), &v[1..1 + j], 2 + j),
+            None => return ligne.to_string(),
+        },
+        _ => {
+            let j = v.find([' ', '#', ',']).unwrap_or(v.len());
+            (None, &v[..j], j)
+        }
+    };
+    let ip_generique = matches!(brute, "0.0.0.0" | "::" | "[::]" | "*");
+    let nouvelle = match cle.as_str() {
+        "port" | "http_port" | "listen_port" | "server_port" | "web_port"
+            if !brute.is_empty() && brute.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            "__PORT__".to_string()
+        }
+        "host" | "bind" | "bind_address" | "listen" | "listen_address" | "listen_host"
+        | "address" | "ip" | "bind_host"
+            if ip_generique =>
+        {
+            "127.0.0.1".to_string()
+        }
+        "host" | "bind" | "listen" | "address" if brute.starts_with("0.0.0.0:") => {
+            "127.0.0.1:__PORT__".to_string()
+        }
+        "domain" | "server_name" | "hostname" | "domain_name"
+            if !brute.is_empty() && !brute.chars().next().is_some_and(|c| c.is_ascii_digit()) =>
+        {
+            "__DOMAIN__".to_string()
+        }
+        "base_url" | "baseurl" | "url" | "public_url" | "site_url" | "app_url" | "root_url"
+        | "external_url"
+            if brute.starts_with("http") =>
+        {
+            "https://__DOMAIN____PATH__".to_string()
+        }
+        "secret" | "secret_key" | "session_secret" | "jwt_secret" | "cookie_secret"
+        | "app_secret"
+            if !brute.is_empty() =>
+        {
+            "__SECRET__".to_string()
+        }
+        _ => return ligne.to_string(),
+    };
+    let q = guillemet.map(String::from).unwrap_or_default();
+    format!(
+        "{}{}{}{q}{nouvelle}{q}{}",
+        &ligne[..decalage],
+        &net[..=i],
+        &apres[..debut_valeur],
+        &v[fin..]
+    )
+}
+
+#[cfg(test)]
+mod configuration_d_exemple {
+    use super::regler_une_ligne as r;
+
+    #[test]
+    fn les_cles_connues_prennent_les_valeurs_de_yunohost() {
+        assert_eq!(r("port = 3000"), "port = __PORT__");
+        assert_eq!(
+            r("domain = \"localhost:3000\" # ici"),
+            "domain = \"__DOMAIN__\" # ici"
+        );
+        assert_eq!(r("  host: 0.0.0.0"), "  host: 127.0.0.1");
+        assert_eq!(r("  \"port\": 8080,"), "  \"port\": __PORT__,");
+        assert_eq!(
+            r("site_url = 'http://x'"),
+            "site_url = 'https://__DOMAIN____PATH__'"
+        );
+        assert_eq!(r("# port = 3000"), "# port = 3000");
+        assert_eq!(r("email = \"a@b\""), "email = \"a@b\"");
+    }
+}
+
 /// Vrai si une etape lance un outil de Node.
 fn appelle_node(etapes: &[String]) -> bool {
     appelle(
@@ -273,7 +395,12 @@ fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut R
         .any(|e| e.contains("$PWD/uv") || e.contains("pip install uv"));
     if appelle(&etapes, &["uv"]) && !uv_pose {
         runtime.venv_python = true;
-        runtime.build_steps.insert(0, "pip install uv".into());
+        // A la version que fixe le projet (`required-version = "==0.12.23"`
+        // chez endurain, qui refusait le uv le plus recent).
+        runtime.build_steps.insert(
+            0,
+            "pip install \"uv$(sed -n 's/^required-version *= *\"\\(.*\\)\"/\\1/p' pyproject.toml uv.toml 2>/dev/null | head -1)\"".into(),
+        );
     }
     let mut apt = |p: &str| {
         if !resources.apt_packages.iter().any(|a| a == p) {
@@ -505,6 +632,64 @@ fn chemin_de_l_image(facts: &RepoFacts, chemin: &str) -> Option<String> {
         return None;
     }
     Some(format!("__DATA_DIR__{chemin}"))
+}
+
+/// Un chemin de la commande que la traduction a rapporte sous le nom de sa
+/// destination dans l'image, alors que l'image y copiait un dossier du depot
+/// d'un autre nom : fireshare copie `app/server/` vers `/app/server`, et
+/// `--config /app/server/gunicorn.conf.py` devenait
+/// `__INSTALL_DIR__/server/gunicorn.conf.py`, qui n'existe pas. Le chemin
+/// du depot, s'il existe, le remplace.
+fn selon_les_copies(facts: &RepoFacts, commande: &str) -> String {
+    let Some(b) = &facts.build else {
+        return commande.to_string();
+    };
+    let existe = |p: &str| {
+        facts
+            .tree
+            .iter()
+            .any(|c| c == p || c.starts_with(&format!("{p}/")))
+    };
+    commande
+        .split(' ')
+        .map(|m| {
+            let Some(rel) = m.strip_prefix("__INSTALL_DIR__/") else {
+                return m.to_string();
+            };
+            if rel.is_empty() || existe(rel) {
+                return m.to_string();
+            }
+            for (vers, depuis) in &b.copies {
+                let d = depuis.trim_start_matches("./").trim_end_matches('/');
+                if matches!(d, "" | ".") || d.starts_with('/') {
+                    continue;
+                }
+                let Some(x) = execstart::chemin(vers.trim_end_matches('/'))
+                    .strip_prefix("__INSTALL_DIR__/")
+                    .map(str::to_string)
+                else {
+                    continue;
+                };
+                if let Some(reste) = rel.strip_prefix(&format!("{x}/")) {
+                    let candidat = format!("{d}/{reste}");
+                    if existe(&candidat) {
+                        return format!("__INSTALL_DIR__/{candidat}");
+                    }
+                }
+            }
+            m.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Vrai si l'installation prend un binaire publie par l'amont plutot que de
+/// compiler le depot.
+fn binaire_publie(facts: &RepoFacts) -> bool {
+    facts
+        .selection
+        .as_ref()
+        .is_some_and(|s| s.evite_la_compilation())
 }
 
 /// La memoire qu'il faut pour construire, que YunoHost verifie avant
@@ -1113,7 +1298,14 @@ fn avec_les_pairs_tolerees(etapes: Vec<String>) -> Vec<String> {
     etapes
         .into_iter()
         .map(|e| {
-            let t = e.trim();
+            // Des affectations en tete (`export SKIP_ENV_VALIDATION=1; npm
+            // install`, fountain-ink) ne changent rien a la commande.
+            let (tete, t) = match e.trim().rsplit_once("; ") {
+                Some((h, c)) if h.trim_start().starts_with("export ") && !c.contains(';') => {
+                    (format!("{h}; "), c.trim())
+                }
+                _ => (String::new(), e.trim()),
+            };
             let npm = t == "npm ci"
                 || t == "npm install"
                 || (t.starts_with("npm ci ") || t.starts_with("npm install "))
@@ -1123,7 +1315,7 @@ fn avec_les_pairs_tolerees(etapes: Vec<String>) -> Vec<String> {
                     && !t.contains("--global")
                     && !t.contains("legacy-peer-deps");
             if npm {
-                format!("{t} || {t} --legacy-peer-deps")
+                format!("{tete}{t} || {t} --legacy-peer-deps")
             } else {
                 e
             }
@@ -1730,6 +1922,14 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         env.insert(v, "__PREFIXE__".to_string());
     }
 
+    // Une application Node qui lit NODE_ENV tourne en production : le schema
+    // d'environnement d'AdonisJS arretait ferdium-server sur « Missing
+    // environment variable "NODE_ENV" ».
+    if facts.config.variables.iter().any(|v| v.name == "NODE_ENV") {
+        env.entry("NODE_ENV".to_string())
+            .or_insert_with(|| "production".to_string());
+    }
+
     // Le module de reglages que Django attend de l'environnement.
     if let Some(m) = &facts.stack.reglages_django {
         env.entry("DJANGO_SETTINGS_MODULE".to_string())
@@ -1833,7 +2033,13 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         // ne fait tourner.
         Technology::Php => Known::resolved(php::file_de_taches(facts).unwrap_or_default()),
         Technology::Static => Known::resolved(String::new()),
-        _ => avec_l_option_de_port(facts, execstart::derive(facts, app_id)),
+        _ => {
+            let e = avec_l_option_de_port(facts, execstart::derive(facts, app_id));
+            match e.value() {
+                Some(c) => Known::resolved(selon_les_copies(facts, c)),
+                None => e,
+            }
+        }
     };
 
     // Les migrations que le script d'entree lancait avant son `exec` se
@@ -2091,6 +2297,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         a_garder: php::a_garder(facts),
         volumes_lies: volumes_lies(facts),
         volumes_internes: volumes_internes(facts),
+        fichier_de_configuration: fichier_de_configuration(facts),
         repertoire_de_l_image: repertoire_de_l_image(facts),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
@@ -2473,6 +2680,12 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
 /// travaillait a la racine de l'installation, ou ces chemins ne designent
 /// rien. Le repertoire n'est retenu que s'il existe dans le depot.
 fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
+    // Un binaire publie remplace la compilation : l'archive n'a pas
+    // l'arborescence du depot (flaresolverr : `WorkingDirectory=…/src`,
+    // « Changing to the requested working directory failed »).
+    if binaire_publie(facts) {
+        return None;
+    }
     if let Some(c) = facts.build.as_ref().and_then(|b| b.contexte_final.clone()) {
         return Some(c);
     }
@@ -3180,6 +3393,7 @@ mod propositions {
             config: ConfigFacts {
                 example_file: Some(".env.example".into()),
                 moteurs_cites: Default::default(),
+                fichier_d_exemple: None,
                 variables,
             },
             build: Some(BuildRecipe {
