@@ -31,6 +31,9 @@ pub struct RepoTree {
     /// Les prefixes sous lesquels un cadre de configuration lit
     /// l'environnement : `Env::prefixed("CONTINUWUITY_")` (Figment).
     prefixes_env: BTreeSet<String>,
+    /// Les `ExecStart=` des unites systemd que la documentation montre
+    /// (fichier, commande) : cross-seed documente `ExecStart=cross-seed daemon`.
+    execstarts_documentes: Vec<(String, String)>,
 }
 
 impl RepoTree {
@@ -94,6 +97,27 @@ impl RepoTree {
     }
 
     /// Valeurs par defaut donnees par le code aux variables qu'il lit.
+    /// Releve les `ExecStart=` d'un document, en debut de ligne : ceux d'un
+    /// bloc de code, pas ceux cites dans une phrase.
+    pub fn noter_la_documentation(&mut self, path: &str, contenu: &str) {
+        if !contenu.contains("ExecStart=") {
+            return;
+        }
+        for ligne in contenu.lines() {
+            if let Some(c) = ligne.trim().strip_prefix("ExecStart=") {
+                let c = c.trim().trim_start_matches('-').trim();
+                if !c.is_empty() {
+                    self.execstarts_documentes
+                        .push((path.to_string(), c.to_string()));
+                }
+            }
+        }
+    }
+
+    pub fn execstarts_documentes(&self) -> &[(String, String)] {
+        &self.execstarts_documentes
+    }
+
     pub fn prefixes_env(&self) -> &BTreeSet<String> {
         &self.prefixes_env
     }

@@ -179,6 +179,32 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
         facts.stack.commande_declaree = commande_d_unite_systemd(tree, &forge.source.repo)
             .map(|(commande, ou)| ynp_core::facts::CommandeDeclaree { commande, ou });
     }
+    // Une unite que montre la documentation, quand l'image ne dit pas quelle
+    // sous-commande lancer (cross-seed : ENTRYPOINT sans CMD, et
+    // `ExecStart=cross-seed daemon` dans son guide).
+    if facts.stack.commande_declaree.is_none()
+        && facts.build.as_ref().map_or(true, |b| b.cmd.is_none())
+    {
+        let simple = |s: &str| s.to_lowercase().replace(['-', '_', '.'], "");
+        let depot = simple(&forge.source.repo);
+        let documentes = racine.execstarts_documentes();
+        let choisi = documentes
+            .iter()
+            .find(|(_, c)| {
+                c.split_whitespace()
+                    .next()
+                    .map(|m| simple(m.rsplit('/').next().unwrap_or(m)))
+                    .is_some_and(|m| m == depot)
+            })
+            .or(match documentes {
+                [seul] => Some(seul),
+                _ => None,
+            });
+        facts.stack.commande_declaree = choisi.map(|(ou, c)| ynp_core::facts::CommandeDeclaree {
+            commande: c.clone(),
+            ou: ou.clone(),
+        });
+    }
     // Une commande declaree qui lance un script (`web: bash Procfile.sh`
     // chez babybuddy) : on suit le script, comme celui d'une image, pour en
     // tirer le vrai processus et ses migrations.

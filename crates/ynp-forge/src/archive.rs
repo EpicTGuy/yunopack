@@ -52,6 +52,17 @@ pub fn extract(gzipped_tar: &[u8]) -> std::io::Result<RepoTree> {
             // Un fichier source n'est pas garde, mais on releve au passage les
             // variables qu'il lit : c'est la reponse exacte a « sous quel nom
             // l'application attend-elle son port ? ».
+            let documentation = [".md", ".mdx", ".rst"]
+                .iter()
+                .any(|e| relative.to_lowercase().ends_with(e));
+            if size <= MAX_FILE_BYTES && documentation {
+                let mut buf = String::new();
+                if entry.read_to_string(&mut buf).is_ok() {
+                    tree.noter_la_documentation(relative, &buf);
+                }
+                tree.add_path(relative);
+                continue;
+            }
             if size <= MAX_FILE_BYTES && ynp_core::lectures::est_un_source_de_production(relative) {
                 let mut buf = String::new();
                 if entry.read_to_string(&mut buf).is_ok() {
