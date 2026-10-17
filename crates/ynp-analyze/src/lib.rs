@@ -182,8 +182,11 @@ pub fn analyze(forge: ForgeData, racine: &RepoTree) -> RepoFacts {
     // Une unite que montre la documentation, quand l'image ne dit pas quelle
     // sous-commande lancer (cross-seed : ENTRYPOINT sans CMD, et
     // `ExecStart=cross-seed daemon` dans son guide).
+    // Pas pour PHP : le service est php-fpm, et l'unite que la documentation
+    // montre est celle d'un travailleur (`artisan queue:work` chez linguacafe).
     if facts.stack.commande_declaree.is_none()
         && facts.build.as_ref().map_or(true, |b| b.cmd.is_none())
+        && !matches!(facts.stack.primary, ynp_core::facts::Technology::Php)
     {
         let simple = |s: &str| s.to_lowercase().replace(['-', '_', '.'], "");
         let depot = simple(&forge.source.repo);

@@ -70,7 +70,10 @@ fn options() -> &'static [Regex] {
             // Ruby, OptionParser : `opts.on('-p', '--port PORT')`.
             r#"\.on\([^)]*["']--(port|listen|bind)\b"#,
             // Go, cobra et pflag : `Flags().StringVarP(&a, "port", "p", ...)`.
-            r#"\.(?:String|Int|Uint|Uint16)(?:Var)?P?\((?:&[\w.]+\s*,\s*)?"(port|listen|addr|bind|address|listen-addr|http-addr)""#,
+            // Pas l'option d'un sous-ensemble de flag (`settingCmd.IntVar(&port,
+            // "port", ...)` chez 3x-ui, qui regle le port enregistre et que la
+            // commande principale refuse : « flag provided but not defined »).
+            r#"(?:Flags\(\)|\bpflag)\.(?:String|Int|Uint|Uint16)(?:Var)?P?\((?:&[\w.]+\s*,\s*)?"(port|listen|addr|bind|address|listen-addr|http-addr)""#,
             // Go, urfave/cli : `&cli.IntFlag{Name: "port"}`.
             r#"cli\.(?:String|Int|Uint)Flag\{\s*Name:\s*"(port|listen|addr|bind|address)""#,
         ]
@@ -111,9 +114,30 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
     {
         return out;
     }
+    // Une option de sous-commande commander (`program.command("daemon")
+    // .option("-p, --port <port>")` chez cross-seed) : la commande principale
+    // la refuse (« unknown option '--port' »). L'indice porte la
+    // sous-commande : `daemon --port`. Elle se cree aussi par une fonction
+    // du projet (`createCommandWithSharedOptions("daemon", …)`).
+    static SOUS: OnceLock<Regex> = OnceLock::new();
+    let sous = SOUS.get_or_init(|| {
+        Regex::new(r#"\b\w*[cC]ommand\w*\(\s*["']([\w-]+)"#).expect("motif valide")
+    });
     for m in options() {
         for c in m.captures_iter(contenu) {
-            let i = Indice::Option(format!("--{}", &c[1]));
+            let debut = c.get(0).map_or(0, |x| x.start());
+            let js = c[0].starts_with(".option");
+            let commande = js
+                .then(|| sous.captures_iter(&contenu[..debut]).last())
+                .flatten()
+                .filter(|s| {
+                    // La meme chaine d'appels : pas d'instruction terminee entre.
+                    let fin = s.get(0).map_or(0, |x| x.end());
+                    !contenu[fin..debut].contains(';')
+                })
+                .map(|s| format!("{} ", &s[1]))
+                .unwrap_or_default();
+            let i = Indice::Option(format!("{commande}--{}", &c[1]));
             if !out.contains(&i) {
                 out.push(i);
             }
@@ -145,6 +169,18 @@ pub fn indices(contenu: &str) -> Vec<Indice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn l_option_d_une_sous_commande_porte_la_sous_commande() {
+        let js = r#"program.command("daemon").description("run").option("-p, --port <port>", "port").action(f);"#;
+        assert!(indices(js).contains(&Indice::Option("daemon --port".into())));
+        let js = r#"createCommandWithSharedOptions("daemon", "Start")
+	.option("-p, --port <port>", "port", (n) => parseInt(n))"#;
+        assert!(indices(js).contains(&Indice::Option("daemon --port".into())));
+        let js = r#"program.command("search").action(f);
+program.option("-p, --port <port>", "port");"#;
+        assert!(indices(js).contains(&Indice::Option("--port".into())));
+    }
 
     #[test]
     fn une_option_a_adresse_par_defaut_attend_une_adresse() {

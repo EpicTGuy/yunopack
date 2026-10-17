@@ -2514,6 +2514,7 @@ name = "ynp-spec"
 version = "0.8.1"
 dependencies = [
  "indexmap",
+ "regex",
  "toml",
  "ynp-analyze",
  "ynp-core",

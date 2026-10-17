@@ -78,9 +78,13 @@ fn pertinence_compose(path: &str) -> (i32, i32) {
 pub fn parse(path: &str, content: &str, repo_hint: Option<&str>) -> Option<ComposeFacts> {
     let raw: RawCompose = serde_yaml::from_str(content).ok()?;
 
+    // Un service sous un profil ne demarre que sur demande (`docker compose
+    // --profile postgres up`) : 3x-ui garde SQLite par defaut et n'offre
+    // PostgreSQL qu'ainsi. Ce que `docker compose up` lance fait foi.
     let mut services: Vec<ComposeService> = raw
         .services
         .into_iter()
+        .filter(|(_, svc)| svc.profiles.is_empty())
         .map(|(name, svc)| ComposeService {
             is_app: svc.build.is_some(),
             image: svc.image,
@@ -89,7 +93,8 @@ pub fn parse(path: &str, content: &str, repo_hint: Option<&str>) -> Option<Compo
             volumes: svc
                 .volumes
                 .iter()
-                .filter_map(|v| named_volume_target(v))
+                .filter_map(Volume::court)
+                .filter_map(|v| named_volume_target(&v))
                 .collect(),
             command: svc.command.map(|c| match c {
                 Commande::Texte(t) => t.trim().to_string(),
@@ -343,9 +348,36 @@ struct RawService {
     #[serde(default)]
     environment: Environment,
     #[serde(default)]
-    volumes: Vec<String>,
+    volumes: Vec<Volume>,
+    #[serde(default)]
+    profiles: Vec<String>,
     #[serde(default)]
     command: Option<Commande>,
+}
+
+/// Un volume s'ecrit `source:cible` ou en forme longue (`{ type: volume,
+/// source: data, target: /data }`).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Volume {
+    Court(String),
+    Long {
+        #[serde(default)]
+        source: Option<String>,
+        target: String,
+    },
+}
+
+impl Volume {
+    fn court(&self) -> Option<String> {
+        match self {
+            Volume::Court(v) => Some(v.clone()),
+            Volume::Long { source, target } => Some(match source {
+                Some(s) => format!("{s}:{target}"),
+                None => target.clone(),
+            }),
+        }
+    }
 }
 
 /// `command:` s'ecrit en chaine ou en liste.
@@ -368,11 +400,13 @@ enum PortSpec {
 }
 
 /// Compose accepte deux syntaxes pour `environment` : une table, ou une liste
-/// de `CLE=valeur`. Les deux sont courantes, il faut lire les deux.
+/// de `CLE=valeur`. Les deux sont courantes, il faut lire les deux. Une
+/// valeur peut etre un booleen ou un nombre (`HTTP_SECURE_COOKIE: true` chez
+/// domain-watchdog) : la refuser faisait perdre tout le fichier.
 #[derive(Debug, Deserialize, Default)]
 #[serde(untagged)]
 enum Environment {
-    Map(IndexMap<String, Option<String>>),
+    Map(IndexMap<String, Option<serde_yaml::Value>>),
     List(Vec<String>),
     #[default]
     None,
@@ -383,7 +417,15 @@ impl Environment {
         match self {
             Environment::Map(m) => m
                 .into_iter()
-                .map(|(k, v)| (k, v.unwrap_or_default()))
+                .map(|(k, v)| {
+                    let v = match v {
+                        Some(serde_yaml::Value::String(t)) => t,
+                        Some(serde_yaml::Value::Bool(b)) => b.to_string(),
+                        Some(serde_yaml::Value::Number(n)) => n.to_string(),
+                        _ => String::new(),
+                    };
+                    (k, v)
+                })
                 .collect(),
             Environment::List(l) => l
                 .iter()
@@ -400,6 +442,18 @@ impl Environment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn un_booleen_dans_l_environnement_ne_fait_pas_perdre_le_fichier() {
+        let c = parse(
+            "docker-compose.yml",
+            "services:\n  app:\n    image: x/app\n    environment:\n      SECURE: true\n      N: 3\n    volumes:\n      - type: volume\n        source: data\n        target: /data\n  db:\n    image: postgres:16\n",
+            None,
+        )
+        .expect("fichier lu");
+        assert_eq!(c.services.len(), 2);
+        assert_eq!(c.services[0].environment["SECURE"], "true");
+    }
 
     #[test]
     fn le_port_retenu_est_celui_du_conteneur_pas_celui_de_l_hote() {

@@ -27,7 +27,9 @@ pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
     let mut resources = resources(facts, &app_id);
     outils_des_etapes(facts, &mut runtime, &mut resources);
     if let Some(d) = &facts.stack.sous_repertoire {
-        dans_le_sous_repertoire(&mut runtime, d);
+        let chemins = &facts.tree;
+        let existe = |x: &str| chemins.iter().any(|c| c.starts_with(&format!("{x}/")));
+        dans_le_sous_repertoire(&mut runtime, d, existe);
     }
     // Un reglage qui designe le repertoire de donnees l'exige : sans lui,
     // YunoHost s'arrete sur « Variable $data_dir wasn't initialized »
@@ -53,7 +55,17 @@ pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
 /// (`backend`) : les etapes s'y lancent, les chemins de l'installation que
 /// la commande designe y sont ramenes, et le service y travaille. Le venv,
 /// cree a la racine, reste ou il est.
-fn dans_le_sous_repertoire(r: &mut Runtime, d: &str) {
+///
+/// Une etape que le Dockerfile situe deja depuis la racine du depot (`cd
+/// client && npm ci` chez checkmate, dont le serveur vit dans `server`) n'y
+/// est pas ramenee : `cd server && cd client` ne designe rien. De meme pour
+/// un repertoire de travail qui est un dossier du depot. `existe` dit si un
+/// dossier existe a la racine du depot.
+fn dans_le_sous_repertoire(r: &mut Runtime, d: &str, existe: impl Fn(&str) -> bool) {
+    let depuis_la_racine = |x: &str| {
+        let x = x.trim_end_matches('/');
+        !x.starts_with('.') && !x.starts_with('/') && existe(x) && !existe(&format!("{d}/{x}"))
+    };
     let ramener = |c: &str| {
         c.replace("__INSTALL_DIR__/venv/", "\u{0}")
             .replace("__INSTALL_DIR__/", &format!("__INSTALL_DIR__/{d}/"))
@@ -62,7 +74,26 @@ fn dans_le_sous_repertoire(r: &mut Runtime, d: &str) {
     r.build_steps = r
         .build_steps
         .iter()
-        .map(|e| format!("cd {d} && {e}"))
+        .map(|e| {
+            // Les chemins que l'etape designe : un dossier de la racine du
+            // depot absent du sous-repertoire la situe a la racine ; un dossier
+            // du sous-repertoire, dans celui-ci.
+            let premiers: Vec<&str> = e
+                .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+                .map(|m| m.trim_matches(|c| c == '"' || c == '\''))
+                .filter(|m| !m.is_empty() && !m.starts_with(['-', '$', '/', '.', '~']))
+                .filter_map(|m| m.split('/').next())
+                .collect();
+            let racine = premiers.iter().any(|x| *x == d || depuis_la_racine(x));
+            let dedans = premiers
+                .iter()
+                .any(|x| existe(&format!("{d}/{x}")) && !existe(x));
+            if racine && !dedans {
+                e.clone()
+            } else {
+                format!("cd {d} && {e}")
+            }
+        })
         .collect();
     if let Some(c) = r.execstart.value() {
         r.execstart = Known::resolved(ramener(c));
@@ -73,6 +104,7 @@ fn dans_le_sous_repertoire(r: &mut Runtime, d: &str) {
     }
     r.racine_web = r.racine_web.as_ref().map(|w| format!("{d}/{w}"));
     r.repertoire_de_travail = Some(match &r.repertoire_de_travail {
+        Some(w) if w == d || w.starts_with(&format!("{d}/")) || depuis_la_racine(w) => w.clone(),
         Some(w) => format!("{d}/{w}"),
         None => d.to_string(),
     });
@@ -323,7 +355,10 @@ fn integration(facts: &RepoFacts) -> Integration {
         // Des binaires publies par architecture bornent ce qu'on peut installer :
         // annoncer « all » masquerait l'app sur les plateformes non couvertes.
         architectures: if prebuilt.is_empty() {
-            Architectures::All
+            match telecharge_pour_une_architecture(facts) {
+                Some(a) => Architectures::Only(vec![a.to_string()]),
+                None => Architectures::All,
+            }
         } else {
             Architectures::Only(prebuilt.iter().map(|a| a.arch.clone()).collect())
         },
@@ -334,6 +369,34 @@ fn integration(facts: &RepoFacts) -> Integration {
         ram_build: memoire_de_construction(facts).into(),
         ..Integration::default()
     }
+}
+
+/// L'architecture d'un binaire que la construction telecharge sans tenir
+/// compte de la machine : simplelogin prend `uv-x86_64-unknown-linux-gnu`,
+/// inutilisable sur arm64 (« cannot execute binary file: Exec format error »).
+/// Une etape qui lit l'architecture (`uname -m`, `$TARGETARCH`) s'adapte.
+fn telecharge_pour_une_architecture(facts: &RepoFacts) -> Option<&'static str> {
+    let etapes = &facts.build.as_ref()?.build_steps;
+    let adapte = |e: &str| e.contains("uname") || e.contains("ARCH") || e.contains("arch)");
+    let telecharge = |e: &str| {
+        (e.contains("curl ") || e.contains("wget ") || e.contains("ADD ")) && e.contains("://")
+    };
+    etapes
+        .iter()
+        .filter(|e| telecharge(e) && !adapte(e))
+        .find_map(|e| {
+            let bas = e.to_ascii_lowercase();
+            if ["x86_64", "amd64", "linux-x64", "x86-64"]
+                .iter()
+                .any(|m| bas.contains(m))
+            {
+                Some("amd64")
+            } else if ["aarch64", "arm64"].iter().any(|m| bas.contains(m)) {
+                Some("arm64")
+            } else {
+                None
+            }
+        })
 }
 
 /// La memoire qu'il faut pour construire, que YunoHost verifie avant
@@ -506,39 +569,80 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
         return etapes;
     };
     // Le WORKDIR, et la ou l'image copie la racine du depot (`COPY . /buku`
-    // chez bukuserver, qui installe ensuite `/buku[server]`).
-    let mut racines: Vec<String> = b
+    // chez bukuserver, qui installe ensuite `/buku[server]`) : ils valent la
+    // racine de l'installation.
+    let mut racines: Vec<(String, String)> = b
         .copies
         .iter()
         .filter(|(vers, depuis)| vers.starts_with('/') && matches!(depuis.as_str(), "." | "./"))
-        .map(|(vers, _)| vers.trim_end_matches('/').to_string())
+        // `COPY . /helpy/.` vaut `COPY . /helpy`.
+        .map(|(vers, _)| {
+            (
+                vers.trim_end_matches('/')
+                    .trim_end_matches("/.")
+                    .to_string(),
+                ".".to_string(),
+            )
+        })
         .collect();
     racines.extend(
         b.workdir
             .as_deref()
-            .map(|w| w.trim_end_matches('/').to_string()),
+            .map(|w| (w.trim_end_matches('/').to_string(), ".".to_string())),
     );
-    racines.retain(|r| r.len() > 1);
+    // Un dossier du depot copie ailleurs (`COPY app/server/ /app/server` chez
+    // fireshare, qui lance ensuite `pip install /app/server`) : il est a sa
+    // place dans l'installation.
+    racines.extend(b.copies.iter().filter_map(|(vers, depuis)| {
+        let d = depuis.trim_start_matches("./").trim_end_matches('/');
+        let dossier = facts.tree.iter().any(|c| c.starts_with(&format!("{d}/")));
+        (vers.starts_with('/') && !matches!(d, "" | ".") && !d.starts_with('/') && dossier)
+            .then(|| (vers.trim_end_matches('/').to_string(), format!("./{d}")))
+    }));
+    // Un dossier ou l'image ne copie que des fichiers de la racine du depot,
+    // sous leur nom (`COPY package.json bun.lock /temp/dev/` chez convertx,
+    // pour y installer les dependances en cache) : il tient lieu de racine.
+    let mut manifestes: std::collections::BTreeMap<String, bool> = Default::default();
+    for (vers, depuis) in &b.copies {
+        let Some((dossier, nom)) = vers.rsplit_once('/') else {
+            continue;
+        };
+        if !vers.starts_with('/') || dossier.is_empty() {
+            continue;
+        }
+        let d = depuis.trim_start_matches("./");
+        let ok = !d.contains('/') && d == nom && facts.tree.iter().any(|c| c == d);
+        *manifestes.entry(dossier.to_string()).or_insert(true) &= ok;
+    }
+    racines.extend(
+        manifestes
+            .into_iter()
+            .filter(|(_, ok)| *ok)
+            .map(|(d, _)| (d, ".".to_string())),
+    );
+    racines.retain(|(r, _)| r.len() > 1);
     if racines.is_empty() {
         return etapes;
     }
+    // Le chemin le plus long d'abord : `/app/server` avant `/app`.
+    racines.sort_by_key(|(r, _)| std::cmp::Reverse(r.len()));
     etapes
         .into_iter()
         .map(|e| {
             e.split(' ')
                 .map(|m| {
-                    for r in &racines {
+                    for (r, local) in &racines {
                         if let Some(reste) = m.strip_prefix(&format!("{r}/")) {
-                            return format!("./{reste}");
+                            return format!("{local}/{reste}");
                         }
                         if m == r {
-                            return ".".to_string();
+                            return local.clone();
                         }
                         // Des extras pip : `/buku[server]`.
                         if let Some(reste) =
                             m.strip_prefix(r.as_str()).filter(|x| x.starts_with('['))
                         {
-                            return format!(".{reste}");
+                            return format!("{local}{reste}");
                         }
                     }
                     m.to_string()
@@ -852,8 +956,12 @@ fn yarn_et_pnpm_par_corepack(etapes: Vec<String>) -> Vec<String> {
             // Les scripts du projet appellent eux-memes `pnpm` (emdash :
             // `pnpm run --filter … build` dans `pnpm build`) : les raccourcis
             // de corepack, poses dans l'installation, sont dans le PATH.
+            // Node 25 ne livre plus corepack (your-spotify : « corepack:
+            // command not found ») : il s'installe alors depuis npm, au meme
+            // endroit.
             let raccourcis = "export COREPACK_HOME=\"$PWD/.corepack\" PATH=\"$PWD/.corepack/bin:$PATH\"; \
-                 mkdir -p .corepack/bin && corepack enable --install-directory .corepack/bin pnpm yarn;";
+                 mkdir -p .corepack/bin && { command -v corepack >/dev/null || npm install -g --prefix \"$PWD/.corepack\" corepack >/dev/null; } \
+                 && corepack enable --install-directory .corepack/bin pnpm yarn;";
             if (change || ligne.contains("corepack ")) && !ligne.contains("--install-directory") {
                 let ligne = ligne
                     .trim_start_matches("export COREPACK_HOME=\"$PWD/.corepack\"; ")
@@ -945,6 +1053,84 @@ fn ecrit_dans_un_repertoire_de_binaires(etape: &str) -> bool {
     false
 }
 
+/// Une installation des seules dependances de production qui suit une
+/// installation complete prepare, dans l'image, l'etape finale : sur place,
+/// elle n'est pas refaite. Avant la construction, elle retirait les outils
+/// de construction (convertx : `bun install --production` puis `bun run
+/// build`) ; apres, son `postinstall` appelait un outil de developpement
+/// qu'elle venait de retirer (documenso : « patch-package: not found »).
+fn sans_elagage(etapes: Vec<String>) -> Vec<String> {
+    const PROD: &[&str] = &["--production", "--prod", "--omit=dev", "--only=production"];
+    let installe = |e: &str| {
+        e.split(" && ")
+            .last()
+            .is_some_and(|c| c.contains(" install") || c.contains(" ci") || c.ends_with(" i"))
+    };
+    let elague = |e: &str| installe(e) && e.split_whitespace().any(|m| PROD.contains(&m));
+    let Some(premiere) = etapes.iter().position(|e| installe(e) && !elague(e)) else {
+        return etapes;
+    };
+    etapes
+        .into_iter()
+        .enumerate()
+        .filter(|(i, e)| !(*i > premiere && elague(e)))
+        .map(|(_, e)| e)
+        .collect()
+}
+
+#[cfg(test)]
+mod elagage {
+    #[test]
+    fn l_installation_de_production_n_est_pas_refaite() {
+        let e = super::sans_elagage(vec![
+            "bun install --frozen-lockfile".into(),
+            "bun install --frozen-lockfile --production".into(),
+            "bun run build".into(),
+        ]);
+        assert_eq!(e, vec!["bun install --frozen-lockfile", "bun run build"]);
+    }
+}
+
+/// `pnpm deploy` vers un repertoire de l'espace de travail lui-meme : pnpm y
+/// calcule mal ses chemins et ecrit un cran trop haut (cobalt : « EACCES:
+/// permission denied, mkdir '/var/www/.sortie' »). Le deploiement se fait
+/// dans un repertoire temporaire, copie ensuite a sa place.
+fn deploiements_hors_de_l_espace(etapes: Vec<String>) -> Vec<String> {
+    use std::sync::OnceLock;
+    static DEPLOY: OnceLock<regex::Regex> = OnceLock::new();
+    let deploy = DEPLOY.get_or_init(|| {
+        regex::Regex::new(r"((?:\bcorepack\s+|\bnpx\s+(?:-y\s+|--yes\s+)?)?\bpnpm\s(?:[^&;|]*\s)?deploy\s[^&;|]*?)(\$PWD/[^\s&;|]+)").expect("motif valide")
+    });
+    etapes
+        .into_iter()
+        .map(|e| {
+            let Some(c) = deploy.captures(&e) else {
+                return e;
+            };
+            let (tout, cible) = (c.get(0).map_or("", |m| m.as_str()), &c[2]);
+            let remplace = format!(
+                "{{ d=$(mktemp -d) && {}\"$d\" && mkdir -p {cible} && cp -a \"$d/.\" {cible} && rm -rf \"$d\"; }}",
+                &c[1]
+            );
+            e.replacen(tout, &remplace, 1)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod deploiement {
+    #[test]
+    fn pnpm_deploy_passe_par_un_repertoire_temporaire() {
+        let e = super::deploiements_hors_de_l_espace(vec![
+            "corepack pnpm deploy --filter=api --prod $PWD/.sortie/prod/api".into(),
+        ]);
+        assert_eq!(
+            e[0],
+            "{ d=$(mktemp -d) && corepack pnpm deploy --filter=api --prod \"$d\" && mkdir -p $PWD/.sortie/prod/api && cp -a \"$d/.\" $PWD/.sortie/prod/api && rm -rf \"$d\"; }"
+        );
+    }
+}
+
 /// `corepack enable` ecrit ses raccourcis dans le repertoire de Node, qui
 /// appartient a root : execute comme utilisateur de l'application, il
 /// echoue. Appeler directement `corepack pnpm …` produit le meme effet sans
@@ -1034,11 +1220,27 @@ fn copies_apres_construction(facts: &RepoFacts) -> Vec<String> {
             // Sans ecraser ce qui est deja en place : la configuration que les
             // scripts ont ecrite (`.env`, en lecture seule) restait sinon
             // la cible d'une copie refusee (benevoles).
+            // Un motif de fichiers (`dist/*.whl` chez freetar) : un paquet
+            // que l'image installe, deja installe par les etapes.
             if vers.is_empty() {
-                return (!c.depuis.is_empty() && c.depuis != ".")
+                return (!c.depuis.is_empty() && c.depuis != "." && !c.depuis.contains('*'))
                     .then(|| format!("cp -an {}/. .", c.depuis));
             }
+            // L'etape finale travaille dans un dossier du depot (`server` chez
+            // checkmate) : c'est la que la destination se trouve, et la
+            // source se lit depuis la racine.
+            let vers = match &b.contexte_final {
+                Some(f) if !f.starts_with(".sortie") => format!("{f}/{vers}"),
+                _ => vers,
+            };
             if vers == c.depuis {
+                return None;
+            }
+            // La copie est deja une etape de la construction.
+            if b.build_steps
+                .iter()
+                .any(|e| e.ends_with(&format!("cp -a {} {vers}", c.depuis)))
+            {
                 return None;
             }
             let parent = vers.rsplit_once('/').map(|(p, _)| p);
@@ -1126,7 +1328,7 @@ fn version_de_resource(facts: &RepoFacts, tech: Technology) -> Option<String> {
         // Une etape de construction peut exiger un autre runtime que celui de
         // l'application : Buzz est ecrit en Rust mais construit son interface
         // dans une etape `FROM node:22`. Sans Node, `pnpm` n'existe pas.
-        return version_d_une_etape_de_construction(facts, tech);
+        return version_d_une_etape_de_construction(facts, tech).map(|v| au_plancher(tech, &v));
     }
     // Un binaire deja construit n'a pas besoin de son runtime a la compilation.
     if facts
@@ -1241,6 +1443,62 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         }
         if let Some(valeur) = valeur_yunohost(var.role) {
             env.insert(var.name.clone(), valeur.to_string());
+        }
+    }
+
+    // Le fichier de configuration du paquet remplace l'exemple : ses autres
+    // valeurs actives y sont reprises. Le schema d'environnement d'AdonisJS
+    // arretait ferdium-server sur « Missing environment variable "HOST" »,
+    // que l'exemple fixait a 127.0.0.1. Pas une adresse vers un autre
+    // service de l'image, ni un jeton que YunoHost substituerait.
+    if let Some(exemple) = &facts.config.example_file {
+        for var in &facts.config.variables {
+            if var.source != *exemple
+                || var.facultative
+                || var.role != ConfigRole::Other
+                || env.contains_key(&var.name)
+            {
+                continue;
+            }
+            let Some(d) = var.default.as_deref().filter(|d| !d.is_empty()) else {
+                continue;
+            };
+            let ailleurs = d.split_once("://").is_some_and(|(_, r)| {
+                let hote = r.rsplit('@').next().unwrap_or(r);
+                !(hote.starts_with("localhost") || hote.starts_with("127.0.0.1"))
+            });
+            // Le nom d'un autre service de l'image (`REDIS_HOST=redis`).
+            let service = facts
+                .compose
+                .as_ref()
+                .is_some_and(|c| c.services.iter().any(|s| !s.is_app && s.name == d));
+            // Le mode de fonctionnement : l'exemple vise le developpement.
+            const MODES: &[&str] = &[
+                "NODE_ENV",
+                "APP_ENV",
+                "RAILS_ENV",
+                "RACK_ENV",
+                "FLASK_ENV",
+                "ENVIRONMENT",
+                "ENV",
+                "DEBUG",
+                "APP_DEBUG",
+                "LOG_LEVEL",
+            ];
+            // Un service exterieur facultatif (S3, SMTP, OAuth…) : une valeur
+            // d'exemple l'activerait.
+            if ailleurs
+                || service
+                || d_un_service_tiers(&var.name)
+                || d.contains("example.")
+                || d.contains("__")
+                || d.contains('$')
+                || MODES.contains(&var.name.as_str())
+            {
+                continue;
+            }
+            let d = if d == "0.0.0.0" { "127.0.0.1" } else { d };
+            env.insert(var.name.clone(), d.to_string());
         }
     }
 
@@ -1558,10 +1816,9 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 }
             }
         }
-        sans_activation_de_corepack(relatives_au_repertoire_de_travail(
-            sans_clone_du_depot(etapes, facts),
-            facts,
-        ))
+        sans_elagage(deploiements_hors_de_l_espace(sans_activation_de_corepack(
+            relatives_au_repertoire_de_travail(sans_clone_du_depot(etapes, facts), facts),
+        )))
     };
     // @t3-oss/env valide l'environnement des la construction, et l'arrete
     // faute des valeurs de production (fountain-ink : « Invalid environment
@@ -1710,13 +1967,19 @@ fn avec_l_option_de_port(facts: &RepoFacts, execstart: Known<String>) -> Known<S
         .options
         .iter()
         .map(|(o, _)| o.as_str())
-        .find(|o| matches!(*o, "--port" | "--http-port"));
+        .find(|o| matches!(o.rsplit(' ').next(), Some("--port" | "--http-port")));
+    // L'option d'une sous-commande (`daemon --port`) : la sous-commande est
+    // ajoutee si la commande ne la porte pas deja.
+    let option = option.map(|o| match o.rsplit_once(' ') {
+        Some((sous, opt)) if commande.split_whitespace().any(|m| m == sous) => opt,
+        _ => o,
+    });
     match option {
         Some(o)
             if sans_variable_de_port(facts)
                 && !commande.is_empty()
                 && !commande.contains("__PORT__")
-                && !commande.contains(o) =>
+                && !commande.contains(o.rsplit(' ').next().unwrap_or(o)) =>
         {
             Known::resolved(format!("{commande} {o} __PORT__"))
         }
@@ -2103,9 +2366,48 @@ fn avec_le_schema_attendu(adresse: &str, v: &ynp_core::facts::ConfigVar, base: D
         {
             "postgresql".to_string()
         }
-        _ => return adresse.to_string(),
+        _ => return avec_les_parametres_de_l_exemple(adresse.to_string(), v, base),
     };
-    format!("{schema}://{reste}")
+    avec_les_parametres_de_l_exemple(format!("{schema}://{reste}"), v, base)
+}
+
+/// Les parametres de l'adresse d'exemple que l'application exige : Doctrine
+/// refuse de demarrer sans `serverVersion` (novosga : « Invalid platform
+/// version "" specified »). La version est celle du serveur de Debian
+/// bookworm, et non celle de l'image de l'amont.
+fn avec_les_parametres_de_l_exemple(
+    adresse: String,
+    v: &ynp_core::facts::ConfigVar,
+    base: Database,
+) -> String {
+    let Some((_, requete)) = v.default.as_deref().and_then(|d| d.split_once('?')) else {
+        return adresse;
+    };
+    let mut ajouts = Vec::new();
+    for p in requete.trim_matches('"').split('&') {
+        let Some((k, val)) = p.split_once('=') else {
+            continue;
+        };
+        if adresse.contains(&format!("{k}=")) {
+            continue;
+        }
+        match k {
+            "serverVersion" => ajouts.push(format!(
+                "serverVersion={}",
+                match base {
+                    Database::PostgreSql => "15",
+                    _ => "10.11.6-MariaDB",
+                }
+            )),
+            "charset" => ajouts.push(format!("charset={val}")),
+            _ => {}
+        }
+    }
+    if ajouts.is_empty() {
+        return adresse;
+    }
+    let sep = if adresse.contains('?') { '&' } else { '?' };
+    format!("{adresse}{sep}{}", ajouts.join("&"))
 }
 
 /// Le nom du moteur dans le vocabulaire de l'application.
@@ -3128,7 +3430,7 @@ mod propositions {
             "corepack pnpm install".into(),
             "npm run build".into(),
         ]);
-        let r = "export COREPACK_HOME=\"$PWD/.corepack\" PATH=\"$PWD/.corepack/bin:$PATH\"; mkdir -p .corepack/bin && corepack enable --install-directory .corepack/bin pnpm yarn;";
+        let r = "export COREPACK_HOME=\"$PWD/.corepack\" PATH=\"$PWD/.corepack/bin:$PATH\"; mkdir -p .corepack/bin && { command -v corepack >/dev/null || npm install -g --prefix \"$PWD/.corepack\" corepack >/dev/null; } && corepack enable --install-directory .corepack/bin pnpm yarn;";
         assert_eq!(e[0], format!("{r} corepack yarn build"));
         assert_eq!(
             e[1],
@@ -3212,7 +3514,7 @@ mod propositions {
             migrations: vec!["__INSTALL_DIR__/venv/bin/python manage.py migrate".into()],
             ..Default::default()
         };
-        dans_le_sous_repertoire(&mut r, "backend");
+        dans_le_sous_repertoire(&mut r, "backend", |_| false);
         assert_eq!(r.build_steps, vec!["cd backend && go build -o counter ."]);
         assert_eq!(
             r.execstart.value().map(String::as_str),

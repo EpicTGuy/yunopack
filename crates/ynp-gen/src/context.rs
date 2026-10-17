@@ -512,7 +512,9 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
 /// heap limit » sur un serveur de 4 Go qui avait encore de quoi.
 /// Et un repertoire global pour pnpm dans l'installation : `pnpm add -g`
 /// s'arretait sur ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH (reactive-resume).
-const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home:$PATH\"; ";
+/// pnpm 10 y range ses executables globaux dans `bin/` : les deux sont dans
+/// le PATH.
+const ENV_NODE: &str = "export NODE_OPTIONS=\"--max-old-space-size=$(awk '/MemTotal/ {print int($2 * 0.75 / 1024)}' /proc/meminfo) ${NODE_OPTIONS:-}\" PNPM_HOME=\"$PWD/.pnpm-home\" PATH=\"$PWD/.pnpm-home/bin:$PWD/.pnpm-home:$PATH\"; ";
 
 /// Vrai si une etape lance un outil de Node.
 fn lance_node(etape: &str) -> bool {

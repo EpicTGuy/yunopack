@@ -11,6 +11,7 @@ ynp-core.workspace = true
 ynp-analyze.workspace = true
 toml.workspace = true
 indexmap.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 toml.workspace = true

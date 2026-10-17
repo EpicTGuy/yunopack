@@ -11,6 +11,9 @@ H="${YUNOPACK_HOTE_TEST:?alias SSH requis (hote de test)}"
 L="$1"; R="$2"; mkdir -p "$R"
 # Un binaire fige : recompiler pendant la campagne ne la fausse pas.
 YC="$R/yunopack"; cp "$Y" "$YC"
+# L'architecture de l'hote : un paquet qui ne la vise pas est a tester
+# ailleurs (ARCH), pas un echec.
+case "$(ssh "$H" uname -m 2>/dev/null)" in aarch64) ARCH=arm64;; x86_64) ARCH=amd64;; *) ARCH="";; esac
 : > "$R/bilan.txt"; : > "$R/a-rejouer.txt"
 RESEAU='reseau :|Broken pipe|client_loop|assign requested address|Connection reset by peer|ssh: connect to host|ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENOTFOUND|fetch failed|Connect Timeout|Could not resolve host|Temporary failure in name resolution|Connection timed out|TLS handshake timeout|Read timed out|Failed to connect to'
 
@@ -23,6 +26,11 @@ un_depot() {
   if [ $? -ne 0 ]; then
     if grep -qE "$RESEAU" "$d/plan.txt"; then echo "$nom RESEAU"; else echo "$nom STATIQUE"; fi
     return
+  fi
+  local archs
+  archs=$(grep -m1 '^architectures' "$d"/*_ynh/manifest.toml 2>/dev/null)
+  if [ -n "$ARCH" ] && [ -n "$archs" ] && ! echo "$archs" | grep -qE "\"all\"|\"$ARCH\""; then
+    echo "$nom ARCH ${archs#*= }"; return
   fi
   perl -e 'alarm 5400; exec @ARGV' "$YC" -o "$d" test --host "$H" > "$d/test.txt" 2>&1
   if [ $? -eq 0 ]; then echo "$nom VALIDE"; return; fi

@@ -584,14 +584,74 @@ async fn cause_dans_le_journal(hote: &Hote, sortie: &str) -> Option<String> {
         .collect();
     // La derniere erreur est souvent le recapitulatif generique ; les
     // premieres disent ce qui s'est passe.
-    (!erreurs.is_empty()).then(|| {
-        erreurs
-            .iter()
-            .take(3)
-            .map(|e| format!("CAUSE {e}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    })
+    let mut cause: Vec<String> = erreurs
+        .iter()
+        .take(3)
+        .map(|e| format!("CAUSE {e}"))
+        .collect();
+    cause.extend(fin_du_script(&journal.stdout));
+    (!cause.is_empty()).then(|| cause.join("\n"))
+}
+
+/// Ce que le script a ecrit juste avant d'echouer.
+///
+/// L'erreur de YunoHost reste generique (« Une erreur est survenue dans le
+/// script d'installation ») et l'extrait qu'il affiche est souvent vide :
+/// chez cobalt, le `EACCES: permission denied, mkdir '/var/www/.sortie'` de
+/// pnpm n'etait que dans le journal, entre la derniere commande lancee et
+/// `ynh_exit_properly`.
+fn fin_du_script(journal: &str) -> Vec<String> {
+    let lignes: Vec<&str> = journal
+        .lines()
+        .map(|l| l.split_once(" - ").map_or(l, |(_, m)| m))
+        .collect();
+    let Some(fin) = lignes
+        .iter()
+        .position(|l| l.starts_with("+ ynh_exit_properly"))
+    else {
+        return Vec::new();
+    };
+    let debut = lignes[..fin]
+        .iter()
+        .rposition(|l| l.starts_with("+ ynh_"))
+        .unwrap_or(fin.saturating_sub(20));
+    let mut sortie: Vec<String> = Vec::new();
+    for l in &lignes[debut..fin] {
+        let l = l.trim_end();
+        if l.trim().is_empty() || l.starts_with("+ sudo ") || l.trim_start().starts_with("at ") {
+            continue;
+        }
+        sortie.push(format!(
+            "JOURNAL {}",
+            l.chars().take(240).collect::<String>()
+        ));
+    }
+    // La commande, puis ses dernieres lignes.
+    if sortie.len() > 16 {
+        let commande = sortie.remove(0);
+        let reste = sortie.split_off(sortie.len() - 15);
+        sortie = std::iter::once(commande).chain(reste).collect();
+    }
+    sortie
+}
+
+#[cfg(test)]
+mod fin_du_journal {
+    use super::fin_du_script;
+
+    #[test]
+    fn la_sortie_de_la_commande_qui_a_echoue_est_remontee() {
+        let j = "2026-10-17 12:39:32,455: DEBUG - + ynh_exec_as_app bash -c 'pnpm deploy x'
+2026-10-17 12:39:32,455: DEBUG - + sudo -u cobalt env bash -c 'pnpm deploy x'
+2026-10-17 12:39:34,092: DEBUG - pnpm: EACCES: permission denied, mkdir '/var/www/.sortie'
+2026-10-17 12:39:34,093: DEBUG -     at async Object.mkdir (node:internal/fs/promises:1571:10)
+2026-10-17 12:39:34,252: DEBUG - + ynh_exit_properly
+2026-10-17 12:39:34,252: DEBUG - + local exit_code=243";
+        let f = fin_du_script(j);
+        assert_eq!(f.len(), 2);
+        assert!(f[0].contains("pnpm deploy"));
+        assert!(f[1].contains("EACCES"));
+    }
 }
 
 /// Vrai si le manifeste demande un chemin d'installation.

@@ -764,14 +764,27 @@ fn php_version(tree: &RepoTree) -> Option<String> {
         .and_then(first_version)
 }
 
+/// La version de Ruby, entiere : Bundler exige exactement celle que fixe le
+/// Gemfile (fizzy : « Your Ruby version is 3.4.11, but your Gemfile
+/// specified 3.4.8 »), et rbenv installe `3.4` en sa derniere mineure.
 fn ruby_version(tree: &RepoTree) -> Option<String> {
-    if let Some(v) = tree.text(".ruby-version").and_then(first_version) {
+    let complete = |s: &str| {
+        let debut = s.find(|c: char| c.is_ascii_digit())?;
+        let v: String = s[debut..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        let v = v.trim_end_matches('.').to_string();
+        (!v.is_empty()).then_some(v)
+    };
+    if let Some(v) = tree.text(".ruby-version").and_then(complete) {
         return Some(v);
     }
     tree.text("Gemfile")?
         .lines()
         .find(|l| l.trim_start().starts_with("ruby "))
-        .and_then(first_version)
+        .filter(|l| !l.contains('>') && !l.contains('~'))
+        .and_then(complete)
 }
 
 fn python_version(tree: &RepoTree) -> Option<String> {
@@ -955,7 +968,7 @@ mod tests {
         assert_eq!(detect(&py, None).runtime_version.as_deref(), Some("3.11"));
 
         let rb = RepoTree::from_pairs([("Gemfile", "source 'x'\nruby \"3.2.2\"\n")]);
-        assert_eq!(detect(&rb, None).runtime_version.as_deref(), Some("3.2"));
+        assert_eq!(detect(&rb, None).runtime_version.as_deref(), Some("3.2.2"));
 
         let node = RepoTree::from_pairs([(".nvmrc", "20.11.0\n"), ("package.json", "{}")]);
         assert_eq!(

@@ -463,9 +463,19 @@ fn exemple(tree: &RepoTree) -> Option<(String, &str)> {
         })
         .collect();
     trouves.sort_by_key(|p| (p.matches('/').count(), p.len(), p.clone()));
-    let p = trouves.into_iter().next()?;
-    let c = tree.text(&p)?;
-    Some((p, c))
+    if let Some(p) = trouves.into_iter().next() {
+        let c = tree.text(&p)?;
+        return Some((p, c));
+    }
+    // Un `.env` versionne tient lieu d'exemple : c'est la convention de
+    // Symfony, qui y range ses valeurs par defaut (novosga, domain-watchdog :
+    // `DATABASE_URL="postgresql://…?serverVersion=16&charset=utf8"`). Le
+    // fichier de configuration du paquet le remplace : il doit tout en
+    // reprendre.
+    tree.first_text(&[".env"]).filter(|(_, c)| {
+        c.lines()
+            .any(|l| l.contains('=') && !l.trim_start().starts_with('#'))
+    })
 }
 
 /// Ajoute une variable si aucune source plus sure ne l'a deja nommee.

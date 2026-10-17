@@ -745,6 +745,36 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // Un gestionnaire de versions de Node (`bash n 18` chez pinry,
+    // node-build chez klaxon) installe dans /usr/local, refuse a
+    // l'utilisateur de l'application : la resource nodejs de YunoHost fournit
+    // Node.
+    let lance = if matches!(bin, "bash" | "sh") {
+        cmd.get(1).map(|s| s.rsplit('/').next().unwrap_or(s))
+    } else {
+        Some(bin)
+    };
+    if matches!(lance, Some("n" | "nvm" | "nodenv" | "node-build" | "fnm"))
+        || (bin == "volta" && cmd.get(1).is_some_and(|s| s == "install"))
+    {
+        return RunKind::Noise;
+    }
+
+    // Le tri qui ne garde d'une copie que ses manifestes (`find . -type f \!
+    // -name "package*.json" -exec rm -r {} \;` chez gladys) fait une couche de
+    // cache dans l'image ; dans l'installation, il effacerait le code.
+    if bin == "find"
+        && cmd
+            .windows(2)
+            .any(|w| matches!(w[0].as_str(), "!" | "\\!" | "-not") && w[1] == "-name")
+        && (cmd.iter().any(|t| t == "-delete")
+            || cmd
+                .windows(2)
+                .any(|w| w[0] == "-exec" && w[1].rsplit('/').next() == Some("rm")))
+    {
+        return RunKind::Noise;
+    }
+
     // `npm link` et `npm install -g .` installent le paquet dans le
     // repertoire de Node, refuse a l'utilisateur de l'application ; ses
     // executables se lancent depuis l'installation (voir `bins_npm`).
@@ -798,7 +828,9 @@ fn classify(toks: &[String]) -> RunKind {
     }
 
     // La configuration du serveur web ou du superviseur de l'image : YunoHost
-    // a son nginx et son systemd. phplist reglait le journal d'Apache.
+    // a son nginx et son systemd. phplist reglait le journal d'Apache. Les
+    // journaux de l'image aussi : `touch /var/log/php.log` chez geeftlist ;
+    // ceux de l'application vont dans `/var/log/$app`.
     if matches!(
         bin,
         "a2enmod" | "a2enconf" | "a2ensite" | "a2dismod" | "a2disconf" | "a2dissite"
@@ -810,6 +842,7 @@ fn classify(toks: &[String]) -> RunKind {
             "/etc/supervisor",
             "/usr/local/etc/php-fpm.d/",
             "/etc/php/",
+            "/var/log/",
         ]
         .iter()
         .any(|p| t.starts_with(p))
