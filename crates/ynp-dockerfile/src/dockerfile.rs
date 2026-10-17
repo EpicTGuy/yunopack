@@ -833,6 +833,8 @@ fn classify(toks: &[String]) -> RunKind {
             | "docker-php-source"
             | "install-php-extensions"
             | "pecl"
+            // PIE, l'installeur d'extensions qui succede a pecl (dreeve).
+            | "pie"
             | "phpize"
     ) || (bin == "git" && cmd.iter().any(|t| t.starts_with("/usr/src/php")))
     {
@@ -944,13 +946,13 @@ fn extensions_php_de(toks: &[String]) -> Vec<String> {
     let Some(i) = toks.iter().position(|t| {
         matches!(
             t.rsplit('/').next().unwrap_or(t),
-            "docker-php-ext-install" | "install-php-extensions" | "pecl"
+            "docker-php-ext-install" | "install-php-extensions" | "pecl" | "pie"
         )
     }) else {
         return Vec::new();
     };
     let mut reste = &toks[i + 1..];
-    if toks[i].ends_with("pecl") {
+    if toks[i].ends_with("pecl") || toks[i].rsplit('/').next() == Some("pie") {
         match reste.first().map(String::as_str) {
             Some("install") => reste = &reste[1..],
             _ => return Vec::new(),
@@ -959,8 +961,17 @@ fn extensions_php_de(toks: &[String]) -> Vec<String> {
     reste
         .iter()
         .filter(|t| !t.starts_with('-') && !is_dynamic(t))
-        // `memcache-8.2` : le nom, sans la version.
-        .map(|t| t.split(['-', '@']).next().unwrap_or(t).to_lowercase())
+        // `memcache-8.2` : le nom, sans la version ; `xdebug/xdebug:3.5`,
+        // la forme de PIE, son nom de paquet.
+        .map(|t| {
+            t.rsplit('/')
+                .next()
+                .unwrap_or(t)
+                .split(['-', '@', ':'])
+                .next()
+                .unwrap_or(t)
+                .to_lowercase()
+        })
         .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
         // Des extensions de developpement, qui ralentiraient l'application.
         .filter(|t| !matches!(t.as_str(), "xdebug" | "pcov" | "spx"))

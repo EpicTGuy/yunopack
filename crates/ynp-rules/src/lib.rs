@@ -30,6 +30,7 @@ pub fn catalog() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(licence::NonLibre),
         Box::new(licence::Abandonne),
+        Box::new(licence::Cryptomonnaie),
         Box::new(sources::AucuneSource),
         Box::new(sources::PasDeReperePourLesMisesAJour),
         Box::new(runtime::ConteneurRequis),

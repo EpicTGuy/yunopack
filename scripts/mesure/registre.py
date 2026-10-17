@@ -26,6 +26,7 @@ INCOMPATIBLES = {
     "RUN001": "le fonctionnement exige Docker",
     "RUN002": "langage que YunoHost ne fournit pas",
     "DB002": "base de donnees non prise en charge",
+    "POL001": "cryptomonnaie ou blockchain, ecartee par la politique du catalogue",
 }
 
 # Causes d'un echec G3, de la plus specifique a la plus generale. Chaque motif

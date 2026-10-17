@@ -172,6 +172,91 @@ impl WithPushDate for Finding {
     }
 }
 
+/// Une application de cryptomonnaie ou de blockchain : la politique du
+/// catalogue YunoHost l'ecarte (« promote cryptocurrencies »,
+/// docs/yunohost/90-policy.md). fountain-ink, « decentralized blogging
+/// platform » sur Ethereum et Lens, embarquait wagmi, viem et des SDK de
+/// paiement. Le simple mot `crypto`, qui designe aussi la cryptographie, ne
+/// suffit pas.
+pub struct Cryptomonnaie;
+
+const SUJETS_CRYPTO: &[&str] = &[
+    "ethereum",
+    "bitcoin",
+    "blockchain",
+    "web3",
+    "dapp",
+    "cryptocurrency",
+    "cryptocurrencies",
+    "defi",
+    "nft",
+    "solana",
+    "monero",
+    "lightning-network",
+    "smart-contracts",
+    "evm",
+];
+const BIBLIOTHEQUES_CRYPTO: &[&str] = &[
+    "wagmi",
+    "viem",
+    "ethers",
+    "web3",
+    "@solana/web3.js",
+    "bitcoinjs-lib",
+    "@lens-protocol/client",
+    "@rainbow-me/rainbowkit",
+    "@coinbase/cdp-sdk",
+];
+
+impl Rule for Cryptomonnaie {
+    fn id(&self) -> &'static str {
+        "POL001"
+    }
+
+    fn check(&self, facts: &RepoFacts) -> Option<Finding> {
+        let sujet = facts
+            .meta
+            .topics
+            .iter()
+            .find(|t| SUJETS_CRYPTO.contains(&t.to_ascii_lowercase().as_str()));
+        let bibliotheques: Vec<&String> = facts
+            .stack
+            .dependances_npm
+            .iter()
+            .filter(|d| BIBLIOTHEQUES_CRYPTO.contains(&d.as_str()))
+            .collect();
+        let preuve = match (sujet, bibliotheques.len()) {
+            (Some(t), _) => format!("sujet du depot : {t}"),
+            (None, n) if n >= 2 => format!(
+                "dependances : {}",
+                bibliotheques
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => return None,
+        };
+        Some(
+            Finding::new(
+                self.id(),
+                Severity::Blocker,
+                "Application de cryptomonnaie ou de blockchain",
+            )
+            .arg("preuve", &preuve)
+            .detail(
+                "La politique du catalogue YunoHost ecarte les applications qui promeuvent les \
+                 cryptomonnaies. Le paquet ne serait pas accepte au catalogue officiel.",
+            )
+            .remediation(
+                "Aucune pour le catalogue officiel ; l'equipe peut faire une exception au cas \
+                 par cas.",
+            )
+            .evidence(Evidence::file(&preuve)),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

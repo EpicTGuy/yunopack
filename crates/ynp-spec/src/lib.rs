@@ -399,7 +399,10 @@ fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut R
         // chez endurain, qui refusait le uv le plus recent).
         runtime.build_steps.insert(
             0,
-            "pip install \"uv$(sed -n 's/^required-version *= *\"\\(.*\\)\"/\\1/p' pyproject.toml uv.toml 2>/dev/null | head -1)\"".into(),
+            // Une version nue (`"0.12.23"`) s'entend exacte.
+            "v=$(sed -n 's/^required-version *= *\"\\(.*\\)\"/\\1/p' pyproject.toml uv.toml 2>/dev/null | head -1); \
+             case \"$v\" in [0-9]*) v=\"==$v\";; esac; pip install \"uv$v\""
+                .into(),
         );
     }
     let mut apt = |p: &str| {
