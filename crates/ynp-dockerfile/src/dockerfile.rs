@@ -888,6 +888,18 @@ fn classify(toks: &[String]) -> RunKind {
     };
     if matches!(lance, Some("n" | "nvm" | "nodenv" | "node-build" | "fnm"))
         || (bin == "volta" && cmd.get(1).is_some_and(|s| s == "install"))
+        // pnpm en gestionnaire de versions de Node : `pnpm runtime set node 24
+        // -g` (reactive-resume), `pnpm env use`.
+        || (bin == "pnpm"
+            && cmd.windows(2).any(|w| (w[0] == "runtime" && w[1] == "set") || (w[0] == "env" && w[1] == "use")))
+    {
+        return RunKind::Noise;
+    }
+    // `turbo prune … --docker` decoupe le depot pour les couches de l'image
+    // (reactive-resume, documenso) : dans l'installation, le depot est entier.
+    if cmd.iter().any(|t| t == "prune")
+        && cmd.iter().any(|t| t == "--docker")
+        && cmd.iter().any(|t| t.starts_with("turbo"))
     {
         return RunKind::Noise;
     }

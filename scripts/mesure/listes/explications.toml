@@ -93,3 +93,13 @@ cause = "client de calcul benevole pour lichess.org (analyse Stockfish distribue
 categorie = "incompatible"
 etat = "outil en ligne de commande"
 cause = "analyseur de vulnerabilites lance ponctuellement (integration continue, poste de travail) : pas un service a heberger derriere nginx"
+
+[framaestro-hub]
+categorie = "amont"
+etat = "construction"
+cause = "le verrou npm reference une archive GitHub de la branche master d'esprima, qui change : sa somme de controle ne peut plus correspondre (EINTEGRITY) ; il depend aussi de phantomjs, sans binaire pour arm64"
+
+[mysigmail]
+categorie = "amont"
+etat = "construction"
+cause = "la construction (vue-tsc puis vite build) suppose des declarations auto-generees (auto-imports.d.ts) absentes du depot : un clone neuf ne se construit pas (« Cannot find name 'ref' »)"

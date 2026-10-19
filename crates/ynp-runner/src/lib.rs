@@ -622,6 +622,39 @@ async fn cause_dans_le_journal(hote: &Hote, sortie: &str) -> Option<String> {
         .map(|e| format!("CAUSE {e}"))
         .collect();
     cause.extend(fin_du_script(&journal.stdout));
+    // Le service n'a pas demarre pendant l'installation (« Job for x.service
+    // failed because the control process exited ») : sa propre sortie, que
+    // systemd garde apres la desinstallation qui suit l'echec, dit pourquoi
+    // (ferdium-server, helpy, klaxon).
+    if journal.stdout.contains(".service failed") {
+        if let Some(app) = id
+            .split("-app_")
+            .nth(1)
+            .and_then(|r| r.split_once('-'))
+            .map(|(_, a)| a.to_string())
+        {
+            if app
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                if let Ok(j) = hote
+                    .executer(&format!(
+                        "journalctl -u {app} -n 80 --no-pager -o cat 2>/dev/null \
+                         | grep -vE '^(Started|Stopped|Stopping|Starting) |: (Main process|Failed with|Consumed|Scheduled|Control process)|^[[:space:]]+(from|at) ' \
+                         | tail -n 10"
+                    ))
+                    .await
+                {
+                    cause.extend(
+                        j.stdout
+                            .lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .map(|l| format!("SERVICE {}", l.chars().take(240).collect::<String>())),
+                    );
+                }
+            }
+        }
+    }
     (!cause.is_empty()).then(|| cause.join("\n"))
 }
 
@@ -643,10 +676,15 @@ fn fin_du_script(journal: &str) -> Vec<String> {
     else {
         return Vec::new();
     };
+    // Depuis la derniere commande lancee par le script ; mais pas plus pres
+    // que 40 lignes : `ynh_systemctl` affiche la fin du journal de
+    // l'application, puis lance d'autres commandes avant d'echouer
+    // (ferdium-server, klaxon), et cet affichage est la cause.
     let debut = lignes[..fin]
         .iter()
-        .rposition(|l| l.starts_with("+ ynh_"))
-        .unwrap_or(fin.saturating_sub(20));
+        .rposition(|l| l.starts_with("+ ynh_exec") || l.starts_with("+ ynh_systemctl"))
+        .unwrap_or(fin.saturating_sub(40))
+        .min(fin.saturating_sub(40));
     let mut sortie: Vec<String> = Vec::new();
     for l in &lignes[debut..fin] {
         let l = l.trim_end();
@@ -659,7 +697,10 @@ fn fin_du_script(journal: &str) -> Vec<String> {
             || l.trim_start().starts_with("Collecting ");
         if l.trim().is_empty()
             || l.starts_with("+ sudo ")
+            || (l.starts_with("+ ") && !l.starts_with("+ ynh_exec"))
+            || l.starts_with("++ ")
             || l.trim_start().starts_with("at ")
+            || l.trim_start().starts_with("from /")
             || progression
         {
             continue;
