@@ -1083,6 +1083,11 @@ pub(crate) fn chemin(mot: &str) -> String {
         if let Some(reste) = mot.strip_prefix(racine) {
             return format!("__INSTALL_DIR__/{reste}");
         }
+        // La racine elle-meme (`puma --dir /app` chez docuseal), sauf celle
+        // des binaires du systeme.
+        if mot == racine.trim_end_matches('/') && !racine.ends_with("/bin/") {
+            return "__INSTALL_DIR__".to_string();
+        }
     }
     if let Some(reste) = mot.strip_prefix("./") {
         return format!("__INSTALL_DIR__/{reste}");

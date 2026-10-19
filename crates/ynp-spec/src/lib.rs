@@ -31,6 +31,7 @@ pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
         let existe = |x: &str| chemins.iter().any(|c| c.starts_with(&format!("{x}/")));
         dans_le_sous_repertoire(&mut runtime, d, existe);
     }
+    runtime.montages = montages_de_l_image(facts, runtime.repertoire_de_travail.as_deref());
     // Un reglage qui designe le repertoire de donnees l'exige : sans lui,
     // YunoHost s'arrete sur « Variable $data_dir wasn't initialized »
     // (endurain).
@@ -145,6 +146,65 @@ fn repertoire_de_l_image(facts: &RepoFacts) -> Option<String> {
             .iter()
             .any(|s| w == *s || w.starts_with(&format!("{s}/"))))
     .then(|| w.to_string())
+}
+
+/// Les emplacements de l'image que le service doit trouver : le repertoire
+/// de travail final, depuis son contexte dans le depot, et les produits que
+/// des etapes y copiaient ailleurs, depuis leur place dans l'installation.
+fn montages_de_l_image(facts: &RepoFacts, travail: Option<&str>) -> Vec<ynp_core::spec::Montage> {
+    const SYSTEME: &[&str] = &[
+        "/etc",
+        "/var",
+        "/run",
+        "/tmp",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/root",
+        "/home",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/boot",
+        "/usr",
+        "/opt/node",
+        "/srv/www",
+    ];
+    let hors_systeme = |p: &str| {
+        p.starts_with('/')
+            && p.len() > 1
+            && !p.contains('$')
+            && !SYSTEME
+                .iter()
+                .any(|s| p == *s || p.starts_with(&format!("{s}/")))
+    };
+    let mut out: Vec<ynp_core::spec::Montage> = Vec::new();
+    let Some(w) = repertoire_de_l_image(facts) else {
+        return out;
+    };
+    out.push(ynp_core::spec::Montage {
+        image: w.clone(),
+        installation: travail.unwrap_or("").to_string(),
+    });
+    for c in facts.build.iter().flat_map(|b| b.copies_d_etape.iter()) {
+        let Some(a) = c.vers_absolu.as_deref() else {
+            continue;
+        };
+        let sous_le_travail = a == w || a.starts_with(&format!("{w}/"));
+        if !hors_systeme(a)
+            || sous_le_travail
+            || c.depuis.is_empty()
+            || c.depuis.starts_with('/')
+            || out.iter().any(|m| m.image == a)
+        {
+            continue;
+        }
+        out.push(ynp_core::spec::Montage {
+            image: a.to_string(),
+            installation: c.depuis.clone(),
+        });
+    }
+    out
 }
 
 /// Les volumes de l'image a monter pour le service : absolus, hors du
@@ -1926,6 +1986,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         {
             continue;
         }
+        // Une cle Fernet, meme reconnue comme secret : son format est impose.
+        if var.name.to_ascii_uppercase().contains("FERNET") {
+            env.insert(var.name.clone(), "__SECRET_FERNET_32__".to_string());
+            continue;
+        }
         // Un secret au format que le projet prescrit : `__SECRET_BASE64_32__`,
         // que les scripts tirent par la meme commande openssl.
         if var.role == ConfigRole::Secret {
@@ -1987,6 +2052,38 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
             let Some(d) = var.default.as_deref().filter(|d| !d.is_empty()) else {
                 continue;
             };
+            // Une cle Fernet (cryptography) a un format impose : 32 octets en
+            // base64 URL-safe. `changeme`, la valeur d'exemple, etait refuse
+            // (endurain : « FERNET_KEY validation failed »).
+            if var.name.to_ascii_uppercase().contains("FERNET") {
+                env.insert(var.name.clone(), "__SECRET_FERNET_32__".to_string());
+                continue;
+            }
+            // L'adresse publique de l'application sous un nom qui lui est
+            // propre : une URL sur un domaine fictif (endurain :
+            // ENDURAIN_HOST=https://endurain.example.com, « Missing required
+            // environment variable »).
+            let nom = var.name.to_ascii_uppercase();
+            let fictif = [
+                "example.",
+                "yourdomain",
+                "your-domain",
+                "domain.tld",
+                "localhost",
+                "mydomain",
+            ]
+            .iter()
+            .any(|m| d.to_ascii_lowercase().contains(m));
+            if d.starts_with("http")
+                && fictif
+                && ["_HOST", "_URL", "_DOMAIN", "_ORIGIN"]
+                    .iter()
+                    .any(|s| nom.ends_with(s))
+                && !d_un_service_tiers(&var.name)
+            {
+                env.insert(var.name.clone(), "https://__DOMAIN____PATH__".to_string());
+                continue;
+            }
             let ailleurs = d.split_once("://").is_some_and(|(_, r)| {
                 let hote = r.rsplit('@').next().unwrap_or(r);
                 !(hote.starts_with("localhost") || hote.starts_with("127.0.0.1"))
@@ -2470,6 +2567,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         volumes_internes: volumes_internes(facts),
         fichier_de_configuration: fichier_de_configuration(facts),
         repertoire_de_l_image: repertoire_de_l_image(facts),
+        montages: Vec::new(),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
         repertoire_de_travail: repertoire_de_travail(facts),

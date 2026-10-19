@@ -187,6 +187,7 @@ mod tests {
             copies_d_etape: vec![CopieDEtape {
                 depuis: "/app/dist".into(),
                 vers: "/usr/share/nginx/html".into(),
+                vers_absolu: None,
             }],
             ..Default::default()
         });

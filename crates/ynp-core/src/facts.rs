@@ -500,6 +500,10 @@ pub struct CopieDEtape {
     pub depuis: String,
     /// Chemin dans l'image.
     pub vers: String,
+    /// Le meme, absolu : le repertoire de travail de l'etape au moment de la
+    /// copie (`/app/frontend/dist` chez endurain, ecrit `./dist`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vers_absolu: Option<String>,
 }
 
 /// Un paquet npm d'un espace de travail.

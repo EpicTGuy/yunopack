@@ -30,10 +30,10 @@ ExecStartPre={{ m }}
 TimeoutStartSec=15min
 {%- endif %}
 ExecStart={{ runtime.execstart }}
-{%- if runtime.repertoire_de_l_image %}
-# Le code suppose ses fichiers sous {{ runtime.repertoire_de_l_image }}, le repertoire de son image.
-BindPaths=__INSTALL_DIR__:{{ runtime.repertoire_de_l_image }}
-{%- endif %}
+{%- for m in runtime.montages %}
+# Le code suppose {{ m.image }}, un emplacement de son image.
+BindPaths=-__INSTALL_DIR__{% if m.installation %}/{{ m.installation }}{% endif %}:{{ m.image }}
+{%- endfor %}
 {%- for v in runtime.volumes_lies %}
 # Le code ecrit en dur dans /{{ v }}, un volume de son image.
 BindPaths=__DATA_DIR__/{{ v }}:/{{ v }}

@@ -585,6 +585,12 @@ pub struct Runtime {
     /// pour le service.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repertoire_de_l_image: Option<String>,
+    /// Les emplacements de l'image que le code suppose, montes pour le
+    /// service depuis l'installation : le repertoire de travail final depuis
+    /// son contexte, et chaque produit qu'une etape copiait ailleurs
+    /// (`/app/frontend/dist` chez endurain, constante du code).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub montages: Vec<Montage>,
     /// Les lignes de `/etc/cron.d/$app` : le planificateur de Laravel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cron: Vec<String>,
@@ -954,4 +960,13 @@ pub struct FichierDeConfiguration {
     pub cible: String,
     /// Le contenu, jetons YunoHost compris (`__PORT__`).
     pub contenu: String,
+}
+
+/// Un emplacement de l'image monte depuis l'installation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Montage {
+    /// Le chemin absolu dans l'image.
+    pub image: String,
+    /// Le chemin relatif a l'installation ; vide pour sa racine.
+    pub installation: String,
 }

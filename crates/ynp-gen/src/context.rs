@@ -255,6 +255,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "volumes_lies": spec.runtime.volumes_lies,
             "volumes_internes": spec.runtime.volumes_internes,
             "repertoire_de_l_image": spec.runtime.repertoire_de_l_image,
+            "montages": spec.runtime.montages,
             "a_un_prefixe": spec.runtime.env.values().any(|v| v.contains("__PREFIXE__")),
             "version_composer": spec
                 .runtime
@@ -558,7 +559,8 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
             };
             let jeton = &reste[..fin];
             if let Some((f, n)) = jeton.split_once('_') {
-                if matches!(f, "BASE64" | "HEX") && n.chars().all(|c| c.is_ascii_digit()) {
+                if matches!(f, "BASE64" | "HEX" | "FERNET") && n.chars().all(|c| c.is_ascii_digit())
+                {
                     vus.insert((f.to_ascii_lowercase(), n.to_string()));
                 }
             }
@@ -568,7 +570,12 @@ fn secrets_formates(spec: &ynp_core::spec::AppSpec) -> Vec<serde_json::Value> {
         .map(|(f, n)| {
             serde_json::json!({
                 "nom": format!("secret_{f}_{n}"),
-                "commande": format!("openssl rand -{f} {n}"),
+                // Une cle Fernet : 32 octets en base64 « URL-safe ».
+                "commande": if f == "fernet" {
+                    format!("openssl rand -base64 {n} | tr '+/' '-_'")
+                } else {
+                    format!("openssl rand -{f} {n}")
+                },
             })
         })
         .collect()

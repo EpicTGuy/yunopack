@@ -445,6 +445,12 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                     }
                 }
                 if let Some(s) = stages.last_mut() {
+                    let w = s.workdir.clone();
+                    s.copies_absolues.extend(
+                        copies
+                            .iter()
+                            .map(|(e, src, v)| (e.clone(), src.clone(), absolu(v, w.as_deref()))),
+                    );
                     s.copies_d_etape.extend(copies);
                 }
             }
@@ -572,6 +578,8 @@ struct StageAccu {
     contexte: Option<String>,
     /// Les copies de l'etape : destination absolue dans l'image, source.
     destinations: Vec<(String, String)>,
+    /// Les copies d'etape, destination rendue absolue au moment de la copie.
+    copies_absolues: Vec<(String, String, String)>,
     /// Les indices, dans `build_steps`, des commandes d'une etape qui ne
     /// copie rien du depot : un telechargement que l'etape finale reprend par
     /// `COPY --from`.
@@ -1402,9 +1410,16 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
         if depuis.is_empty() {
             continue;
         }
+        let vers_absolu = parent
+            .into_iter()
+            .chain(std::iter::once(last))
+            .flat_map(|s| s.copies_absolues.iter())
+            .find(|(e, src, _)| e == etape && src == source)
+            .map(|(_, _, a)| a.trim_end_matches('/').to_string());
         recipe.copies_d_etape.push(ynp_core::facts::CopieDEtape {
             depuis: depuis.trim_end_matches('/').to_string(),
             vers: vers.trim_end_matches('/').to_string(),
+            vers_absolu,
         });
     }
 }

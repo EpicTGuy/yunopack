@@ -31,10 +31,10 @@ fi
 {%- endif %}
 {%- if features.systemd %}
 ynh_config_remove_systemd
-{%- if runtime.repertoire_de_l_image %}
-# Le point de montage que systemd a cree, s'il est vide.
-rmdir "{{ runtime.repertoire_de_l_image }}" 2>/dev/null || true
-{%- endif %}
+{%- for m in runtime.montages %}
+# Le point de montage que systemd a cree, et ses parents, s'ils sont vides.
+rmdir -p "{{ m.image }}" 2>/dev/null || true
+{%- endfor %}
 {%- for v in runtime.volumes_lies %}
 # Le point de montage que systemd a cree, s'il est vide.
 rmdir "/{{ v }}" 2>/dev/null || true

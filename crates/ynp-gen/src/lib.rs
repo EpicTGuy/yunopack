@@ -7,6 +7,8 @@
 //!
 //! Les templates sont incorpores au binaire : `yunopack` doit pouvoir generer un
 //! paquet sur une machine qui n'a recu que l'executable.
+// Le contexte des gabarits, un seul `json!`, depasse la profondeur par defaut.
+#![recursion_limit = "256"]
 
 pub mod context;
 

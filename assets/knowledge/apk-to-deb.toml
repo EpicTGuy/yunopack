@@ -34,6 +34,9 @@
 "freetype-dev" = "libfreetype-dev"
 "vips-dev" = "libvips-dev"
 "vips" = "libvips42"
+# docuseal charge leptonica par FFI (liblept.so.5).
+"leptonica" = "liblept5"
+"leptonica-dev" = "libleptonica-dev"
 "cairo-dev" = "libcairo2-dev"
 "pango-dev" = "libpango1.0-dev"
 "giflib-dev" = "libgif-dev"
