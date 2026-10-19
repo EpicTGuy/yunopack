@@ -67,6 +67,9 @@ fn options() -> &'static [Regex] {
             r#"@click\.option\([^)]*["']--(port|listen|bind)["']"#,
             // JavaScript, commander et yargs.
             r#"\.option\(\s*["'][^"']*--(port|listen|bind)\b"#,
+            // JavaScript, optimist et yargs : `.options('p', { alias: 'port' })`
+            // (federated-wiki).
+            r#"\balias\s*:\s*["'](port|listen|bind)["']"#,
             // JavaScript, yargs sans tirets : `.option('port', {...})`.
             r#"\.option\(\s*["'](port|listen|bind)["']\s*,"#,
             // Ruby, OptionParser : `opts.on('-p', '--port PORT')`.

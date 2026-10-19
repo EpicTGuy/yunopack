@@ -296,6 +296,24 @@ fn node(facts: &RepoFacts) -> Option<Entree> {
     let mut etapes = vec![installer.to_string()];
     if let Some(b) = facts.stack.build_script.as_deref() {
         etapes.push(b.replacen("npm", outil, 1));
+    } else {
+        // Sans script `build`, les constructions nommees (`build-server`,
+        // `build-player` chez cytube), hors surveillance et tests.
+        let mut noms: Vec<&String> = facts
+            .stack
+            .scripts_npm
+            .keys()
+            .filter(|n| n.starts_with("build-") || n.starts_with("build:"))
+            .filter(|n| {
+                !["watch", "dev", "test", "doc", "storybook", "preview"]
+                    .iter()
+                    .any(|x| n.contains(x))
+            })
+            .collect();
+        noms.sort();
+        for n in noms {
+            etapes.push(format!("{outil} run {n}"));
+        }
     }
     Some(Entree {
         binaire: String::new(),
@@ -342,14 +360,26 @@ fn point_d_entree_node(facts: &RepoFacts) -> Option<String> {
         "hapi",
         "restify",
         "polka",
+        "socket.io",
+        "connect",
     ];
     let serveur = facts
         .stack
         .dependances_npm
         .iter()
         .any(|d| SERVEURS.contains(&d.as_str()));
-    let main = facts.stack.main_npm.as_deref()?;
-    (serveur && a(main) && main.ends_with(".js")).then(|| main.to_string())
+    if !serveur {
+        return None;
+    }
+    // Sans `main`, le fichier serveur racine : cytube et federated-wiki,
+    // serveurs Express sans script `start`, se lancent par `node index.js`.
+    match facts.stack.main_npm.as_deref() {
+        Some(main) => (a(main) && main.ends_with(".js")).then(|| main.to_string()),
+        None => ["app.js", "index.js"]
+            .iter()
+            .find(|f| a(f))
+            .map(|f| f.to_string()),
+    }
 }
 
 /// Une commande qui lance un serveur de developpement ou un mode de

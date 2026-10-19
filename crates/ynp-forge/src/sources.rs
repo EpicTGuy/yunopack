@@ -91,6 +91,15 @@ pub fn choose_avec(
         }
     }
 
+    sur_la_branche(source, archive_url)
+}
+
+/// La branche principale, suivie commit par commit.
+pub fn sur_la_branche(
+    source: &SourceRef,
+    archive_url: impl Fn(&SourceRef, &str) -> String,
+) -> SourceChoice {
+    let forge = source.forge.autoupdate_slug();
     let reference = source
         .default_branch
         .clone()
@@ -103,6 +112,40 @@ pub fn choose_avec(
         kind: SourceKind::Commit,
         version_regex: None,
     }
+}
+
+/// Vrai si le dernier envoi au depot (`pushed_at`, ISO 8601) date de moins
+/// d'un an.
+pub fn actif_dans_l_annee(pushed_at: &str) -> bool {
+    let Some(a) = pushed_at.get(..4).and_then(|x| x.parse::<i64>().ok()) else {
+        return false;
+    };
+    let m = pushed_at
+        .get(5..7)
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(1);
+    let maintenant = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Mois ecoules depuis 1970, a un mois pres.
+    let mois_maintenant = maintenant / (86_400 * 30_437 / 1000);
+    let mois_envoi = (a - 1970) * 12 + (m - 1);
+    mois_maintenant - mois_envoi <= 12
+}
+
+/// Vrai si une version datee de `version` (`2017-05-16` ou `2017.05.16`) a
+/// plus de deux ans de retard sur le dernier envoi au depot (`pushed_at`).
+/// cytube publiait son dernier tag en 2017 et developpait toujours en 2026 :
+/// le paquet empaquetait une version de neuf ans, dont les dependances ne se
+/// compilaient plus.
+pub fn perimee(version: &str, pushed_at: &str) -> bool {
+    let mois = |d: &str| -> Option<i64> {
+        let a: i64 = d.get(..4)?.parse().ok()?;
+        let m: i64 = d.get(5..7)?.parse().ok()?;
+        Some(a * 12 + m)
+    };
+    matches!((mois(version), mois(pushed_at)), (Some(v), Some(p)) if p - v > 24)
 }
 
 /// `latest_<forge>_<sorte>`, ou rien pour une forge que l'autoupdater de
@@ -378,6 +421,12 @@ mod tests {
         assert_eq!(c.version.as_deref(), Some("1.2.3"));
         assert_eq!(c.strategy, "latest_github_release");
         assert!(c.url.ends_with("/archive/v1.2.3.tar.gz"));
+    }
+
+    #[test]
+    fn une_version_de_plus_de_deux_ans_sur_un_depot_actif_est_perimee() {
+        assert!(perimee("2017.05.16", "2026-10-02T02:50:24Z"));
+        assert!(!perimee("2025-11-01T00:00:00Z", "2026-10-02T02:50:24Z"));
     }
 
     #[test]

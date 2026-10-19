@@ -480,6 +480,9 @@ pub struct StackFacts {
     /// Le champ `main` du `package.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_npm: Option<String>,
+    /// Le nom du projet dans son `package.json`, sans portee (`cytube`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nom_du_paquet: Option<String>,
     /// Les gems que le `Gemfile` declare.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependances_ruby: Vec<String>,

@@ -159,6 +159,11 @@ pub fn detect(tree: &RepoTree, build: Option<&BuildRecipe>) -> StackFacts {
             .get("main")
             .and_then(Value::as_str)
             .map(|m| m.trim_start_matches("./").to_string());
+        facts.nom_du_paquet = pkg
+            .get("name")
+            .and_then(Value::as_str)
+            .map(|n| n.rsplit('/').next().unwrap_or(n).to_string())
+            .filter(|n| !n.is_empty());
     }
 
     facts.commande_declaree =
@@ -269,6 +274,10 @@ fn from_project_files(tree: &RepoTree) -> StackFacts {
         f.runtime_version = node_version(tree);
     } else if tree.has("pom.xml") || tree.has("build.gradle") || tree.has("build.gradle.kts") {
         f.primary = Technology::Java;
+    // Un `index.php` a la racine, sans composer.json : une application PHP
+    // servie telle quelle (organizr v2).
+    } else if tree.has("index.php") {
+        f.primary = Technology::Php;
     } else if tree.has("index.html") {
         f.primary = Technology::Static;
     }

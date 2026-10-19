@@ -78,3 +78,8 @@ cause = "depend de node-sass 4.12, abandonne par l'amont : il ne se compile qu'a
 categorie = "amont"
 etat = "service"
 cause = "l'application importe collections.Mapping, retire en Python 3.10 : elle exige un Python <= 3.9, en fin de vie (son image part de python:3.7-stretch) ; constate sur le Dell avec le Python 3.11 de Debian 12"
+
+[docuseal]
+categorie = "amont"
+etat = "service"
+cause = "libpdfium n'est publie par l'amont (docusealco/pdfium-binaries) qu'en version musl, pour Alpine : la glibc de Debian ne peut pas le charger (« Function 'FPDF_InitLibraryWithConfig' not found »). Tout le reste du paquet passe : installation, polices, modele, demarrage de puma"

@@ -22,6 +22,7 @@ use ynp_core::spec::*;
 /// Construit la specification a partir des faits.
 pub fn build(facts: &RepoFacts) -> Result<AppSpec, ynp_core::CoreError> {
     let app_id = ynp_core::app_id_from(Some(&facts.source.owner), &facts.source.repo)?;
+    let app_id = hors_des_comptes_du_systeme(app_id, facts);
 
     let mut runtime = runtime(facts, &app_id);
     let mut resources = resources(facts, &app_id);
@@ -485,7 +486,14 @@ fn appelle(etapes: &[String], outils: &[&str]) -> bool {
 /// hors d'un environnement virtuel.
 fn outils_des_etapes(facts: &RepoFacts, runtime: &mut Runtime, resources: &mut Resources) {
     let etapes = runtime.build_steps.clone();
-    if resources.nodejs_version.is_none() && appelle_node(&etapes) {
+    // Le service lance Node (`__NODEJS_DIR__/node index.js`) : la resource
+    // doit l'installer, meme si le projet ne declare aucune version
+    // (cytube : « Variable $nodejs_dir wasn't initialized »).
+    let service_node = runtime
+        .execstart
+        .value()
+        .is_some_and(|c| c.contains("__NODEJS_DIR__"));
+    if resources.nodejs_version.is_none() && (appelle_node(&etapes) || service_node) {
         resources.nodejs_version = Some(
             facts
                 .stack
@@ -824,6 +832,90 @@ fn python_plus_recent(facts: &RepoFacts) -> Option<String> {
     let mut p = v.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
     let (maj, min) = (p.next()?, p.next().unwrap_or(0));
     ((maj, min) > (3, 11)).then(|| format!("{maj}.{min}"))
+}
+
+/// Un identifiant qui reprend un compte ou un groupe du systeme Debian :
+/// YunoHost cree un utilisateur du nom de l'application, et le depot de
+/// cytube s'appelle `sync` (« Unknown system group 'sync' »). Le nom du
+/// projet le remplace, ou a defaut le meme suivi de `-app`.
+fn hors_des_comptes_du_systeme(id: String, facts: &RepoFacts) -> String {
+    const COMPTES: &[&str] = &[
+        "root",
+        "daemon",
+        "bin",
+        "sys",
+        "sync",
+        "games",
+        "man",
+        "lp",
+        "mail",
+        "news",
+        "uucp",
+        "proxy",
+        "www-data",
+        "backup",
+        "list",
+        "irc",
+        "gnats",
+        "nobody",
+        "systemd-network",
+        "systemd-resolve",
+        "systemd-timesync",
+        "messagebus",
+        "sshd",
+        "postfix",
+        "redis",
+        "postgres",
+        "mysql",
+        "dovecot",
+        "vmail",
+        "admins",
+        "all_users",
+        "visitors",
+        "nogroup",
+        "staff",
+        "users",
+        "adm",
+        "tty",
+        "disk",
+        "kmem",
+        "dialout",
+        "fax",
+        "voice",
+        "cdrom",
+        "floppy",
+        "tape",
+        "sudo",
+        "audio",
+        "dip",
+        "operator",
+        "src",
+        "shadow",
+        "utmp",
+        "video",
+        "sasl",
+        "plugdev",
+        "netdev",
+        "ssl-cert",
+        "debian",
+        "yunohost",
+        "metronome",
+        "slapd",
+        "opendkim",
+        "rspamd",
+        "nginx",
+        "fail2ban",
+    ];
+    if !COMPTES.contains(&id.as_str()) {
+        return id;
+    }
+    facts
+        .stack
+        .nom_du_paquet
+        .as_deref()
+        .and_then(|n| ynp_core::app_id_from_repo(n).ok())
+        .filter(|n| !COMPTES.contains(&n.as_str()) && *n != id)
+        .unwrap_or_else(|| format!("{id}-app"))
 }
 
 /// La memoire qu'il faut pour construire, que YunoHost verifie avant
@@ -2834,6 +2926,11 @@ fn liaison_port(facts: &RepoFacts, execstart: Option<&str>) -> Known<String> {
         }
         None if facts.stack.cadre_web.as_deref() == Some("rails") => {
             Known::resolved("PORT=__PORT__".into())
+        }
+        // Le fichier de configuration ecrit d'apres l'exemple porte deja le
+        // port (`port: 8080` chez cytube, `config.template.yaml`).
+        None if fichier_de_configuration(facts).is_some_and(|f| f.contenu.contains("__PORT__")) => {
+            Known::resolved(String::new())
         }
         None => Known::unresolved_avec(
             "on ignore sous quel nom l'application attend son port d'ecoute ; la forme varie \

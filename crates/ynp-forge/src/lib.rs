@@ -152,6 +152,41 @@ pub async fn fetch(repo_url: &str) -> Result<Fetched, FetchError> {
     let mut choice =
         sources::choose_avec(&source, &releases, &tags, |s, r| client.archive_url(s, r));
 
+    // Une release ou un tag tres ancien sur un depot qui se developpe
+    // toujours : la branche principale est la version vivante (cytube :
+    // release de 2017, depot actif en 2026 ; organizr : 1.90, la v1
+    // abandonnee). Un depot inactif garde sa derniere version (asqatasun).
+    if matches!(
+        choice.kind,
+        sources::SourceKind::Release | sources::SourceKind::Tag
+    ) && meta
+        .pushed_at
+        .as_deref()
+        .is_some_and(sources::actif_dans_l_annee)
+    {
+        let date = match releases
+            .iter()
+            .find(|r| r.tag == choice.reference)
+            .and_then(|r| r.published_at.clone())
+        {
+            Some(d) => Some(d),
+            None => client
+                .dernier_commit(&source, &choice.reference)
+                .await
+                .ok()
+                .map(|(_, d)| d),
+        };
+        if let (Some(d), Some(p)) = (date.as_deref(), meta.pushed_at.as_deref()) {
+            if sources::perimee(d, p) {
+                tracing::info!(
+                    "{} date de {d}, le depot est actif ({p}) : la branche principale est retenue",
+                    choice.reference
+                );
+                choice = sources::sur_la_branche(&source, |s, r| client.archive_url(s, r));
+            }
+        }
+    }
+
     // Sans publication ni tag, la source est une branche. Son archive change a
     // chaque commit, alors que le manifeste en fige l'empreinte : au premier
     // commit suivant, l'installation echouerait sur une somme qui ne

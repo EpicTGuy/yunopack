@@ -25,7 +25,7 @@ ynh_script_progression "Mise en place du stockage S3 de $app..."
 s3_installer
 s3_initialiser
 {%- endif %}
-{%- if runtime.config_file %}
+{%- if runtime.config_file or runtime.fichier_de_configuration %}
 
 #=================================================
 # CONFIGURATION DE L'APPLICATION

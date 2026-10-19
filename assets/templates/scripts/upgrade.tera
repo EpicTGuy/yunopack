@@ -18,7 +18,7 @@ ynh_script_progression "Mise a jour des sources de $app..."
 ynh_setup_source --dest_dir="$construction"
 chown -R "$app:www-data" "$construction"
 
-{%- if runtime.config_file %}
+{%- if runtime.config_file or runtime.fichier_de_configuration %}
 # La configuration en place, que la construction peut lire.
 if [ -f "$install_dir/{{ runtime.config_file }}" ]; then
     cp -a "$install_dir/{{ runtime.config_file }}" "$construction/{{ runtime.config_file }}"
