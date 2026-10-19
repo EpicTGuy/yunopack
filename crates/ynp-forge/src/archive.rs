@@ -189,11 +189,11 @@ fn is_interesting(path: &str) -> bool {
                 || lower.ends_with(".toml")
                 || lower.ends_with(".ini")
                 || lower.ends_with(".conf"))
-        // Et `settings.yml.sample`, `config.toml.dist`.
+        // Et `settings.yml.sample`, `config.toml.dist`, `evcc.dist.yaml`.
         || [".example", ".sample", ".dist"].iter().any(|m| {
             [".yml", ".yaml", ".json", ".toml", ".ini", ".conf"]
                 .iter()
-                .any(|e| lower.ends_with(&format!("{e}{m}")))
+                .any(|e| lower.ends_with(&format!("{e}{m}")) || lower.ends_with(&format!("{m}{e}")))
         })
 }
 

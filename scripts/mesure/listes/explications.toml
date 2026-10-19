@@ -83,3 +83,13 @@ cause = "l'application importe collections.Mapping, retire en Python 3.10 : elle
 categorie = "amont"
 etat = "service"
 cause = "libpdfium n'est publie par l'amont (docusealco/pdfium-binaries) qu'en version musl, pour Alpine : la glibc de Debian ne peut pas le charger (« Function 'FPDF_InitLibraryWithConfig' not found »). Tout le reste du paquet passe : installation, polices, modele, demarrage de puma"
+
+[fishnet]
+categorie = "incompatible"
+etat = "pas un service web"
+cause = "client de calcul benevole pour lichess.org (analyse Stockfish distribuee) : il se connecte a un service tiers et n'expose aucune interface a heberger"
+
+[trivy]
+categorie = "incompatible"
+etat = "outil en ligne de commande"
+cause = "analyseur de vulnerabilites lance ponctuellement (integration continue, poste de travail) : pas un service a heberger derriere nginx"
