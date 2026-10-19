@@ -36,13 +36,22 @@ pub fn find_compose(tree: &[String]) -> Option<String> {
     tree.iter()
         .filter(|p| {
             let f = p.rsplit('/').next().unwrap_or(p).to_lowercase();
+            // Aussi le compose d'exemple a copier (`docker-compose.yml.example`
+            // chez endurain, qui y declare PostgreSQL et Redis).
+            let f = [".example", ".sample", ".dist"]
+                .iter()
+                .find_map(|m| f.strip_suffix(m))
+                .unwrap_or(&f)
+                .to_string();
             f.contains("compose") && (f.ends_with(".yml") || f.ends_with(".yaml"))
         })
         .max_by_key(|p| pertinence_compose(p))
         // Un compose de test ou de poste de developpement n'apprend rien sur le
         // deploiement : mieux vaut n'en retenir aucun. Constate sur gotify, dont
         // le seul compose sert a lancer un serveur OIDC pour la suite de tests.
-        .filter(|p| pertinence_compose(p).0 >= 0)
+        // Un exemple reste retenu s'il est seul : c'est le deploiement que le
+        // projet propose.
+        .filter(|p| pertinence_compose(p).0 >= -2)
         .cloned()
 }
 

@@ -288,8 +288,14 @@ async fn verifier_le_service(
                 .await?;
             // systemd ne dit que « exit-code » : la raison est dans le journal
             // que l'application ecrit elle-meme.
+            // Sans les cadres de pile (`from …`, `at …`) : une trace Ruby ou
+            // Node remplissait les lignes rapportees, et la ligne d'erreur, en
+            // tete, etait perdue (docuseal).
             let propre = hote
-                .executer(&format!("tail -n 20 /var/log/{app}/{app}.log 2>/dev/null"))
+                .executer(&format!(
+                    "tail -n 300 /var/log/{app}/{app}.log 2>/dev/null \
+                     | grep -vE '^[[:space:]]+(from|at) |^[[:space:]]*\\.\\.\\. [0-9]+ levels' | tail -n 20"
+                ))
                 .await?;
             format!(
                 "etat : {}\n{}\n--- journal de l'application ---\n{}",
