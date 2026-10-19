@@ -591,6 +591,10 @@ pub struct Runtime {
     /// (`/app/frontend/dist` chez endurain, constante du code).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub montages: Vec<Montage>,
+    /// Les dossiers de l'installation a mettre dans LD_LIBRARY_PATH du
+    /// service : des bibliotheques que l'image posait dans le systeme.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bibliotheques: Vec<String>,
     /// Les lignes de `/etc/cron.d/$app` : le planificateur de Laravel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cron: Vec<String>,

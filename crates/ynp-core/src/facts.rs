@@ -201,6 +201,17 @@ pub struct BuildRecipe {
     /// c'est une copie a refaire apres la construction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies_d_etape: Vec<CopieDEtape>,
+    /// Les dossiers de l'installation ou sont les bibliotheques partagees
+    /// que l'image copiait dans ceux du systeme (`libpdfium.so` vers
+    /// `/usr/lib` chez docuseal) : le service les trouve par
+    /// LD_LIBRARY_PATH.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bibliotheques: Vec<String>,
+    /// Les emplacements absolus ou l'etape finale copie la racine du depot
+    /// (`COPY . ./` sous `WORKDIR /app` chez docuseal) : la ou le code vit
+    /// dans l'image.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub racines_du_depot: Vec<String>,
     /// Les extensions PHP que l'image installe par ses outils
     /// (`docker-php-ext-install`, `pecl install`...).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

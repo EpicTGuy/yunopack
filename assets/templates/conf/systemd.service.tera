@@ -30,6 +30,10 @@ ExecStartPre={{ m }}
 TimeoutStartSec=15min
 {%- endif %}
 ExecStart={{ runtime.execstart }}
+{%- if runtime.bibliotheques | length > 0 %}
+# Des bibliotheques que l'image posait dans le systeme, gardees dans l'installation.
+Environment="LD_LIBRARY_PATH={% for b in runtime.bibliotheques %}{% if not loop.first %}:{% endif %}__INSTALL_DIR__/{{ b }}{% endfor %}"
+{%- endif %}
 {%- for m in runtime.montages %}
 # Le code suppose {{ m.image }}, un emplacement de son image.
 BindPaths=-__INSTALL_DIR__{% if m.installation %}/{{ m.installation }}{% endif %}:{{ m.image }}

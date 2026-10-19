@@ -182,10 +182,30 @@ fn montages_de_l_image(facts: &RepoFacts, travail: Option<&str>) -> Vec<ynp_core
     let Some(w) = repertoire_de_l_image(facts) else {
         return out;
     };
-    out.push(ynp_core::spec::Montage {
-        image: w.clone(),
-        installation: travail.unwrap_or("").to_string(),
-    });
+    let racines = facts
+        .build
+        .as_ref()
+        .map(|b| b.racines_du_depot.clone())
+        .unwrap_or_default();
+    // Ou l'image copiait la racine du depot : l'installation.
+    for r in racines.iter().filter(|r| hors_systeme(r)) {
+        out.push(ynp_core::spec::Montage {
+            image: r.clone(),
+            installation: String::new(),
+        });
+    }
+    // Le repertoire de travail final, s'il porte du code ; sinon c'est un
+    // dossier de donnees (docuseal finit par `WORKDIR /data/docuseal`), monte
+    // comme un volume (voir `volumes_lies`).
+    let sous_une_racine = racines
+        .iter()
+        .any(|r| w == *r || w.starts_with(&format!("{r}/")));
+    if racines.is_empty() || (!sous_une_racine && travail.is_some()) {
+        out.push(ynp_core::spec::Montage {
+            image: w.clone(),
+            installation: travail.unwrap_or("").to_string(),
+        });
+    }
     for c in facts.build.iter().flat_map(|b| b.copies_d_etape.iter()) {
         let Some(a) = c.vers_absolu.as_deref() else {
             continue;
@@ -204,6 +224,31 @@ fn montages_de_l_image(facts: &RepoFacts, travail: Option<&str>) -> Vec<ynp_core
             installation: c.depuis.clone(),
         });
     }
+    // Plusieurs fichiers d'un meme dossier copies dans un meme dossier de
+    // l'image (les polices de docuseal vers `/fonts`) : un seul montage, celui
+    // du dossier.
+    let parent = |p: &str| p.rsplit_once('/').map(|(d, _)| d.to_string());
+    let mut groupes: std::collections::BTreeMap<(String, String), usize> = Default::default();
+    for m in out.iter().skip(1) {
+        if let (Some(i), Some(d)) = (parent(&m.image), parent(&m.installation)) {
+            if !i.is_empty() && !d.is_empty() {
+                *groupes.entry((i, d)).or_default() += 1;
+            }
+        }
+    }
+    for ((i, d), n) in groupes {
+        if n < 2 {
+            continue;
+        }
+        out.retain(|m| {
+            !(parent(&m.image).as_deref() == Some(i.as_str())
+                && parent(&m.installation).as_deref() == Some(d.as_str()))
+        });
+        out.push(ynp_core::spec::Montage {
+            image: i,
+            installation: d,
+        });
+    }
     out
 }
 
@@ -214,6 +259,18 @@ fn volumes_lies(facts: &RepoFacts) -> Vec<String> {
     let Some(b) = &facts.build else {
         return Vec::new();
     };
+    // Un repertoire de travail final hors de tout endroit ou l'image copie le
+    // depot : un dossier de donnees (docuseal : `/data/docuseal`).
+    let mut lies: Vec<String> = Vec::new();
+    if let Some(w) = b.workdir.as_deref().map(|w| w.trim_end_matches('/')) {
+        let code = b
+            .racines_du_depot
+            .iter()
+            .any(|r| w == r || w.starts_with(&format!("{r}/")));
+        if !b.racines_du_depot.is_empty() && !code && w.len() > 1 && !w.contains('$') {
+            lies.push(w.trim_start_matches('/').to_string());
+        }
+    }
     let travail = b.workdir.as_deref().unwrap_or("/").trim_end_matches('/');
     const SYSTEME: &[&str] = &[
         "/etc",
@@ -229,7 +286,7 @@ fn volumes_lies(facts: &RepoFacts) -> Vec<String> {
         "/root",
         "/home",
     ];
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<String> = lies;
     for v in &b.volumes {
         let v = v.trim().trim_matches('"').trim_end_matches('/');
         let interne = !travail.is_empty()
@@ -2568,6 +2625,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         fichier_de_configuration: fichier_de_configuration(facts),
         repertoire_de_l_image: repertoire_de_l_image(facts),
         montages: Vec::new(),
+        bibliotheques: facts
+            .build
+            .as_ref()
+            .map(|b| b.bibliotheques.clone())
+            .unwrap_or_default(),
         fichier_sqlite: fichier_sqlite(facts),
         cron: php::cron(facts),
         repertoire_de_travail: repertoire_de_travail(facts),

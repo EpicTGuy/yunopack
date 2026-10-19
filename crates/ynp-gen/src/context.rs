@@ -256,6 +256,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "volumes_internes": spec.runtime.volumes_internes,
             "repertoire_de_l_image": spec.runtime.repertoire_de_l_image,
             "montages": spec.runtime.montages,
+            "bibliotheques": spec.runtime.bibliotheques,
             "a_un_prefixe": spec.runtime.env.values().any(|v| v.contains("__PREFIXE__")),
             "version_composer": spec
                 .runtime

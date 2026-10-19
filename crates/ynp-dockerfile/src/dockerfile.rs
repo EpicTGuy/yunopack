@@ -1218,6 +1218,33 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
     }
 
     let Some(last) = stages.last() else { return };
+    recipe.racines_du_depot = last
+        .destinations
+        .iter()
+        .filter(|(_, src)| matches!(src.trim_start_matches("./").trim_end_matches('/'), "" | "."))
+        .map(|(d, _)| d.trim_end_matches('/').trim_end_matches("/.").to_string())
+        .filter(|d| d.starts_with('/') && d.len() > 1)
+        .collect();
+    // En miroir : des elements du depot copies sous leur propre nom dans un
+    // meme dossier (`COPY ./app ./app`, `COPY ./bin ./bin` sous `/app`, chez
+    // docuseal). Deux suffisent a reconnaitre la racine du depot.
+    let mut miroirs: std::collections::BTreeMap<String, usize> = Default::default();
+    for (d, src) in &last.destinations {
+        let src = src.trim_start_matches("./").trim_end_matches('/');
+        if src.is_empty() || src == "." || src.starts_with('/') {
+            continue;
+        }
+        if let Some(base) = d.trim_end_matches('/').strip_suffix(&format!("/{src}")) {
+            if base.starts_with('/') && base.len() > 1 {
+                *miroirs.entry(base.to_string()).or_default() += 1;
+            }
+        }
+    }
+    for (base, n) in miroirs {
+        if n >= 2 && !recipe.racines_du_depot.contains(&base) {
+            recipe.racines_du_depot.push(base);
+        }
+    }
     // Le repertoire du depot ou l'etape finale travaille : bytestash lance
     // `node src/app.js` depuis ce qu'elle copie de server/.
     recipe.contexte_final = last.contexte.clone();
@@ -1292,7 +1319,59 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
         .chain(std::iter::once(last))
         .flat_map(|s| s.copies_d_etape.iter());
     let workdir_final = last.workdir.clone();
+    // Les etapes de telechargement lancees dans leur sortie (voir le repere
+    // REPERE_SORTIE) : leurs produits y sont.
+    let relocalisees: Vec<(String, String)> = stages
+        .iter()
+        .filter_map(|s| {
+            let alias = s.stage.alias.clone()?;
+            let w = s.workdir.as_deref()?.trim_end_matches('/').to_string();
+            s.etapes_hors_depot
+                .iter()
+                .any(|&k| {
+                    recipe
+                        .build_steps
+                        .get(k)
+                        .is_some_and(|e| e.starts_with(REPERE_SORTIE))
+                })
+                .then_some((alias, w))
+        })
+        .collect();
+    let bibliotheque_du_systeme = |vers: &str| {
+        let nom = vers.rsplit('/').next().unwrap_or(vers);
+        nom.contains(".so")
+            && ["/usr/lib/", "/usr/local/lib/", "/lib/", "/usr/lib64/"]
+                .iter()
+                .any(|d| vers.starts_with(d))
+    };
     for (etape, source, vers) in copies {
+        if let Some((_, w)) = relocalisees.iter().find(|(a, _)| a == etape) {
+            let src = source.trim_end_matches('/');
+            let depuis = match src.strip_prefix(&format!("{w}/")) {
+                Some(r) => format!(".sortie{w}/{r}"),
+                None if src.starts_with('/') => format!(".sortie{src}"),
+                None => continue,
+            };
+            if bibliotheque_du_systeme(vers) {
+                let dossier = depuis.rsplit_once('/').map_or(".", |(d, _)| d).to_string();
+                if !recipe.bibliotheques.contains(&dossier) {
+                    recipe.bibliotheques.push(dossier);
+                }
+                continue;
+            }
+            let vers_absolu = parent
+                .into_iter()
+                .chain(std::iter::once(last))
+                .flat_map(|s| s.copies_absolues.iter())
+                .find(|(e, s2, _)| e == etape && s2 == source)
+                .map(|(_, _, a)| a.trim_end_matches('/').to_string());
+            recipe.copies_d_etape.push(ynp_core::facts::CopieDEtape {
+                depuis,
+                vers: vers.trim_end_matches('/').to_string(),
+                vers_absolu,
+            });
+            continue;
+        }
         let depuis = if let Some(rel) = source.strip_prefix('/') {
             // Le repertoire de travail entier de l'etape (`COPY --from=npm
             // /code /code`, chez simplelogin) : c'est le depot lui-meme.
