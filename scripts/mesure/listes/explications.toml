@@ -103,3 +103,8 @@ cause = "le verrou npm reference une archive GitHub de la branche master d'espri
 categorie = "amont"
 etat = "construction"
 cause = "la construction (vue-tsc puis vite build) suppose des declarations auto-generees (auto-imports.d.ts) absentes du depot : un clone neuf ne se construit pas (« Cannot find name 'ref' »)"
+
+[flaresolverr]
+categorie = "amont"
+etat = "binaires"
+cause = "le binaire publie par l'amont (flaresolverr_linux_x64) embarque une libnss3 qui exige NSS 3.94, plus recent que celui de Debian 12 : « version NSSUTIL_3.94 not found » ; constate sur le Dell (amd64)"

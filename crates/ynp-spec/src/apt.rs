@@ -37,7 +37,21 @@ pub fn packages(facts: &RepoFacts) -> Vec<String> {
         //    equivalent sans objet en Debian (`musl-dev`) ; une traduction
         //    absente est signalee par la regle APK001, pas comblee ici.
         for p in &build.apk_packages {
-            if let Some(deb) = k.apk_to_deb(p) {
+            // Un nom versionne d'Alpine (`ffmpeg6` chez chibisafe) se ramene a
+            // son nom de base quand Debian connait celui-ci ; sinon le paquet
+            // etait perdu, et chibisafe refusait de demarrer sans ffmpeg.
+            let base = p
+                .split('-')
+                .next()
+                .map(|t| t.trim_end_matches(|c: char| c.is_ascii_digit()))
+                .filter(|b| !b.is_empty() && *b != p.as_str() && !p.contains('-'));
+            let deb = k.apk_to_deb(p).map(str::to_string).or_else(|| {
+                let b = base?;
+                k.apk_to_deb(b)
+                    .map(str::to_string)
+                    .or_else(|| (ynp_core::debian::absent(b) == Some(false)).then(|| b.to_string()))
+            });
+            if let Some(deb) = deb.as_deref() {
                 if deb.is_empty()
                     || est_specifique_au_conteneur(deb)
                     || (sans_compilation && sert_a_construire(deb))
