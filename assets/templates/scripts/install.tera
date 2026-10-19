@@ -25,6 +25,31 @@ ynh_script_progression "Mise en place du stockage S3 de $app..."
 s3_installer
 s3_initialiser
 {%- endif %}
+{%- if resources.mongodb %}
+
+#=================================================
+# BASE MONGODB
+#=================================================
+# MongoDB n'a pas de resource : il s'installe et sa base se cree par les
+# helpers. Son depot ne publie que pour amd64.
+mongo_version="7.0"
+ynh_install_mongo
+db_name=$(ynh_sanitize_dbid --db_name="$app")
+db_user="$db_name"
+db_pwd=$(ynh_string_random)
+ynh_app_setting_set --key=db_name --value="$db_name"
+ynh_app_setting_set --key=db_user --value="$db_user"
+ynh_app_setting_set --key=db_pwd --value="$db_pwd"
+ynh_mongo_setup_db --db_user="$db_user" --db_name="$db_name" --db_pwd="$db_pwd"
+{%- endif %}
+{%- if resources.extensions_postgres | length > 0 %}
+
+# Les extensions PostgreSQL que l'application active : leur creation demande
+# le superutilisateur, que l'utilisateur de l'application n'est pas.
+{%- for e in resources.extensions_postgres %}
+ynh_psql_db_shell <<< 'CREATE EXTENSION IF NOT EXISTS "{{ e }}";'
+{%- endfor %}
+{%- endif %}
 {%- if runtime.config_file or runtime.fichier_de_configuration %}
 
 #=================================================

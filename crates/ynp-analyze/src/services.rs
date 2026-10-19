@@ -72,8 +72,41 @@ pub fn detect(
         });
     }
 
+    if facts.database == Database::PostgreSql {
+        facts.extensions_postgres = extensions_postgres(tree);
+    }
     facts.requires_container_runtime = requires_containers(tree, compose, stack, has_dockerfile);
     facts
+}
+
+/// Les extensions PostgreSQL que declarent le schema Rails
+/// (`enable_extension "plpgsql"`) ou les fichiers SQL (`CREATE EXTENSION IF
+/// NOT EXISTS "uuid-ossp"`). plpgsql est toujours la.
+fn extensions_postgres(tree: &RepoTree) -> Vec<String> {
+    let rails = regex::Regex::new(r#"enable_extension\s*\(?\s*["']([A-Za-z0-9_-]+)["']"#)
+        .expect("motif valide");
+    let sql = regex::Regex::new(
+        r#"(?i)create\s+extension\s+(?:if\s+not\s+exists\s+)?["`]?([A-Za-z0-9_-]+)"#,
+    )
+    .expect("motif valide");
+    let mut out: Vec<String> = Vec::new();
+    for p in tree.paths() {
+        let bas = p.to_lowercase();
+        let lu = bas.ends_with("schema.rb") || bas.ends_with(".sql");
+        if !lu {
+            continue;
+        }
+        let Some(t) = tree.text(&p) else { continue };
+        for m in [&rails, &sql] {
+            for c in m.captures_iter(t) {
+                let e = c[1].to_string();
+                if e != "plpgsql" && !out.contains(&e) {
+                    out.push(e);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Le moteur que nomment les schemas du projet. Plusieurs moteurs pris en

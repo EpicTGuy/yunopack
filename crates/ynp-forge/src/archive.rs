@@ -120,6 +120,9 @@ fn is_interesting(path: &str) -> bool {
         // Le moteur de base y est nomme : `provider = "postgresql"` (Prisma),
         // `ENGINE` des reglages Django.
         "schema.prisma",
+        // Les extensions PostgreSQL que l'application active (`enable_extension`).
+        "schema.rb",
+        "structure.sql",
         "settings.py",
         "pipfile",
         "makefile",

@@ -133,11 +133,15 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
             "apt": spec.resources.apt_packages,
             "apt_extras": spec.resources.apt_extras,
             "database": spec.resources.database.manifest_type(),
+            // MongoDB n'a pas de resource : les scripts l'installent et creent
+            // sa base par les helpers ynh_mongo_*.
+            "mongodb": spec.resources.database == ynp_core::facts::Database::MongoDb,
             "nodejs_version": spec.resources.nodejs_version,
             "ruby_version": spec.resources.ruby_version,
             "go_version": spec.resources.go_version,
             "composer_version": spec.resources.composer_version,
             "redis": spec.resources.redis,
+            "extensions_postgres": spec.resources.extensions_postgres,
             "s3": spec.resources.s3,
         },
         "seaweedfs": seaweedfs(),

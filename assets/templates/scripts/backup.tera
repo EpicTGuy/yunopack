@@ -67,6 +67,15 @@ ynh_print_info "Sauvegarde de la base PostgreSQL..."
 
 ynh_psql_dump_db > db.sql
 {%- endif %}
+{%- if resources.mongodb %}
+
+#=================================================
+# BASE MONGODB
+#=================================================
+ynh_print_info "Sauvegarde de la base MongoDB..."
+
+ynh_mongo_dump_db --database="$db_name" > db.bson
+{%- endif %}
 
 #=================================================
 # FIN DU SCRIPT

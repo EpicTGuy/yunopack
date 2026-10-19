@@ -85,6 +85,10 @@ fn motifs() -> &'static [Regex] {
             // JavaScript, TypeScript
             r#"process\.env\.([A-Z][A-Z0-9_]*)"#,
             r#"process\.env\[\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\]"#,
+            // Un objet local qui tient process.env (`env.API_URL` chez
+            // cobalt, apres `const env = process.env`) ; un nom avec un
+            // souligne, pour ne pas prendre `env.NODE` pour une lecture.
+            r#"\benv\.([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b"#,
             // Go
             r#"os\.(?:Getenv|LookupEnv)\(\s*"([A-Z][A-Z0-9_]*)"\s*\)"#,
             // Python
@@ -137,6 +141,8 @@ pub fn defauts_lus(contenu: &str) -> Vec<(String, String)> {
             r#"os\.(?:getenv|environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"ENV\.fetch\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             r#"process\.env\.([A-Z][A-Z0-9_]*)\s*(?:\|\||\?\?)\s*['"]([^'"]*)['"]"#,
+            // `env.API_PORT || 9000` : une valeur par defaut numerique aussi.
+            r#"\benv\.([A-Z][A-Z0-9]*_[A-Z0-9_]+)\s*(?:\|\||\?\?)\s*['"]?([^'",)\s]+)['"]?"#,
             // Python : `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "x.settings")`.
             r#"os\.environ\.setdefault\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*,\s*['"]([^'"]*)['"]"#,
             // La meme fonction d'enveloppe, avec sa valeur par defaut.
@@ -271,6 +277,7 @@ mod tests {
         let cas = [
             ("const p = process.env.PORT || 3000", "PORT"),
             ("const p = process.env['HTTP_PORT']", "HTTP_PORT"),
+            ("apiURL: env.API_URL || '',", "API_URL"),
             ("addr := os.Getenv(\"LISTEN_ADDR\")", "LISTEN_ADDR"),
             ("host: env('DATABASE_HOST', '127.0.0.1'),", "DATABASE_HOST"),
             ("port: env.int('DATABASE_PORT', 5432),", "DATABASE_PORT"),

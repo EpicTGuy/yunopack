@@ -655,7 +655,10 @@ fn integration(facts: &RepoFacts) -> Integration {
         // Des binaires publies par architecture bornent ce qu'on peut installer :
         // annoncer « all » masquerait l'app sur les plateformes non couvertes.
         architectures: if prebuilt.is_empty() {
-            match telecharge_pour_une_architecture(facts) {
+            // Le depot Debian de MongoDB ne publie que pour amd64.
+            match telecharge_pour_une_architecture(facts)
+                .or((facts.services.database == Database::MongoDb).then_some("amd64"))
+            {
                 Some(a) => Architectures::Only(vec![a.to_string()]),
                 None => Architectures::All,
             }
@@ -1023,6 +1026,7 @@ fn resources(facts: &RepoFacts, app_id: &str) -> Resources {
         // Redis que parce qu'une autre application de l'hote de test en
         // faisait tourner un.
         redis: facts.services.needs_redis,
+        extensions_postgres: facts.services.extensions_postgres.clone(),
         s3: exige_un_stockage_s3(facts),
         // Un volume declare signale des donnees a preserver a la desinstallation.
         // Le stockage S3 embarque range aussi ses objets dans ce repertoire.
@@ -1688,6 +1692,31 @@ fn ecrit_dans_un_repertoire_de_binaires(etape: &str) -> bool {
     false
 }
 
+/// L'image embarque l'historique git du depot (`COPY --from=build /app/.git
+/// /app/.git` chez cobalt), que le code lit pour donner sa version et son
+/// origine (« no git repository root found ») : l'archive des sources n'en a
+/// pas. Un depot minimal le remplace, un commit des sources et l'adresse de
+/// l'amont pour origine.
+fn avec_le_depot_git(facts: &RepoFacts, etapes: Vec<String>) -> Vec<String> {
+    let Some(b) = &facts.build else {
+        return etapes;
+    };
+    let embarque = b
+        .copies_d_etape
+        .iter()
+        .any(|c| c.depuis.trim_end_matches('/') == ".git")
+        || b.copies.values().any(|d| d.trim_end_matches('/') == ".git");
+    if !embarque {
+        return etapes;
+    }
+    let depot = format!(
+        "[ -d .git ] || {{ git init -q && git remote add origin {} && git add -A && \
+         git -c user.name=yunohost -c user.email=root@localhost commit -q -m yunohost; }}",
+        facts.source.url
+    );
+    std::iter::once(depot).chain(etapes).collect()
+}
+
 /// Les gemmes s'installent avant les etapes qui en ont besoin. Dans l'image,
 /// docuseal compilait ses assets (`./bin/shakapacker`) dans une etape a part,
 /// avec un Gemfile reduit a shakapacker ; dans l'installation, il n'y a que
@@ -2335,6 +2364,33 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         env.insert(v, "__PREFIXE__".to_string());
     }
 
+    // Le port de l'application passe par `X_PORT` : `X_URL`, du meme
+    // prefixe, est son adresse publique (cobalt : API_PORT et API_URL,
+    // « API_URL env variable is missing, cobalt api can't start »).
+    let ports: Vec<&str> = facts
+        .config
+        .variables
+        .iter()
+        .filter(|v| v.role == ConfigRole::Port || v.name.ends_with("_PORT"))
+        .filter(|v| {
+            v.default
+                .as_deref()
+                .and_then(|d| d.trim_start_matches(':').parse::<u16>().ok())
+                .is_some_and(|p| facts.build.as_ref().is_some_and(|b| b.expose.contains(&p)))
+                || v.role == ConfigRole::Port
+        })
+        .filter_map(|v| v.name.strip_suffix("_PORT"))
+        .collect();
+    for prefixe in ports {
+        for suffixe in ["_URL", "_BASE_URL", "_PUBLIC_URL"] {
+            let nom = format!("{prefixe}{suffixe}");
+            if facts.config.variables.iter().any(|v| v.name == nom) {
+                env.entry(nom)
+                    .or_insert_with(|| "https://__DOMAIN____PATH__".to_string());
+            }
+        }
+    }
+
     // Une application Node qui lit NODE_ENV tourne en production : le schema
     // d'environnement d'AdonisJS arretait ferdium-server sur « Missing
     // environment variable "NODE_ENV" ».
@@ -2624,12 +2680,15 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 }
             }
         }
-        gemmes_d_abord(sans_elagage(deploiements_hors_de_l_espace(
-            sans_activation_de_corepack(relatives_au_repertoire_de_travail(
-                sans_clone_du_depot(etapes, facts),
-                facts,
-            )),
-        )))
+        avec_le_depot_git(
+            facts,
+            gemmes_d_abord(sans_elagage(deploiements_hors_de_l_espace(
+                sans_activation_de_corepack(relatives_au_repertoire_de_travail(
+                    sans_clone_du_depot(etapes, facts),
+                    facts,
+                )),
+            ))),
+        )
     };
     // @t3-oss/env valide l'environnement des la construction, et l'arrete
     // faute des valeurs de production (fountain-ink : « Invalid environment
@@ -3300,6 +3359,10 @@ fn liaison_base(facts: &RepoFacts) -> Known<String> {
             "postgres://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__?sslmode=disable"
         }
         Database::MySql => "mysql://__DB_USER__:__DB_PWD__@127.0.0.1/__DB_NAME__",
+        // L'utilisateur que ynh_mongo_setup_db cree vit dans la base elle-meme.
+        Database::MongoDb => {
+            "mongodb://__DB_USER__:__DB_PWD__@127.0.0.1:27017/__DB_NAME__?authSource=__DB_NAME__"
+        }
         // Rien a transmettre : pas de base, ou une base fichier.
         _ => return Known::resolved(String::new()),
     };
@@ -3495,6 +3558,22 @@ fn liaison_sqlite(facts: &RepoFacts, fichier: &str) -> String {
         .filter(|v| !d_un_autre_moteur(&v.name))
     {
         match v.role {
+            // Un nom de base nu (`DB_DATABASE=ferdium`) quand le projet a
+            // aussi un dossier de donnees : il compose lui-meme le chemin
+            // (ferdium : DATA_DIR + DB_DATABASE + `.sqlite`). Lui passer un
+            // chemin complet donnait un chemin absurde (SQLITE_CANTOPEN).
+            ConfigRole::DatabaseName
+                if v.default
+                    .as_deref()
+                    .is_some_and(|d| !d.is_empty() && !d.contains('/') && !d.contains('.'))
+                    && facts.config.get(ConfigRole::DataPath).is_some() =>
+            {
+                lignes.push(format!(
+                    "{}={}",
+                    v.name,
+                    v.default.as_deref().unwrap_or_default()
+                ))
+            }
             ConfigRole::DatabaseName => lignes.push(format!("{}={chemin}", v.name)),
             ConfigRole::DatabaseUrl => match v.default.as_deref() {
                 // `sqlite:///` puis un chemin absolu : la forme de SQLAlchemy

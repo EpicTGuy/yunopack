@@ -860,6 +860,16 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // L'installeur de Composer (`php composer-setup.php --install-dir=/usr/
+    // local/bin`, microweber ; `curl … getcomposer.org/installer | php`) : le
+    // paquet fournit Composer lui-meme.
+    if cmd
+        .iter()
+        .any(|t| t.contains("composer-setup.php") || t.contains("getcomposer.org/installer"))
+    {
+        return RunKind::Noise;
+    }
+
     // PIE lance par PHP : `php pie.phar install xdebug/xdebug` (dreeve).
     if bin.starts_with("php") && cmd.get(1).is_some_and(|a| a.ends_with("pie.phar")) {
         return RunKind::Noise;

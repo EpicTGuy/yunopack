@@ -461,6 +461,10 @@ pub struct Resources {
     /// Une base Redis propre a l'application, prise sur le Redis du serveur.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub redis: bool,
+    /// Les extensions PostgreSQL a creer en superutilisateur avant les
+    /// migrations : l'utilisateur de l'application ne le peut pas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions_postgres: Vec<String>,
     /// Un stockage objet S3 embarque (SeaweedFS), avec un compartiment et une
     /// cle propres a l'application.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

@@ -590,6 +590,11 @@ pub struct ServiceFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_evidence: Option<String>,
     pub needs_redis: bool,
+    /// Les extensions PostgreSQL que l'application active
+    /// (`enable_extension "pg_stat_statements"` dans db/schema.rb chez
+    /// klaxon) : leur creation demande le superutilisateur.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions_postgres: Vec<String>,
     /// Le projet fait tourner un stockage objet S3 (minio, SeaweedFS,
     /// Garage) a cote de l'application : le paquet en embarque un.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

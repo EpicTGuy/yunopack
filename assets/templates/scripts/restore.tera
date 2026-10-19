@@ -30,7 +30,22 @@ ynh_mysql_db_shell < ./db.sql
 #=================================================
 ynh_script_progression "Restauration de la base PostgreSQL..."
 
+{%- for e in resources.extensions_postgres %}
+ynh_psql_db_shell <<< 'CREATE EXTENSION IF NOT EXISTS "{{ e }}";'
+{%- endfor %}
 ynh_psql_db_shell < ./db.sql
+{%- endif %}
+{%- if resources.mongodb %}
+
+#=================================================
+# BASE MONGODB
+#=================================================
+ynh_script_progression "Restauration de la base MongoDB..."
+
+mongo_version="${mongo_version:-7.0}"
+ynh_install_mongo
+ynh_mongo_setup_db --db_user="$db_user" --db_name="$db_name" --db_pwd="$db_pwd"
+ynh_mongo_restore_db --database="$db_name" < ./db.bson
 {%- endif %}
 
 #=================================================
