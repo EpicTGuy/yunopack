@@ -988,3 +988,15 @@ fn une_etape_de_telechargement_reprise_travaille_dans_sa_sortie() {
         "{e}"
     );
 }
+
+#[test]
+fn un_sous_dossier_copie_dans_le_repertoire_de_travail_en_est_le_contexte() {
+    let df = "FROM python:3.13 AS app\nWORKDIR /app/backend\nCOPY backend/app ./\nCMD [\"uvicorn\", \"main:app\"]\n";
+    let r = ynp_dockerfile::parse_dockerfile("Dockerfile", df);
+    assert_eq!(
+        r.contexte_final.as_deref(),
+        Some("backend/app"),
+        "{:?}",
+        r.copies
+    );
+}

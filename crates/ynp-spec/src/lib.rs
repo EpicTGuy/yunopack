@@ -2851,14 +2851,19 @@ fn candidats_port(facts: &RepoFacts) -> Vec<Candidate> {
 /// travaillait a la racine de l'installation, ou ces chemins ne designent
 /// rien. Le repertoire n'est retenu que s'il existe dans le depot.
 fn repertoire_de_travail(facts: &RepoFacts) -> Option<String> {
+    let dossier_du_depot = |d: &str| facts.tree.iter().any(|c| c.starts_with(&format!("{d}/")));
     // Un binaire publie remplace la compilation : l'archive n'a pas
     // l'arborescence du depot (flaresolverr : `WorkingDirectory=…/src`,
     // « Changing to the requested working directory failed »).
     if binaire_publie(facts) {
         return None;
     }
+    // Un dossier du depot seulement, pas un fichier copie dans le repertoire
+    // de travail (ni une sortie `.sortie`, creee a la construction).
     if let Some(c) = facts.build.as_ref().and_then(|b| b.contexte_final.clone()) {
-        return Some(c);
+        if c.starts_with(".sortie") || dossier_du_depot(&c) {
+            return Some(c);
+        }
     }
     // Le paquet de l'espace de travail que l'image lance demarre chez lui.
     if let Some(p) = &facts.stack.paquet_du_processus {

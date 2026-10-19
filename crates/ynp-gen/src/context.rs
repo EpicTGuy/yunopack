@@ -162,7 +162,21 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .runtime
                 .build_steps
                 .iter()
-                .map(|e| {
+                .enumerate()
+                .map(|(i, e)| {
+                    // Les raccourcis de corepack, poses par une etape
+                    // precedente, servent aussi aux outils qui lancent yarn ou
+                    // pnpm eux-memes (docuseal : `./bin/shakapacker`, « No such
+                    // file or directory - yarn »).
+                    let raccourcis = spec.runtime.build_steps[..i]
+                        .iter()
+                        .any(|x| x.contains("--install-directory .corepack/bin"))
+                        && !e.contains(".corepack/bin");
+                    let corepack = if raccourcis {
+                        "export PATH=\"$PWD/.corepack/bin:$PATH\"; "
+                    } else {
+                        ""
+                    };
                     let venv = if spec.runtime.venv_python { ENV_VENV } else { "" };
                     // Les outils que l'image posait dans /usr/local/bin sont a
                     // la racine de l'installation : les etapes suivantes les
@@ -192,7 +206,7 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                         (true, false) => ENV_RUBY.to_string(),
                         _ => String::new(),
                     };
-                    let corps = entre_apostrophes(&format!("{rust}{ruby}{node}{venv}{e}"));
+                    let corps = entre_apostrophes(&format!("{rust}{ruby}{node}{corepack}{venv}{e}"));
                     format!("{}{}bash -c {corps}", env_docker(e), env_php(e))
                 })
                 .collect::<Vec<_>>(),

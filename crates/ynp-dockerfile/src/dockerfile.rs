@@ -327,6 +327,17 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                 // Les destinations s'ecrivent souvent avec une variable :
                 // `COPY docker/entry.sh $MEALIE_HOME/run.sh`.
                 let developpe = expand(&ins.args, &args);
+                // La destination ecrite : `COPY backend/app ./` (endurain)
+                // verse le contenu du dossier dans le repertoire de travail,
+                // dont il devient le contexte ; `parse_copy` l'a rangee sous
+                // `./app`, comme pour un fichier.
+                let dest_ecrite = {
+                    let mots: Vec<&str> = developpe
+                        .split_whitespace()
+                        .filter(|m| !m.starts_with("--"))
+                        .collect();
+                    (mots.len() == 2).then(|| mots[1].to_string())
+                };
                 for (dans_l_image, dans_le_depot) in parse_copy(&developpe) {
                     if let Some(s) = stages.last_mut() {
                         let d = absolu(&dans_l_image, s.workdir.as_deref());
@@ -337,6 +348,13 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                                 &dans_le_depot,
                                 s.workdir.as_deref(),
                             );
+                        }
+                        let dernier = dans_le_depot.rsplit('/').next().unwrap_or(&dans_le_depot);
+                        if s.contexte.is_none() && !dernier.contains('.') {
+                            if let Some(dest) = dest_ecrite.as_deref() {
+                                s.contexte =
+                                    contexte_de_copie(dest, &dans_le_depot, s.workdir.as_deref());
+                            }
                         }
                     }
                     recipe.copies.insert(dans_l_image, dans_le_depot);
