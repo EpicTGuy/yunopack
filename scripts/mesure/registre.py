@@ -33,7 +33,7 @@ INCOMPATIBLES = {
 # est cherche dans le compte rendu du test.
 CAUSES = [
     ("reseau", r"Could not handshake|Temporary failure in name resolution|ETIMEDOUT|ECONNRESET|Broken pipe|client_loop|reseau :"),
-    ("memoire", r"heap out of memory|Reached heap limit|Out of memory|Killed process|oom-kill|code 137\b|exit code 137|^\s*WARNING Killed\s*$|exited \(134\)|code 134\b|^\s*WARNING Aborted\s*$"),
+    ("memoire", r"tuee faute de memoire|heap out of memory|Reached heap limit|Out of memory|Killed process|oom-kill|code 137\b|exit code 137|^\s*WARNING Killed\s*$|exited \(134\)|code 134\b|^\s*WARNING Aborted\s*$"),
     ("dependances systeme", r"Failed to build gem native extension|pkg-config .* not found|fatal error: .*\.h: No such file"),
     ("outil absent", r"Composer\\Pcre|composer: not found"),
     ("apt", r"Unable to install apt dependencies|Depends: .* but it is not going to be installed|Unable to locate package"),

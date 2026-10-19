@@ -130,10 +130,12 @@ exact = ["ADMIN_PASSWORD", "INITIAL_ADMIN_PASSWORD", "SUPERUSER_PASSWORD", "DEFA
 
 [[rule]]
 role = "data_path"
-exact = ["DATA_DIR", "DATADIR", "DATA_PATH", "STORAGE_PATH", "UPLOAD_DIR", "MEDIA_ROOT", "FILES_DIR", "STORAGE_DIR"]
+exact = ["DATA_DIR", "DATADIR", "DATA_PATH", "STORAGE_PATH", "UPLOAD_DIR", "MEDIA_ROOT", "FILES_DIR", "STORAGE_DIR",
+  # Le dossier de la base SQLite (dreeve : `%env(sqlite_db_url:DATABASE_DIRECTORY)%`).
+  "DATA_DIRECTORY", "DATABASE_DIRECTORY", "DATABASE_DIR", "DB_DIR", "DB_DIRECTORY", "STORAGE_DIRECTORY", "UPLOAD_DIRECTORY"]
 # Prefixees du nom de l'application : TIMETAGGER_DATADIR valait /root/_timetagger,
 # ou l'utilisateur de l'app ne peut pas ecrire.
-suffix = ["_DATA_DIR", "_DATADIR", "_DATA_PATH", "_STORAGE_DIR", "_STORAGE_PATH", "_DATABASE_PATH", "_DATABASE_DIR"]
+suffix = ["_DATA_DIR", "_DATADIR", "_DATA_PATH", "_STORAGE_DIR", "_STORAGE_PATH", "_DATABASE_PATH", "_DATABASE_DIR", "_DATA_DIRECTORY", "_DATABASE_DIRECTORY"]
 
 [[rule]]
 role = "smtp_host"

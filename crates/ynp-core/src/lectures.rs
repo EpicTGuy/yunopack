@@ -331,6 +331,10 @@ mod tests {
             variables_lues("        url: '%env(resolve:DATABASE_URL)%'"),
             vec!["DATABASE_URL"]
         );
+        assert_eq!(
+            variables_lues("        url: '%env(sqlite_db_url:DATABASE_DIRECTORY)%'"),
+            vec!["DATABASE_DIRECTORY"]
+        );
         assert!(!est_un_source_de_production("LICENSE"));
         assert!(!est_un_source_de_production("bin/setup.cfg"));
         assert!(!est_un_source_de_production("test/server.js"));

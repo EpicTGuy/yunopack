@@ -644,13 +644,32 @@ fn fin_du_script(journal: &str) -> Vec<String> {
     let mut sortie: Vec<String> = Vec::new();
     for l in &lignes[debut..fin] {
         let l = l.trim_end();
-        if l.trim().is_empty() || l.starts_with("+ sudo ") || l.trim_start().starts_with("at ") {
+        // Les lignes de progression (pnpm, pip, wget) masquaient l'erreur
+        // (emdash, docuseal).
+        let progression = l.contains("Progress:")
+            || l.contains('━')
+            || l.contains(".......")
+            || l.trim_start().starts_with("Downloading ")
+            || l.trim_start().starts_with("Collecting ");
+        if l.trim().is_empty()
+            || l.starts_with("+ sudo ")
+            || l.trim_start().starts_with("at ")
+            || progression
+        {
             continue;
         }
         sortie.push(format!(
             "JOURNAL {}",
             l.chars().take(240).collect::<String>()
         ));
+    }
+    // Un code 137 : le noyau a tue la commande faute de memoire.
+    if lignes[fin..]
+        .iter()
+        .take(3)
+        .any(|l| l.trim() == "+ local exit_code=137")
+    {
+        sortie.push("JOURNAL code 137 : commande tuee faute de memoire".into());
     }
     // La commande, puis ses dernieres lignes.
     if sortie.len() > 16 {

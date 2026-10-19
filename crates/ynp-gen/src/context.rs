@@ -198,10 +198,17 @@ pub fn build(spec: &AppSpec) -> (Value, Vec<String>) {
                 .collect::<Vec<_>>(),
             "rust_toolchain": spec.runtime.rust_toolchain,
             // Le venv se cree avant toute etape : pip et python y sont pris.
-            "installer_venv": spec
-                .runtime
-                .venv_python
-                .then(|| entre_apostrophes("python3 -m venv venv")),
+            // Un Python plus recent que celui de Debian : uv, amorce dans un
+            // petit venv, cree le venv avec ce Python, qu'il installe dans
+            // l'application (`.uv/python`).
+            "installer_venv": spec.runtime.venv_python.then(|| match &spec.runtime.python_version {
+                Some(v) => entre_apostrophes(&format!(
+                    "python3 -m venv .uv-amorce && .uv-amorce/bin/pip install -q uv && \
+                     UV_PYTHON_INSTALL_DIR=\"$PWD/.uv/python\" UV_CACHE_DIR=\"$PWD/.uv/cache\" \
+                     .uv-amorce/bin/uv venv --seed --python {v} venv"
+                )),
+                None => entre_apostrophes("python3 -m venv venv"),
+            }),
             "installer_rust": spec.runtime.rust_toolchain.as_ref().map(|v| {
                 entre_apostrophes(&format!(
                     "{ENV_RUST}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \

@@ -535,6 +535,11 @@ pub struct Runtime {
     /// le repertoire d'installation avant la construction.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub venv_python: bool,
+    /// La version de Python que le projet exige quand Debian n'en fournit
+    /// qu'une plus ancienne : le venv est alors cree par uv, qui installe ce
+    /// Python dans le repertoire de l'application.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_version: Option<String>,
     /// Valeur de `ExecStart=` de l'unite systemd.
     pub execstart: Known<String>,
     /// Migrations a lancer avant chaque demarrage (`ExecStartPre=`), comme le

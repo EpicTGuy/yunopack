@@ -73,3 +73,8 @@ cause = "le depot github.com/OrwellianEpilogue/ephemera n'existe plus (404) : su
 categorie = "amont"
 etat = "construction"
 cause = "depend de node-sass 4.12, abandonne par l'amont : il ne se compile qu'avec Node <= 12 et Python 2, absents de Debian 12 (constate sur la VM : gyp cherche python2)"
+
+[pinry]
+categorie = "amont"
+etat = "service"
+cause = "l'application importe collections.Mapping, retire en Python 3.10 : elle exige un Python <= 3.9, en fin de vie (son image part de python:3.7-stretch) ; constate sur le Dell avec le Python 3.11 de Debian 12"

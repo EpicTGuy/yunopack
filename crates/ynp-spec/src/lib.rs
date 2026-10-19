@@ -81,6 +81,7 @@ fn dans_le_sous_repertoire(r: &mut Runtime, d: &str, existe: impl Fn(&str) -> bo
             let premiers: Vec<&str> = e
                 .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
                 .map(|m| m.trim_matches(|c| c == '"' || c == '\''))
+                .map(|m| m.strip_prefix("./").unwrap_or(m))
                 .filter(|m| !m.is_empty() && !m.starts_with(['-', '$', '/', '.', '~']))
                 .filter_map(|m| m.split('/').next())
                 .collect();
@@ -695,6 +696,19 @@ fn binaire_publie(facts: &RepoFacts) -> bool {
         .is_some_and(|s| s.evite_la_compilation())
 }
 
+/// La version de Python exigee, si elle depasse le 3.11 de Debian bookworm.
+/// endurain exige 3.13 : garminconnect 0.3.11 n'existe pas pour 3.11
+/// (« No matching distribution found »). uv installe alors ce Python.
+fn python_plus_recent(facts: &RepoFacts) -> Option<String> {
+    if facts.stack.primary != Technology::Python {
+        return None;
+    }
+    let v = facts.stack.runtime_version.as_deref()?;
+    let mut p = v.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+    let (maj, min) = (p.next()?, p.next().unwrap_or(0));
+    ((maj, min) > (3, 11)).then(|| format!("{maj}.{min}"))
+}
+
 /// La memoire qu'il faut pour construire, que YunoHost verifie avant
 /// d'installer. cap annoncait 500M, et la construction Next.js de son
 /// interface depassait 3 Go.
@@ -856,6 +870,10 @@ fn sans_clone_du_depot(etapes: Vec<String>, facts: &RepoFacts) -> Vec<String> {
         .collect()
 }
 
+/// Marque, dans `relatives_au_repertoire_de_travail`, un chemin relatif a la
+/// racine du depot plutot qu'au repertoire courant de l'etape.
+const RACINE: &str = "\u{0}";
+
 /// Les chemins absolus du repertoire de travail de l'image, rendus relatifs :
 /// les etapes tournent dans le repertoire d'installation, qui en tient lieu.
 /// webhook.site creait `/var/www/html/database/database.sqlite`, hors de
@@ -877,7 +895,7 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
                 vers.trim_end_matches('/')
                     .trim_end_matches("/.")
                     .to_string(),
-                ".".to_string(),
+                RACINE.to_string(),
             )
         })
         .collect();
@@ -886,14 +904,37 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
             .as_deref()
             .map(|w| (w.trim_end_matches('/').to_string(), ".".to_string())),
     );
+    // Un WORKDIR qui reproduit un dossier du depot (`/app/backend` chez
+    // endurain) : son parent est la racine du depot, et `/app/frontend/dist`
+    // y designe `frontend/dist`.
+    if let Some((parent, d)) = b
+        .workdir
+        .as_deref()
+        .and_then(|w| w.trim_end_matches('/').rsplit_once('/'))
+    {
+        if parent.len() > 1 && facts.tree.iter().any(|c| c.starts_with(&format!("{d}/"))) {
+            racines.push((parent.to_string(), RACINE.to_string()));
+        }
+    }
     // Un dossier du depot copie ailleurs (`COPY app/server/ /app/server` chez
     // fireshare, qui lance ensuite `pip install /app/server`) : il est a sa
     // place dans l'installation.
     racines.extend(b.copies.iter().filter_map(|(vers, depuis)| {
         let d = depuis.trim_start_matches("./").trim_end_matches('/');
-        let dossier = facts.tree.iter().any(|c| c.starts_with(&format!("{d}/")));
-        (vers.starts_with('/') && !matches!(d, "" | ".") && !d.starts_with('/') && dossier)
-            .then(|| (vers.trim_end_matches('/').to_string(), format!("./{d}")))
+        // Un dossier, ou un fichier (`COPY docker/start.sh
+        // /docker-entrypoint.d/start.sh` chez endurain).
+        let du_depot = facts
+            .tree
+            .iter()
+            .any(|c| c == d || c.starts_with(&format!("{d}/")));
+        (vers.starts_with('/') && !matches!(d, "" | ".") && !d.starts_with('/') && du_depot).then(
+            || {
+                (
+                    vers.trim_end_matches('/').to_string(),
+                    format!("{RACINE}/{d}"),
+                )
+            },
+        )
     }));
     // Un dossier ou l'image ne copie que des fichiers de la racine du depot,
     // sous leur nom (`COPY package.json bun.lock /temp/dev/` chez convertx,
@@ -914,7 +955,7 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
         manifestes
             .into_iter()
             .filter(|(_, ok)| *ok)
-            .map(|(d, _)| (d, ".".to_string())),
+            .map(|(d, _)| (d, RACINE.to_string())),
     );
     racines.retain(|(r, _)| r.len() > 1);
     if racines.is_empty() {
@@ -925,14 +966,47 @@ fn relatives_au_repertoire_de_travail(etapes: Vec<String>, facts: &RepoFacts) ->
     etapes
         .into_iter()
         .map(|e| {
+            // Les `cd` relatifs en tete de l'etape (`cd backend && …`, le
+            // repertoire de travail de l'image) : un chemin de la racine du
+            // depot s'exprime depuis ce dossier (endurain : `./docker/start.sh`
+            // apres `cd backend` ne designait rien).
+            let profondeur: usize = e
+                .split(" && ")
+                .map_while(|c| c.strip_prefix("cd "))
+                .map(|d| d.trim())
+                .take_while(|d| !d.starts_with('/') && !d.contains("..") && !d.contains('$'))
+                .map(|d| {
+                    d.trim_matches('/')
+                        .split('/')
+                        .filter(|x| !x.is_empty() && *x != ".")
+                        .count()
+                })
+                .sum();
+            let depuis_la_racine = |local: &str| -> String {
+                let reste = &local[RACINE.len()..];
+                match (profondeur, reste) {
+                    (0, "") => ".".to_string(),
+                    (0, r) => format!(".{r}"),
+                    (n, "") => vec![".."; n].join("/"),
+                    (n, r) => format!("{}{r}", vec![".."; n].join("/")),
+                }
+            };
+            let local_de = |local: &String| -> String {
+                if local.starts_with(RACINE) {
+                    depuis_la_racine(local)
+                } else {
+                    local.clone()
+                }
+            };
             e.split(' ')
                 .map(|m| {
                     for (r, local) in &racines {
+                        let local = local_de(local);
                         if let Some(reste) = m.strip_prefix(&format!("{r}/")) {
                             return format!("{local}/{reste}");
                         }
                         if m == r {
-                            return local.clone();
+                            return local;
                         }
                         // Des extras pip : `/buku[server]`.
                         if let Some(reste) =
@@ -990,7 +1064,56 @@ fn outils_dans_l_installation(etapes: Vec<String>) -> Vec<String> {
                 .collect::<Vec<_>>()
                 .join(" ")
         })
+        .map(|e| sans_deplacement_sur_place(&e))
         .collect()
+}
+
+/// `mv shoutrrr $PWD/shoutrrr` : l'outil, extrait a la racine de
+/// l'installation, y est deja. mv refuse de deplacer un fichier sur
+/// lui-meme (« identifient le meme fichier », dreeve). Sans `cd` avant,
+/// le repertoire courant est cette racine : la commande ne fait rien.
+fn sans_deplacement_sur_place(e: &str) -> String {
+    let mut deplace = false;
+    let parties: Vec<String> = e
+        .split(" && ")
+        .map(|c| {
+            if c.trim_start().starts_with("cd ") {
+                deplace = true;
+            }
+            let mots: Vec<&str> = c.split_whitespace().collect();
+            let sur_place =
+                !deplace && matches!(mots.first(), Some(&"mv" | &"cp")) && mots.len() >= 3 && {
+                    let args: Vec<&&str> =
+                        mots[1..].iter().filter(|m| !m.starts_with('-')).collect();
+                    args.len() == 2
+                        && !args[0].contains('/')
+                        && (*args[1] == "$PWD"
+                            || *args[1] == "$PWD/"
+                            || *args[1] == format!("$PWD/{}", args[0]))
+                };
+            if sur_place {
+                "true".to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect();
+    parties.join(" && ")
+}
+
+#[cfg(test)]
+mod sur_place {
+    #[test]
+    fn un_outil_deja_a_la_racine_n_est_pas_deplace() {
+        assert_eq!(
+            super::sans_deplacement_sur_place("tar xzf s.tgz && mv shoutrrr $PWD/shoutrrr"),
+            "tar xzf s.tgz && true"
+        );
+        assert_eq!(
+            super::sans_deplacement_sur_place("cd x && mv shoutrrr $PWD/shoutrrr"),
+            "cd x && mv shoutrrr $PWD/shoutrrr"
+        );
+    }
 }
 
 /// Un secret propre a l'application, de forme libre : il se tire au hasard
@@ -1356,6 +1479,37 @@ fn ecrit_dans_un_repertoire_de_binaires(etape: &str) -> bool {
     false
 }
 
+/// Les gemmes s'installent avant les etapes qui en ont besoin. Dans l'image,
+/// docuseal compilait ses assets (`./bin/shakapacker`) dans une etape a part,
+/// avec un Gemfile reduit a shakapacker ; dans l'installation, il n'y a que
+/// le vrai Gemfile, que `bundle install` n'avait pas encore installe
+/// (« Could not find addressable-2.9.0… »).
+fn gemmes_d_abord(etapes: Vec<String>) -> Vec<String> {
+    let installe = |e: &str| {
+        e.split(" && ")
+            .last()
+            .is_some_and(|c| c.trim_start().starts_with("bundle install"))
+    };
+    let utilise = |e: &str| {
+        let c = e.split(" && ").last().unwrap_or(e).trim_start();
+        c.starts_with("./bin/")
+            || c.starts_with("bin/")
+            || c.starts_with("bundle exec")
+            || c.starts_with("rails ")
+            || c.starts_with("rake ")
+    };
+    let Some(j) = etapes.iter().position(|e| installe(e)) else {
+        return etapes;
+    };
+    let Some(i) = etapes[..j].iter().position(|e| utilise(e)) else {
+        return etapes;
+    };
+    let mut etapes = etapes;
+    let bundle = etapes.remove(j);
+    etapes.insert(i, bundle);
+    etapes
+}
+
 /// Une installation des seules dependances de production qui suit une
 /// installation complete prepare, dans l'image, l'etape finale : sur place,
 /// elle n'est pas refaite. Avant la construction, elle retirait les outils
@@ -1448,7 +1602,7 @@ fn deploiements_hors_de_l_espace(etapes: Vec<String>) -> Vec<String> {
     use std::sync::OnceLock;
     static DEPLOY: OnceLock<regex::Regex> = OnceLock::new();
     let deploy = DEPLOY.get_or_init(|| {
-        regex::Regex::new(r"((?:\bcorepack\s+|\bnpx\s+(?:-y\s+|--yes\s+)?)?\bpnpm\s(?:[^&;|]*\s)?deploy\s[^&;|]*?)(\$PWD/[^\s&;|]+)").expect("motif valide")
+        regex::Regex::new(r"((?:\bcorepack\s+|\bnpx\s+(?:-y\s+|--yes\s+)?)?\bpnpm\s(?:[^&;|]*\s)?deploy\s[^&;|]*?)(\$PWD/[^\s&;|]+)([^&;|]*)").expect("motif valide")
     });
     etapes
         .into_iter()
@@ -1457,8 +1611,11 @@ fn deploiements_hors_de_l_espace(etapes: Vec<String>) -> Vec<String> {
                 return e;
             };
             let (tout, cible) = (c.get(0).map_or("", |m| m.as_str()), &c[2]);
+            // Les options qui suivent la cible (`--prod --legacy`, emdash)
+            // restent dans la commande.
+            let suite = c.get(3).map_or("", |m| m.as_str()).trim_end();
             let remplace = format!(
-                "{{ d=$(mktemp -d) && {}\"$d\" && mkdir -p {cible} && cp -a \"$d/.\" {cible} && rm -rf \"$d\"; }}",
+                "{{ d=$(mktemp -d) && {}\"$d\"{suite} && mkdir -p {cible} && cp -a \"$d/.\" {cible} && rm -rf \"$d\"; }}",
                 &c[1]
             );
             e.replacen(tout, &remplace, 1)
@@ -1473,6 +1630,13 @@ mod deploiement {
         let e = super::deploiements_hors_de_l_espace(vec![
             "corepack pnpm deploy --filter=api --prod $PWD/.sortie/prod/api".into(),
         ]);
+        let f = super::deploiements_hors_de_l_espace(vec![
+            "pnpm --filter blog deploy $PWD/.sortie/deploy --prod --legacy".into(),
+        ]);
+        assert_eq!(
+            f[0],
+            "{ d=$(mktemp -d) && pnpm --filter blog deploy \"$d\" --prod --legacy && mkdir -p $PWD/.sortie/deploy && cp -a \"$d/.\" $PWD/.sortie/deploy && rm -rf \"$d\"; }"
+        );
         assert_eq!(
             e[0],
             "{ d=$(mktemp -d) && corepack pnpm deploy --filter=api --prod \"$d\" && mkdir -p $PWD/.sortie/prod/api && cp -a \"$d/.\" $PWD/.sortie/prod/api && rm -rf \"$d\"; }"
@@ -2214,8 +2378,11 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
                 }
             }
         }
-        sans_elagage(deploiements_hors_de_l_espace(sans_activation_de_corepack(
-            relatives_au_repertoire_de_travail(sans_clone_du_depot(etapes, facts), facts),
+        gemmes_d_abord(sans_elagage(deploiements_hors_de_l_espace(
+            sans_activation_de_corepack(relatives_au_repertoire_de_travail(
+                sans_clone_du_depot(etapes, facts),
+                facts,
+            )),
         )))
     };
     // @t3-oss/env valide l'environnement des la construction, et l'arrete
@@ -2287,6 +2454,7 @@ fn runtime(facts: &RepoFacts, app_id: &str) -> Runtime {
         outils_locaux,
         rust_toolchain: chaine_rust(facts),
         // Toute application Python, et toute commande qui appelle le venv.
+        python_version: python_plus_recent(facts),
         venv_python: facts.stack.primary == Technology::Python
             || execstart
                 .value()

@@ -154,6 +154,14 @@ impl Rule for PythonHorsBookworm {
         if exigee.starts_with(fournie) {
             return None;
         }
+        // Plus recent que celui de Debian : le paquet l'installe par uv.
+        let mm = |v: &str| {
+            let mut p = v.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+            (p.next().unwrap_or(0), p.next().unwrap_or(0))
+        };
+        if mm(exigee) > mm(fournie) {
+            return None;
+        }
 
         Some(
             Finding::new(
@@ -652,6 +660,9 @@ mod tests {
             runtime_version: Some("3.13".into()),
             ..Default::default()
         };
+        // Plus recent que celui de Debian : uv l'installe, rien a signaler.
+        assert!(PythonHorsBookworm.check(&f).is_none());
+        f.stack.runtime_version = Some("3.9".into());
         let finding = PythonHorsBookworm.check(&f).unwrap();
 
         assert_eq!(finding.severity, Severity::Major);

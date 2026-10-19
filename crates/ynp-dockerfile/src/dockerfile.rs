@@ -264,6 +264,23 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
                         }
                     }
                 }
+                // Les commandes d'une etape qui ne copie rien du depot, et ne
+                // part pas d'une etape precedente (dont elle aurait les fichiers).
+                let herite = stages.split_last().is_some_and(|(m, avant)| {
+                    avant
+                        .iter()
+                        .any(|p| p.stage.alias.is_some() && p.stage.alias == m.from_alias)
+                });
+                if let Some(m) = stages.last_mut() {
+                    if m.contexte.is_none()
+                        && m.destinations.is_empty()
+                        && !herite
+                        && m.workdir.as_deref().is_some_and(|w| w.len() > 1)
+                    {
+                        let fin = recipe.build_steps.len();
+                        m.etapes_hors_depot.extend(avant..fin);
+                    }
+                }
             }
             "ENV" => {
                 for (k, v) in parse_env(&ins.args) {
@@ -428,9 +445,77 @@ pub fn parse(path: &str, content: &str) -> BuildRecipe {
     }
 
     finalize(&mut recipe, stages);
+    for e in &mut recipe.build_steps {
+        let Some(reste) = e.strip_prefix(REPERE_SORTIE) else {
+            continue;
+        };
+        let Some((w, corps)) = reste.split_once(REPERE_SORTIE) else {
+            continue;
+        };
+        // `$PWD/.sortie/...` designe la racine de l'installation : elle est
+        // gardee avant le `cd`.
+        let mut corps = corps.replace("$PWD/", "$r/");
+        // Les autres dossiers absolus que l'etape cree (`mkdir -p
+        // /pdfium-linux` chez docuseal) vont aussi dans la sortie.
+        const SYSTEME: &[&str] = &[
+            "usr", "etc", "var", "bin", "sbin", "lib", "opt", "srv", "tmp", "root", "home", "dev",
+            "proc", "sys", "run",
+        ];
+        let hauts: Vec<String> = corps
+            .split(|c: char| c.is_whitespace() || matches!(c, '=' | '"' | '\''))
+            .filter_map(|m| m.strip_prefix('/'))
+            .filter_map(|m| m.split('/').next())
+            .filter(|h| {
+                !h.is_empty()
+                    && !SYSTEME.contains(h)
+                    && h.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            })
+            .map(|h| format!("/{h}"))
+            .collect();
+        for h in hauts {
+            corps = remplacer_chemin(&corps, &h, &format!("$r/.sortie{h}"));
+        }
+        *e = format!("r=\"$PWD\"; mkdir -p .sortie{w} && cd .sortie{w} && {corps}");
+    }
     dedup(&mut recipe);
     recipe
 }
+
+/// Vrai si `chemin` apparait comme un chemin dans `e` : precede d'un
+/// separateur et suivi d'une fin, d'un separateur ou d'un `/`.
+fn chemin_present(e: &str, chemin: &str) -> bool {
+    remplacer_chemin(e, chemin, "\u{2}") != e
+}
+
+/// Remplace `chemin` la ou il apparait comme un chemin, pas au milieu d'un
+/// mot ni d'une adresse.
+fn remplacer_chemin(e: &str, chemin: &str, par: &str) -> String {
+    let mut sortie = String::with_capacity(e.len());
+    let mut reste = e;
+    while let Some(i) = reste.find(chemin) {
+        let avant = reste[..i].chars().last();
+        let apres = reste[i + chemin.len()..].chars().next();
+        let debut_ok = avant.map_or(true, |c| {
+            c.is_whitespace() || matches!(c, '=' | '"' | '\'' | '(')
+        });
+        let fin_ok = apres.map_or(true, |c| {
+            c.is_whitespace() || matches!(c, '/' | '"' | '\'' | ')' | ';')
+        });
+        sortie.push_str(&reste[..i]);
+        if debut_ok && fin_ok {
+            sortie.push_str(par);
+        } else {
+            sortie.push_str(chemin);
+        }
+        reste = &reste[i + chemin.len()..];
+    }
+    sortie.push_str(reste);
+    sortie
+}
+
+/// Repere d'une etape de telechargement a lancer dans sa sortie.
+const REPERE_SORTIE: &str = "\u{1}SORTIE\u{1}";
 
 /// Une etape peut partir d'une etape precedente (`FROM builder`). Dans ce cas
 /// son « image » est un alias local, pas une image reelle : on remonte jusqu'a
@@ -469,6 +554,10 @@ struct StageAccu {
     contexte: Option<String>,
     /// Les copies de l'etape : destination absolue dans l'image, source.
     destinations: Vec<(String, String)>,
+    /// Les indices, dans `build_steps`, des commandes d'une etape qui ne
+    /// copie rien du depot : un telechargement que l'etape finale reprend par
+    /// `COPY --from`.
+    etapes_hors_depot: Vec<usize>,
 }
 
 /// Un chemin de l'image rendu absolu d'apres le repertoire de travail.
@@ -745,6 +834,11 @@ fn classify(toks: &[String]) -> RunKind {
         return RunKind::Noise;
     }
 
+    // PIE lance par PHP : `php pie.phar install xdebug/xdebug` (dreeve).
+    if bin.starts_with("php") && cmd.get(1).is_some_and(|a| a.ends_with("pie.phar")) {
+        return RunKind::Noise;
+    }
+
     // Le menage de l'image par une liste de fichiers (`ruby -e "puts
     // Dir['/usr/local/bundle/**/doc']" | xargs rm -rf` chez docuseal) : il
     // vise les repertoires de l'image, pas l'installation.
@@ -946,13 +1040,14 @@ fn extensions_php_de(toks: &[String]) -> Vec<String> {
     let Some(i) = toks.iter().position(|t| {
         matches!(
             t.rsplit('/').next().unwrap_or(t),
-            "docker-php-ext-install" | "install-php-extensions" | "pecl" | "pie"
+            "docker-php-ext-install" | "install-php-extensions" | "pecl" | "pie" | "pie.phar"
         )
     }) else {
         return Vec::new();
     };
     let mut reste = &toks[i + 1..];
-    if toks[i].ends_with("pecl") || toks[i].rsplit('/').next() == Some("pie") {
+    let pie = matches!(toks[i].rsplit('/').next(), Some("pie" | "pie.phar"));
+    if toks[i].ends_with("pecl") || pie {
         match reste.first().map(String::as_str) {
             Some("install") => reste = &reste[1..],
             _ => return Vec::new(),
@@ -1063,6 +1158,38 @@ fn parse_string_list(args: &str) -> Vec<String> {
 /// et se tromper de cible fausse toute la detection de stack.
 fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
     recipe.stages = stages.iter().map(|s| s.stage.clone()).collect();
+
+    // Une etape de telechargement, sans rien du depot, dont une autre reprend
+    // les produits (docuseal : `WORKDIR /fonts`, des `wget`, puis `COPY
+    // --from=download /fonts/...`) : ses commandes se lancent ou ces produits
+    // sont cherches, `.sortie/fonts`. A la racine de l'installation, le
+    // `LICENSE` du depot faisait ecrire `LICENSE.1` a wget.
+    for (i, s) in stages.iter().enumerate() {
+        let (Some(alias), Some(w)) = (s.stage.alias.as_deref(), s.workdir.as_deref()) else {
+            continue;
+        };
+        let reprise = stages
+            .iter()
+            .enumerate()
+            .any(|(j, autre)| j != i && autre.copies_d_etape.iter().any(|(e, _, _)| e == alias));
+        if !reprise || w.len() < 2 {
+            continue;
+        }
+        let w = w.trim_end_matches('/');
+        for &k in &s.etapes_hors_depot {
+            if let Some(e) = recipe.build_steps.get_mut(k) {
+                // Seulement ce qui telecharge : une construction sans copie
+                // du depot n'est pas un telechargement.
+                // `$PWD/.sortie/...`, deja rapporte, designe la racine de
+                // l'installation : elle est gardee avant le `cd`.
+                // Un repere, resolu une fois la recette finalisee : les chemins
+                // `.sortie` des copies d'etape n'y sont pas encore ecrits.
+                if e.contains("wget ") || e.contains("curl ") {
+                    *e = format!("{REPERE_SORTIE}{w}{REPERE_SORTIE}{e}");
+                }
+            }
+        }
+    }
 
     let Some(last) = stages.last() else { return };
     // Le repertoire du depot ou l'etape finale travaille : bytestash lance
@@ -1195,13 +1322,42 @@ fn finalize(recipe: &mut BuildRecipe, stages: Vec<StageAccu>) {
                         continue;
                     }
                     let local = format!(".sortie{source}");
+                    // Le dossier de premier niveau de la source, que l'etape
+                    // cree et remplit (`mkdir -p /pdfium-linux && unzip … -d
+                    // /pdfium-linux` chez docuseal, qui copie ensuite
+                    // `/pdfium-linux/lib/libpdfium.so`) : tout le dossier va
+                    // dans la sortie.
+                    let haut = source
+                        .split('/')
+                        .nth(1)
+                        .map(|x| format!("/{x}"))
+                        .filter(|h| h != source && !SYSTEME.contains(&h.as_str()));
+                    let par_le_haut = haut
+                        .as_deref()
+                        .is_some_and(|h| recipe.build_steps.iter().any(|e| chemin_present(e, h)));
                     for e in &mut recipe.build_steps {
-                        *e = e.replace(source, &format!("$PWD/{local}"));
+                        *e = match (&haut, par_le_haut) {
+                            (Some(h), true) => remplacer_chemin(e, h, &format!("$PWD/.sortie{h}")),
+                            _ => e.replace(source, &format!("$PWD/{local}")),
+                        };
                     }
                     // Le `mkdir /jwt` de l'image, ecriture hors du depot, a ete
                     // ecarte : le repertoire de sortie est cree avant sa
                     // premiere utilisation (novosga).
-                    let cree = format!("mkdir -p $PWD/{local}");
+                    // Un fichier (`/model.onnx` chez docuseal) : son dossier.
+                    let est_un_fichier = local
+                        .rsplit('/')
+                        .next()
+                        .is_some_and(|n| n.contains('.') && !n.starts_with('.'));
+                    let dossier = if est_un_fichier {
+                        local
+                            .rsplit_once('/')
+                            .map_or(local.as_str(), |(d, _)| d)
+                            .to_string()
+                    } else {
+                        local.clone()
+                    };
+                    let cree = format!("mkdir -p $PWD/{dossier}");
                     if let Some(i) = recipe
                         .build_steps
                         .iter()

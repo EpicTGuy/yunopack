@@ -973,3 +973,18 @@ fn une_copie_par_motif_donne_le_contexte() {
         vec!["cd client && npm ci", "cd client && npm run build"]
     );
 }
+
+#[test]
+fn une_etape_de_telechargement_reprise_travaille_dans_sa_sortie() {
+    let df = "FROM alpine AS download\nWORKDIR /fonts\nRUN wget https://x/a.ttf && wget https://x/LICENSE\n\nFROM ruby:3 AS app\nWORKDIR /app\nCOPY . ./\nCOPY --from=download /fonts/a.ttf /fonts/LICENSE /fonts/\nCMD [\"bin/rails\", \"server\"]\n";
+    let r = ynp_dockerfile::parse_dockerfile("Dockerfile", df);
+    let e = r
+        .build_steps
+        .iter()
+        .find(|e| e.contains("a.ttf"))
+        .expect("etape");
+    assert!(
+        e.starts_with("r=\"$PWD\"; mkdir -p .sortie/fonts && cd .sortie/fonts && "),
+        "{e}"
+    );
+}
